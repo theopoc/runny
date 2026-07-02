@@ -157,15 +157,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.ShowHelp || m.ShowHistory || m.ConfirmRun {
 		return m.handleOverlayKey(keyName)
 	}
+	if m.Focus == FocusCommand {
+		return m.handleCommandKey(keyName, key)
+	}
+	if m.Focus == FocusFilter {
+		return m.handleFilterKey(keyName, key)
+	}
 	switch keyName {
 	case "ctrl+c":
 		m.cancelAll()
 		return m, tea.Quit
 	case "esc":
-		if m.Focus == FocusFilter || m.Focus == FocusCommand {
-			m.Focus = FocusTargets
-			return m, nil
-		}
+		return m, nil
 	case "q":
 		if !m.hasActiveRuns() && m.Focus != FocusCommand && m.Focus != FocusFilter {
 			return m, tea.Quit
@@ -180,13 +183,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Focus = (m.Focus + 1) % 4
 	case "/":
 		m.Focus = FocusFilter
-	case "backspace":
-		if m.Focus == FocusFilter && len(m.Filter) > 0 {
-			m.Filter = m.Filter[:len(m.Filter)-1]
-			m.ensureCursorVisible()
-		} else if m.Focus == FocusCommand && len(m.Command) > 0 {
-			m.Command = m.Command[:len(m.Command)-1]
-		}
 	case "?":
 		m.ShowHelp = !m.ShowHelp
 	case "H":
@@ -208,12 +204,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.Running && m.failedCount() > 0 {
 			m.ConfirmRun = true
 		}
+	}
+	return m, nil
+}
+
+func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch keyName {
+	case "enter":
+		return m.startRun(false)
+	case "esc":
+		m.Focus = FocusTargets
+	case "tab":
+		m.Focus = (m.Focus + 1) % 4
+	case "backspace":
+		if len(m.Command) > 0 {
+			m.Command = m.Command[:len(m.Command)-1]
+		}
 	default:
-		if m.Focus == FocusFilter && key.Key().Text != "" {
+		if key.Key().Text != "" {
+			m.Command += key.Key().Text
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch keyName {
+	case "esc", "enter":
+		m.Focus = FocusTargets
+	case "tab":
+		m.Focus = (m.Focus + 1) % 4
+	case "backspace":
+		if len(m.Filter) > 0 {
+			m.Filter = m.Filter[:len(m.Filter)-1]
+			m.ensureCursorVisible()
+		}
+	default:
+		if key.Key().Text != "" {
 			m.Filter += key.Key().Text
 			m.ensureCursorVisible()
-		} else if m.Focus == FocusCommand && key.Key().Text != "" {
-			m.Command += key.Key().Text
 		}
 	}
 	return m, nil

@@ -85,6 +85,23 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	}
 }
 
+func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = updateKey(model, ".")
+	model, _ = updateKey(model, "/")
+	model, _ = updateKey(model, "s")
+	model, _ = updateKey(model, "h")
+	model, _ = updateKey(model, " ")
+	model, _ = updateKey(model, "-")
+	model, _ = updateKey(model, "c")
+	if model.Command != "./sh -c" {
+		t.Fatalf("command = %q", model.Command)
+	}
+	if model.Focus != FocusCommand {
+		t.Fatalf("focus = %v, want command", model.Focus)
+	}
+}
+
 func TestModelFilterKeepsParentContext(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
@@ -227,6 +244,7 @@ func TestModelHistoryAndRerunFailed(t *testing.T) {
 		t.Fatalf("command = %q, want history command", model.Command)
 	}
 
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
 	model, _ = updateKey(model, "R")
 	if !model.ConfirmRun {
 		t.Fatal("R should open rerun confirmation")
