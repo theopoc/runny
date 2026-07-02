@@ -163,6 +163,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key.Key().Text != "" {
 		keyName = key.Key().Text
 	}
+	if keyName == "ctrl+c" {
+		m.cancelAll()
+		return m, tea.Quit
+	}
 	if m.ShowHelp || m.ShowHistory || m.ConfirmRun {
 		return m.handleOverlayKey(keyName)
 	}
@@ -173,9 +177,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleFilterKey(keyName, key)
 	}
 	switch keyName {
-	case "ctrl+c":
-		m.cancelAll()
-		return m, tea.Quit
 	case "esc":
 		return m, nil
 	case "q":

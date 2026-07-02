@@ -160,6 +160,30 @@ func TestModelOverlaysAndCancelSelection(t *testing.T) {
 	}
 }
 
+func TestCtrlCCancelsAndQuitsFromOverlay(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	cancelled := false
+	model.Running = true
+	model.ShowHelp = true
+	model.cancelRun = func() { cancelled = true }
+	model.Status["api"] = core.StatusRunning
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("ctrl+c should quit even when overlay is open")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+c should return quit message")
+	}
+	if !cancelled {
+		t.Fatal("ctrl+c should cancel active run")
+	}
+	if model.Status["api"] != core.StatusCancelled {
+		t.Fatalf("status = %s", model.Status["api"])
+	}
+}
+
 func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
