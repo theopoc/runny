@@ -1,10 +1,32 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/saewyn/runny/internal/core"
+)
+
+var (
+	runnyBadgeStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#C4B5FD"))
+	headerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Background(lipgloss.Color("#111827"))
+	subtleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+	panelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1"))
+	panelTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#67E8F9"))
+	cursorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FBBF24"))
+	selectedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
+	unselectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
+	statusStyles    = map[core.Status]lipgloss.Style{
+		core.StatusQueued:    lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")),
+		core.StatusRunning:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true),
+		core.StatusSucceeded: lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399")).Bold(true),
+		core.StatusFailed:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FB7185")).Bold(true),
+		core.StatusCancelled: lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")),
+		core.StatusSkipped:   lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")),
+	}
+	footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(lipgloss.Color("#1F2937"))
 )
 
 type Focus int
@@ -122,33 +144,31 @@ func (m Model) View() tea.View {
 func (m Model) render() string {
 	var b strings.Builder
 	width := m.Width
-	if width < 72 {
-		width = 72
+	if width < 80 {
+		width = 80
 	}
 	height := m.Height
-	if height < 18 {
-		height = 18
+	if height < 20 {
+		height = 20
 	}
-	mainHeight := max(8, height-7)
-	leftWidth := width * 62 / 100
-	if leftWidth < 42 {
-		leftWidth = 42
+	panelHeight := max(10, height-8)
+	leftWidth := width * 58 / 100
+	if leftWidth < 50 {
+		leftWidth = 50
 	}
-	rightWidth := width - leftWidth - 3
-	if rightWidth < 24 {
-		rightWidth = 24
-		leftWidth = width - rightWidth - 3
+	rightWidth := width - leftWidth - 4
+	if rightWidth < 32 {
+		rightWidth = 32
+		leftWidth = width - rightWidth - 4
 	}
 
-	b.WriteString(renderHeader(width, m.Command, m.Filter, m.Focus))
+	b.WriteString(m.renderHeader(width))
 	b.WriteByte('\n')
-	left := m.renderDirectoryPanel(leftWidth, mainHeight)
-	right := m.renderLogPanel(rightWidth, mainHeight)
+	b.WriteString(renderSubHeader(width, m.Filter, m.Focus))
+	b.WriteByte('\n')
+	left := m.renderDirectoryPanel(leftWidth, panelHeight)
+	right := m.renderLogPanel(rightWidth, panelHeight)
 	b.WriteString(joinPanels(left, right))
-	if m.Filter != "" {
-		b.WriteString("\nFilter active: ")
-		b.WriteString(m.Filter)
-	}
 	if m.ShowHelp {
 		b.WriteString("\n\n")
 		b.WriteString(renderBox(width, "Shortcuts", []string{
@@ -167,10 +187,32 @@ func (m Model) render() string {
 	return b.String()
 }
 
-func renderHeader(width int, command string, filter string, focus Focus) string {
+func (m Model) renderHeader(width int) string {
+	command := m.Command
 	if command == "" {
 		command = "<enter command>"
 	}
+	selected := 0
+	running := 0
+	failed := 0
+	for _, target := range m.Targets {
+		if target.Selected {
+			selected++
+		}
+		switch m.Status[target.ID] {
+		case core.StatusRunning:
+			running++
+		case core.StatusFailed:
+			failed++
+		}
+	}
+	left := " " + runnyBadgeStyle.Render("runny") + "  " + command
+	right := fmt.Sprintf("%d/%d selected  running %d  failed %d", selected, len(m.Targets), running, failed)
+	line := visibleJoin(left, right, width)
+	return headerStyle.Render(line)
+}
+
+func renderSubHeader(width int, filter string, focus Focus) string {
 	filterText := filter
 	if filterText == "" {
 		filterText = "<none>"
@@ -178,13 +220,15 @@ func renderHeader(width int, command string, filter string, focus Focus) string 
 	focusText := "directories"
 	if focus == FocusFilter {
 		focusText = "filter"
+	} else if focus == FocusLogs {
+		focusText = "logs"
 	}
-	line := " runny  command: " + command + "  filter: " + filterText + "  focus: " + focusText
-	return padRight(truncate(line, width), width)
+	line := " filter " + filterText + "  focus " + focusText + "  mode parallel"
+	return subtleStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
 
 func (m Model) renderDirectoryPanel(width int, height int) []string {
-	rows := []string{"sel fold directory" + strings.Repeat(" ", max(1, width-30)) + "status"}
+	rows := []string{panelTitleStyle.Render(padRightVisible("SEL  DIR", width-18) + "STATUS")}
 	count := 0
 	limit := max(1, height-4)
 	for i, target := range m.Targets {
@@ -200,40 +244,46 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 	if count == 0 {
 		rows = append(rows, "  no directories")
 	}
-	return boxLines(width, height, "Directories", rows)
+	return boxLines(width, height, "Directories", rows, true)
 }
 
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
 	cursor := " "
 	if index == m.Cursor {
-		cursor = ">"
+		cursor = cursorStyle.Render("›")
 	}
-	selected := " "
+	selected := unselectedStyle.Render("○")
 	if target.Selected {
-		selected = "x"
+		selected = selectedStyle.Render("●")
 	}
 	fold := " "
 	if target.Folded {
 		fold = "+"
 	} else if len(target.Children) > 0 {
-		fold = "-"
+		fold = "−"
 	}
 	name := strings.Repeat("  ", max(0, target.Depth-1)) + target.RelPath
-	status := string(m.Status[target.ID])
+	status := m.Status[target.ID]
 	nameWidth := max(10, width-17)
-	return cursor + " [" + selected + "] " + fold + " " + padRight(truncate(name, nameWidth), nameWidth) + " " + padRight(status, 10)
+	statusText := padRightVisible(string(status), 8)
+	if style, ok := statusStyles[status]; ok {
+		statusText = style.Render(statusText)
+	}
+	return cursor + " " + selected + "  " + fold + " " + padRightVisible(truncateVisible(name, nameWidth), nameWidth) + " " + statusText
 }
 
 func (m Model) renderLogPanel(width int, height int) []string {
-	lines := []string{"focused target"}
+	lines := []string{}
 	if len(m.Targets) > 0 && m.Cursor >= 0 && m.Cursor < len(m.Targets) {
 		target := m.Targets[m.Cursor]
-		lines = append(lines, target.RelPath+"  "+string(m.Status[target.ID]))
+		lines = append(lines, "focused "+target.RelPath)
+		lines = append(lines, "status "+string(m.Status[target.ID]))
 	} else {
-		lines = append(lines, "none")
+		lines = append(lines, "focused none")
+		lines = append(lines, "status none")
 	}
-	lines = append(lines, "", "Logs", "No output yet.")
-	return boxLines(width, height, "Logs", lines)
+	lines = append(lines, "", "output", "No output yet.")
+	return boxLines(width, height, "Logs", lines, false)
 }
 
 func (m Model) hiddenByFold(target core.Target) bool {
@@ -278,47 +328,66 @@ func joinPanels(left []string, right []string) string {
 }
 
 func renderBox(width int, title string, rows []string) string {
-	return strings.Join(boxLines(width, len(rows)+2, title, rows), "\n")
+	return strings.Join(boxLines(width, len(rows)+2, title, rows, false), "\n")
 }
 
-func boxLines(width int, height int, title string, rows []string) []string {
+func boxLines(width int, height int, title string, rows []string, active bool) []string {
 	width = max(width, len(title)+6)
 	height = max(height, 3)
 	lines := make([]string, 0, height)
-	titleText := " " + title + " "
-	topFill := max(0, width-len(titleText)-2)
-	lines = append(lines, "+"+titleText+strings.Repeat("-", topFill)+"+")
+	titleText := " " + panelTitleStyle.Render(title) + " "
+	topFill := max(0, width-lipgloss.Width(titleText)-2)
+	borderStyle := panelStyle
+	if active {
+		borderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#67E8F9"))
+	}
+	lines = append(lines, borderStyle.Render("╭─")+titleText+borderStyle.Render(strings.Repeat("─", topFill)+"╮"))
 	contentWidth := width - 4
 	for i := 0; i < height-2; i++ {
 		row := ""
 		if i < len(rows) {
 			row = rows[i]
 		}
-		lines = append(lines, "| "+padRight(truncate(row, contentWidth), contentWidth)+" |")
+		lines = append(lines, borderStyle.Render("│")+" "+padRightVisible(truncateVisible(row, contentWidth), contentWidth)+" "+borderStyle.Render("│"))
 	}
-	lines = append(lines, "+"+strings.Repeat("-", width-2)+"+")
+	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
 	return lines
 }
 
 func renderFooter(width int) string {
-	return padRight(truncate(" Shortcuts  space toggle  / filter  enter run  ? help  H history  ctrl+c cancel+quit", width), width)
+	text := " Shortcuts space toggle / filter a all A none enter run ? help H history del cancel ctrl+c quit"
+	return footerStyle.Render(padRightVisible(truncateVisible(text, width), width))
 }
 
-func truncate(value string, width int) string {
-	if len(value) <= width {
+func visibleJoin(left string, right string, width int) string {
+	space := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
+	return truncateVisible(left+strings.Repeat(" ", space)+right, width)
+}
+
+func truncateVisible(value string, width int) string {
+	if lipgloss.Width(value) <= width {
 		return value
 	}
 	if width <= 1 {
-		return value[:max(0, width)]
+		return ""
 	}
-	return value[:width-1] + "~"
+	var b strings.Builder
+	for _, r := range value {
+		if lipgloss.Width(b.String()+string(r)+"~") > width {
+			break
+		}
+		b.WriteRune(r)
+	}
+	b.WriteString("~")
+	return b.String()
 }
 
-func padRight(value string, width int) string {
-	if len(value) >= width {
+func padRightVisible(value string, width int) string {
+	current := lipgloss.Width(value)
+	if current >= width {
 		return value
 	}
-	return value + strings.Repeat(" ", width-len(value))
+	return value + strings.Repeat(" ", width-current)
 }
 
 func (m *Model) toggleFocused() {

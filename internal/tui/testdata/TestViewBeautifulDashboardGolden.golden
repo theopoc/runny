@@ -1,0 +1,21 @@
+ runny  pnpm test                                                  3/4 selected  running 1  failed 1
+ filter <none>  focus directories  mode parallel
+╭─ Directories ───────────────────────────────────────────╮  ╭─ Logs ──────────────────────────────╮
+│ SEL  DIR                                STATUS         │  │ focused api                        │
+│ › ●  − api                                   running   │  │ status running                     │
+│   ●      api/cmd                             queued    │  │                                    │
+│   ○    web                                   skipped   │  │ output                             │
+│   ●    worker                                failed    │  │ No output yet.                     │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+│                                                        │  │                                    │
+╰────────────────────────────────────────────────────────╯  ╰────────────────────────────────────╯
+ Shortcuts space toggle / filter a all A none enter run ? help H history del cancel ctrl+c quit

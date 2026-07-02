@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -115,6 +116,37 @@ func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 	}
 }
 
+func TestViewBeautifulDashboardGolden(t *testing.T) {
+	model := NewModel(Options{Command: "pnpm test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
+		{ID: "api/cmd", RelPath: "api/cmd", Selected: true, ParentID: "api", Depth: 2},
+		{ID: "web", RelPath: "web", Selected: false},
+		{ID: "worker", RelPath: "worker", Selected: true},
+	}})
+	model.Status["api"] = core.StatusRunning
+	model.Status["api/cmd"] = core.StatusQueued
+	model.Status["web"] = core.StatusSkipped
+	model.Status["worker"] = core.StatusFailed
+	model, _ = updateWindowSize(model, 100, 26)
+
+	view := model.View()
+	if !strings.Contains(view.Content, "\x1b[") {
+		t.Fatal("dashboard should include ANSI styling")
+	}
+	if width := maxLineWidth(view.Content); width > 100 {
+		t.Fatalf("max line width = %d, want <= 100\n%s", width, stripANSI(view.Content))
+	}
+
+	want, err := os.ReadFile("testdata/TestViewBeautifulDashboardGolden.golden")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stripANSI(view.Content)
+	if got != strings.TrimRight(string(want), "\n") {
+		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 func updateKey(model Model, key string) (Model, tea.Cmd) {
 	msg := tea.KeyPressMsg(tea.Key{Text: key})
 	if key == "delete" {
@@ -126,5 +158,10 @@ func updateKey(model Model, key string) (Model, tea.Cmd) {
 
 func updateSpecialKey(model Model, key rune) (Model, tea.Cmd) {
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: key}))
+	return updated.(Model), cmd
+}
+
+func updateWindowSize(model Model, width int, height int) (Model, tea.Cmd) {
+	updated, cmd := model.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	return updated.(Model), cmd
 }
