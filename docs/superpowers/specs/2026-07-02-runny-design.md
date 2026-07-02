@@ -1,100 +1,103 @@
-# runny Design
+# runny TUI Design
 
-Date: 2026-07-02
-Status: approved for implementation planning
+Date: 2026-07-03
+Status: approved direction, ready for implementation planning
 
 ## Summary
 
-`runny` is a Go terminal UI for running one shell command across many child directories. It discovers directories from the current working directory, lets the user filter and select targets interactively, then runs the command in parallel by default. It also supports a non-interactive `--auto` mode for scripts and CI.
+`runny` is a Go full-screen TUI for running one shell command across selected child directories. The CLI only launches the TUI and may prefill startup state. It does not provide non-interactive execution mode.
 
 Project name and command name: `runny`.
 
+## Reference Model
+
+The redesign uses these products as concrete UI references:
+
+- `derailed/k9s`: complete keymap overlay on `?`, strong modal shortcuts, command/filter mental model, escape-driven mode cancellation.
+- `djetelina/tofuref`: search-first workflow, list plus preview layout, focused item details visible without leaving terminal.
+- `leg100/pug`: task/status dashboard, parallel execution as first-class UI state, visible queue and operational control over running jobs.
+- Bubble Tea best practices from Leg100: keep event loop fast, treat command execution as messages, test layouts with fixed dimensions, test end-to-end with terminal-like flows.
+
 ## Goals
 
-- Discover child directories from the directory where `runny` is launched.
-- Run a shell command across selected directories.
-- Support interactive select/deselect, select all, deselect all, filtering, and tree fold/unfold when recursive discovery is used.
-- Run in parallel by default with configurable worker count.
-- Support serial execution.
-- Provide per-directory status and logs in the TUI.
-- Provide global command history and project run history.
+- Launch only as a TUI.
+- Discover directories from the directory where `runny` starts.
+- Exclude hidden directories by default.
+- Skip symlinked directories by default.
+- Support recursive discovery and bounded depth.
+- Support fold/unfold when recursive discovery shows hierarchy.
+- Let the user filter/search directories with `/`, inspired by tofuref.
+- Let the user select/deselect one, visible set, or all matching targets.
+- Run one command across selected directories.
+- Run in parallel by default with visible worker count.
+- Support serial execution and worker count changes.
+- Show task/status dashboard at the top, inspired by pug.
+- Show directory/task list plus focused preview/log panel, inspired by tofuref.
+- Show complete keymap overlay on `?`, inspired by pug and k9s.
+- Support command palette on `:` for discoverable actions.
+- Support command/run history inside the TUI.
+- Support cancelling selected running or queued tasks.
+- Support global cancellation with `ctrl+c`.
+- Support rerun failed with confirmation.
 - Support optional log persistence.
-- Use Go, Bubble Tea v2, Bubbles v2, Lip Gloss, GoReleaser, and GitHub Actions.
+- Use Go, Bubble Tea v2, Lip Gloss, GoReleaser, GitHub Actions, Docker, and Homebrew cask publishing.
 
 ## Non-Goals
 
-- Windows support in the MVP.
-- Following symlinked directories in the MVP.
-- Running different commands per target.
-- Full plugin system or project templates.
+- Non-interactive CLI execution.
+- `--auto` or any flag that runs work without opening the TUI.
 - Remote execution.
+- Different commands per target.
+- Plugin system.
+- Following symlinked directories.
+- Windows support in the MVP.
 
-## CLI
+## CLI Contract
 
-Primary modes:
+The CLI is only an entrypoint into the TUI.
 
-- `runny`: open the TUI with an editable command field.
-- `runny -- <command>`: open the TUI with the command prefilled.
-- `runny --auto -- <command>`: run without the TUI using automatic target selection from config and flags.
+Supported startup commands:
 
-Flags:
+```bash
+runny
+runny -- pnpm test
+runny --config .runny.yaml
+runny --depth 2 --workers 4 -- pnpm test
+```
+
+Behavior:
+
+- `runny` opens the full TUI with an empty command prompt.
+- `runny -- <command>` opens the TUI with command prefilled.
+- CLI flags configure initial TUI state only.
+- `runny --help` and `runny --version` may print and exit because they do not execute project commands.
+- There is no `--auto`.
+
+Startup flags:
 
 | Long flag | Short flag | Meaning |
 | --- | --- | --- |
-| `--auto` | `-a` | Run without TUI using automatic selection. |
+| `--config PATH` | `-c PATH` | Load explicit config file. |
 | `--recursive` | `-r` | Enable recursive discovery. |
-| `--depth N` | `-d N` | Discovery depth. `1` means direct children, `2+` means bounded recursion, `0` means unlimited. |
+| `--depth N` | `-d N` | Discovery depth. `1` direct children, `2+` bounded recursion, `0` unlimited. |
 | `--include-hidden` | `-H` | Include hidden directories in discovery. |
-| `--include PATTERN` | `-i PATTERN` | Keep only targets matching one or more include patterns. |
-| `--exclude PATTERN` | `-e PATTERN` | Remove targets matching one or more exclude patterns. |
-| `--workers N` | `-w N` | Maximum directories running at once. |
-| `--serial` | `-s` | Run targets one by one. Incompatible with `--workers`. |
-| `--fail-fast` | `-f` | Stop queued work and cancel active runs after first failure. |
+| `--include PATTERN` | `-i PATTERN` | Start with only matching directories visible/selectable. |
+| `--exclude PATTERN` | `-e PATTERN` | Start with matching directories removed. |
+| `--workers N` | `-w N` | Initial max parallel tasks. |
+| `--serial` | `-s` | Initial mode: one target at a time. |
+| `--fail-fast` | `-f` | Initial fail-fast setting. |
 | `--save-logs` | `-L` | Persist logs under `.runny/runs/<timestamp>/`. |
-| `--disable-logging` | `-N` | Disable per-target log capture. Logging is enabled by default. |
-| `--config PATH` | `-c PATH` | Load an explicit config file. |
-| `--version` | `-V` | Print version and exit. |
+| `--disable-logging` | `-N` | Disable per-target log capture. |
+| `--version` | `-v` | Print version and exit. |
 | `--help` | `-h` | Print help and exit. |
 
 Validation:
 
-- `--include` and `--exclude` are mutually exclusive in the MVP.
+- `--include` and `--exclude` are mutually exclusive.
 - `--serial` and `--workers` are mutually exclusive.
 - `--disable-logging` and `--save-logs` are mutually exclusive.
 - `--depth` must be `>= 0`.
-- `--auto` requires a command.
-- `--version` exits before discovery or config validation that is unrelated to version output.
-
-## Discovery
-
-Default discovery:
-
-- Starts from current working directory.
-- Lists direct child directories only.
-- Excludes hidden directories by default.
-- Ignores symlinked directories by default.
-- Selects all discovered targets initially.
-
-Recursive discovery:
-
-- Enabled by `--recursive` or by `--depth` greater than `1`.
-- `--depth 0` means unlimited recursion.
-- Results preserve hierarchy so the TUI can fold and unfold directories.
-- Filtering includes matching directories and enough parent directories to keep context visible.
-
-Pattern handling:
-
-- Include/exclude patterns apply after discovery and hidden-directory filtering.
-- Patterns match target name and relative path.
-- Repeated `--include` means logical OR.
-- Repeated `--exclude` means logical OR.
-- Hidden directories are still ignored unless `--include-hidden` is set.
-
-Symlinks:
-
-- Symlinked directories are skipped in the MVP.
-- This avoids cycles, duplicated work, and surprising filesystem traversal.
-- Future option `--follow-symlinks` can be added after MVP if needed.
+- Startup command after `--` is optional.
 
 ## Configuration
 
@@ -109,12 +112,13 @@ Precedence:
 1. Defaults
 2. `~/.runny.yaml`
 3. `./.runny.yaml`
-4. `--config PATH` if provided
-5. CLI flags
+4. `--config PATH`
+5. CLI startup flags
 
 Config fields:
 
 ```yaml
+command: ""
 depth: 1
 recursive: false
 include_hidden: false
@@ -128,100 +132,195 @@ disable_logging: false
 ```
 
 `workers: 0` means auto workers: `min(runtime.NumCPU(), selected_target_count)`.
-`disable_logging: false` means per-target log capture is enabled by default.
 
-## Architecture
+## Discovery
 
-Packages:
+Default:
 
-- `cmd/runny`: CLI parsing, config loading, mode selection, version output.
-- `internal/config`: config file loading, merge logic, validation.
-- `internal/discovery`: directory scan, depth handling, hidden handling, symlink handling, include/exclude filtering.
-- `internal/runner`: shell execution, worker pool, serial mode, cancellation, events.
-- `internal/history`: global command history and project run history.
-- `internal/logs`: optional in-memory log buffers and optional file persistence.
-- `internal/tui`: Bubble Tea application, Bubbles components, key handling, overlays.
+- Start from current working directory.
+- List direct child directories only.
+- Exclude hidden directories by default.
+- Skip symlinked directories by default.
+- Select all discovered targets initially.
 
-Data flow:
+Recursive:
 
-1. CLI parses flags and command after `--`.
-2. Config loader merges defaults, home config, local config, explicit config, and flags.
-3. Discovery produces a hierarchical target tree.
-4. TUI mode lets the user edit command, filter, select targets, fold/unfold tree nodes, inspect history, and start execution.
-5. Auto mode skips the TUI and runs selected targets immediately.
-6. Runner emits target events and log chunks.
-7. TUI or auto console renderer consumes events.
-8. History records command and run summaries.
+- Enabled by `--recursive`, config, or depth greater than `1`.
+- `depth: 0` means unlimited recursion.
+- Parent/child relationships are preserved.
+- Filtered descendants keep parent context visible.
+- Folded parents hide descendants from selection commands that target visible rows.
 
-Core model:
+Pattern handling:
 
-- `RunRequest`: command, targets, execution mode, workers, fail-fast, save-logs, disable-logging.
-- `Target`: relative path, absolute path, parent/children links, selected state, folded state, symlink flag.
-- `TargetResult`: status, exit code, duration, log path if saved.
-- `RunnerEvent`: target status changes and output chunks.
+- Include/exclude patterns apply after hidden and symlink filtering.
+- Patterns match relative path.
+- Repeated include patterns are OR.
+- Repeated exclude patterns are OR.
+- Hidden directories stay excluded unless `include_hidden: true`.
 
-## TUI
+## TUI Layout
 
-Layout:
-
-- Top: command field when empty or before execution.
-- Left: tree table of directories.
-- Tree table columns: selected marker, fold marker, directory, status.
-- Right: log viewport for the focused directory.
-- Bottom: compact help footer.
-
-Main footer:
+The main view uses a stable full-screen dashboard:
 
 ```text
-space toggle · / filter · enter run · H history · ? help
+┌ runny ─ project/path ─ command ───────────────────── selected/running/failed ┐
+│ queued 12 │ running 4 │ succeeded 21 │ failed 3 │ workers 8 │ mode parallel │
+├─────────────────────────────────────────────┬────────────────────────────────┤
+│ / filter or : command                       │ Focused target preview         │
+│                                             │                                │
+│ SEL  DIR/TASK                    STATUS     │ path: api/payment              │
+│ › ●  api/payment                  running   │ status: running                │
+│   ●  api/users                    queued    │ command: pnpm test             │
+│   ○  web/admin                    idle      │                                │
+│   ●  worker                       failed    │ output/logs                    │
+│                                             │ ...                            │
+├─────────────────────────────────────────────┴────────────────────────────────┤
+│ ? keymap  / search  : command  space select  enter run  del cancel  ctrl+c   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Keybindings:
+Layout rules:
+
+- Top header: project path, command summary, selected count, running count, failed count.
+- Status dashboard: queued, running, succeeded, failed, cancelled, worker count, mode.
+- Left pane: searchable directory/task table.
+- Right pane: focused target preview and log output.
+- Bottom keybar: minimal persistent shortcuts only.
+- `?` overlay: complete keymap with all actions.
+- `:` command palette: actionable commands and settings.
+- `/` filter mode: prominent input, table narrowed live, preview follows cursor.
+
+## Visual Style
+
+Principles:
+
+- Operational, dense, readable.
+- No decorative cards.
+- Strong focus highlight.
+- Status color used only for status semantics.
+- Stable columns, no layout shift when statuses change.
+- Clear disabled state for unavailable actions.
+- High contrast but not neon-heavy.
+
+Color roles:
+
+- Running: amber.
+- Succeeded: green.
+- Failed: red.
+- Queued: blue.
+- Cancelled/skipped: muted gray.
+- Focus row: high contrast foreground/background.
+- Selected marker: green filled marker.
+- Unselected marker: muted hollow marker.
+
+## Navigation Model
+
+Global keys:
 
 | Key | Action |
 | --- | --- |
-| `space` | Toggle current target selection. During a run, this also supports selecting active targets for cancellation. |
-| `a` | Select all currently visible or filter-matching targets. |
-| `A` | Deselect all currently visible or filter-matching targets. |
-| `/` | Focus filter input. |
-| `enter` | Start run, confirm overlay action, or reuse history command depending on focus. |
-| `tab` | Move focus between command, tree, logs, and active overlay. |
-| `right` / `l` | Unfold focused tree node. |
-| `left` | Fold focused tree node. |
-| `H` | Open history overlay. |
-| `?` | Open help overlay. |
-| `esc` | Close overlay, cancel filter, or return focus. |
-| `del` | Cancel active selected targets, or focused target if none selected. |
-| `R` | Re-run failed targets after confirmation. |
-| `ctrl+c` | Cancel all active runs and quit TUI cleanly. |
-| `q` | Quit only when no run is active and no text input is focused. |
+| `?` | Open complete keymap overlay. |
+| `/` | Enter filter/search mode. |
+| `:` | Open command palette. |
+| `tab` | Cycle panes or overlay fields. |
+| `esc` | Close overlay, leave filter/command mode, return to main table. |
+| `q` | Quit only when no run is active and no input mode is active. |
+| `ctrl+c` | Cancel all active/queued work and quit cleanly. |
 
-Overlays:
+Table keys:
 
-- History overlay:
-  - Global reusable command history.
-  - Project run history with timestamp, command, selected target count, success/failure count, duration.
-  - `enter` reuses selected command.
-- Help overlay:
-  - Full keybinding list.
-- Re-run failed overlay:
-  - Triggered by `R`.
-  - Shows number of failed targets.
-  - `enter` confirms, `esc` cancels.
-  - Disabled while another run is active.
+| Key | Action |
+| --- | --- |
+| `up`, `k` | Move cursor up. |
+| `down`, `j` | Move cursor down. |
+| `home`, `g` | Move to first visible row. |
+| `end`, `G` | Move to last visible row. |
+| `space` | Toggle selected target. |
+| `a` | Select visible targets. |
+| `A` | Deselect visible targets. |
+| `right`, `l` | Unfold focused directory. |
+| `left`, `h` | Fold focused directory. |
+| `enter` | Run selected targets when idle. |
+| `del`, `x` | Cancel selected running or queued targets. |
+| `R` | Rerun failed targets with confirmation. |
 
-## Execution
+Preview/log keys:
 
-Command execution:
+| Key | Action |
+| --- | --- |
+| `pageup`, `ctrl+b` | Scroll preview up. |
+| `pagedown`, `ctrl+f` | Scroll preview down. |
+| `ctrl+u` | Half-page preview up. |
+| `ctrl+d` | Half-page preview down. |
+| `L` | Toggle log follow mode. |
 
-- Shell: `/bin/sh -c <command>`.
-- Working directory: each selected target directory.
-- Parallel by default.
-- Default workers: `min(runtime.NumCPU(), selected_target_count)`.
-- Serial mode: one target at a time.
+## Filter/Search
+
+Inspired by tofuref:
+
+- `/` opens filter mode.
+- Filter input stays visible while active.
+- Typing filters visible directory/task rows live.
+- Matching descendants keep parent context visible.
+- Filter supports substring first.
+- Fuzzy matching can be added later after exact behavior is stable.
+- `esc` exits filter mode and keeps current filter.
+- `ctrl+u` clears filter.
+- Empty filter shows full tree respecting fold state.
+
+## Command Palette
+
+Inspired by k9s:
+
+- `:` opens command palette.
+- Palette lists available commands, filters as user types, and executes on `enter`.
+- Commands are discoverable aliases for key actions.
+
+Initial commands:
+
+| Command | Action |
+| --- | --- |
+| `:run` | Run selected targets. |
+| `:failed` | Select failed targets. |
+| `:rerun-failed` | Confirm and rerun failed targets. |
+| `:cancel` | Cancel selected running/queued targets. |
+| `:cancel-all` | Cancel all active/queued work. |
+| `:workers N` | Set worker count. |
+| `:serial` | Switch to serial mode. |
+| `:parallel` | Switch to parallel mode. |
+| `:logs` | Focus preview/log pane. |
+| `:history` | Open history overlay. |
+| `:clear-filter` | Clear filter. |
+
+## Help / Keymap Overlay
+
+Inspired by pug:
+
+- `?` opens complete keymap overlay.
+- Overlay groups commands by context: global, table, filter, command palette, preview/logs, run control.
+- Current context appears first.
+- Disabled commands show muted reason.
+- `esc`, `?`, or `q` closes overlay.
+- Overlay must fit small terminals by scrolling.
+
+## Execution Model
+
+Execution stays inside TUI:
+
+- User starts run with `enter` or `:run`.
+- Command runs with `/bin/sh -c <command>`.
+- Working directory is target directory.
+- Parallel mode is default.
+- Worker count controls max active targets.
+- Serial mode means worker count 1.
+- Queue is visible in task/status dashboard.
+- Completed targets keep final status and logs.
+- Rerun failed resets only failed target statuses/logs.
 
 Statuses:
 
+- `idle`
 - `queued`
 - `running`
 - `succeeded`
@@ -229,148 +328,119 @@ Statuses:
 - `cancelled`
 - `skipped`
 
-Failure behavior:
+Failure:
 
 - Default: continue remaining targets.
-- Final process exit code is non-zero if any target failed or was cancelled.
-- `--fail-fast` cancels queued work and active runs after first failure.
+- Fail-fast: cancel queued work and active runs after first failure.
 
 Cancellation:
 
-- Global cancellation stops all active target processes and prevents queued work from starting.
-- Target cancellation via `del` stops selected active targets or the focused active target.
-- Cancellation relies on Go contexts and process cleanup.
+- `del` or `x`: cancel selected running/queued targets, or focused running/queued target if none selected.
+- `:cancel-all`: cancel all active/queued work.
+- `ctrl+c`: cancel all and quit cleanly.
 
-Re-run failed:
+## History
 
-- `R` re-runs only failed targets.
-- Requires confirmation.
-- Resets status and logs only for targets being re-run.
+History is a TUI feature:
+
+- Command history from `~/.runny/history.jsonl`.
+- Project run history from `./.runny/history.jsonl`.
+- `H` or `:history` opens overlay.
+- User can reuse command, inspect run summary, or select failed run targets if available.
 
 ## Logs
 
 Default:
 
-- Per-target log capture is enabled by default.
-- Logs are held in memory per target unless logging is disabled.
-- TUI shows logs for the focused target.
-- Auto mode prefixes output by target or prints a structured summary at the end.
+- Per-target log capture enabled.
+- Focused target log shown in preview pane.
+- Log follow mode enabled for running focused target unless user scrolls.
 
-Disabled logging:
+Persistence:
 
-- `--disable-logging` / `-N` disables per-target log capture.
-- `disable_logging: true` disables per-target log capture from config.
-- When logging is disabled, the TUI still shows target statuses and final errors, but does not keep full stdout/stderr buffers.
-- Disabled logging is useful for very noisy commands or very large target sets.
+- `save_logs: true` writes logs under `.runny/runs/<timestamp>/<target>.log`.
+- `disable_logging: true` disables capture and preview output.
 
-Optional persistence:
+## Architecture
 
-- `--save-logs` writes files under `.runny/runs/<timestamp>/`.
-- Each target gets a sanitized log filename.
-- Run metadata records command, start time, end time, target statuses, and log paths.
-- `--save-logs` requires logging to remain enabled.
+Packages:
 
-## History
+- `cmd/runny`: TUI entrypoint, startup flag parsing, version/help output.
+- `internal/config`: config loading, merge, validation.
+- `internal/discovery`: directory scan, depth, hidden handling, symlink skipping, include/exclude.
+- `internal/runner`: shell execution, worker scheduling, serial mode, cancellation, process cleanup.
+- `internal/history`: command history and project run history.
+- `internal/logs`: per-target log buffers and optional persistence.
+- `internal/tui`: Bubble Tea model, update routing, view rendering, overlays, command palette, filter.
 
-Global command history:
+Key implementation boundary:
 
-- Stored at `~/.runny/history.jsonl`.
-- Keeps reusable commands independent of a specific project.
-- Used by the TUI history overlay to quickly refill the command field.
+- `internal/runner` remains UI-agnostic.
+- `internal/tui` owns scheduling presentation, keyboard routing, overlays, and visible state.
+- Long-running shell work runs through Bubble Tea commands/messages, never directly inside `Update`.
 
-Project run history:
+## Testing
 
-- Stored at `./.runny/history.jsonl`.
-- Records command, timestamp, execution mode, selected target count, result counts, duration, and optional log paths.
-- Used by the TUI history overlay for recent run inspection.
+Use layered TUI tests:
 
-History should avoid unbounded growth. Initial retention can keep the latest 50 global commands and latest 100 project runs.
+- Unit tests for config, discovery, runner, logs, history.
+- Component tests for TUI key handling and state transitions.
+- Golden tests for main dashboard, help overlay, command palette, filter mode, history overlay.
+- E2E test with Bubble Tea program input covering filter, selection, run, preview update, help, command palette.
+- Pseudo-TTY smoke test proving alternate screen and real binary startup.
+- Runtime smoke with real directories proving command execution remains TUI-driven.
 
-## README
+Verification commands:
 
-Initial `README.md` should include:
+```bash
+go test ./...
+go vet ./...
+go run github.com/goreleaser/goreleaser/v2@latest check
+go test ./internal/tui -run 'TestRunnyTUIProgramEndToEnd|TestRunnyTUISmokeWithPseudoTTY' -count=1
+```
 
-- Project pitch.
-- Install instructions.
-- Homebrew install instructions:
-  - `brew install --cask saewyn/tap/runny`
-  - `brew tap saewyn/tap && brew trust --tap saewyn/tap && brew install --cask runny`
-  - Brewfile example: `tap "saewyn/tap", trusted: true`
-- TUI usage examples.
-- `--auto` usage examples.
-- Config file examples for `~/.runny.yaml` and `./.runny.yaml`.
-- Keybindings.
-- History, default log behavior, `--disable-logging`, and `--save-logs`.
-- Release/install notes.
+Manual verification:
 
-## CI and Release
+```bash
+mkdir -p /tmp/runny-test/api /tmp/runny-test/web
+cd /tmp/runny-test
+runny -- printf ok
+```
 
-GitHub Actions:
+Inside TUI:
 
-- Run on pull requests and pushes to `main`.
-- Check formatting with `gofmt`.
-- Run `go vet ./...`.
-- Run `go test ./...`.
-- Build Linux and macOS binaries.
-- Run GoReleaser check.
+1. `/api` filters list.
+2. `esc` returns to table.
+3. `space` toggles focused target.
+4. `a` selects visible targets.
+5. `?` opens complete keymap.
+6. `:` opens command palette.
+7. `:workers 1` sets worker count.
+8. `enter` or `:run` runs selected targets.
+9. Preview shows focused logs.
+10. `ctrl+c` cancels active work and exits cleanly.
 
-GoReleaser:
+## Migration From Current Build
 
-- Release on `v*` tags.
-- Build macOS and Linux binaries.
-- Generate archives and checksums.
-- Inject version into `runny --version` / `runny -V` via ldflags.
-- Publish a Homebrew cask to the personal tap `saewyn/homebrew-tap`, exposed to users as `saewyn/tap`.
-- Use GoReleaser `homebrew_casks` config because GoReleaser Homebrew formulas are deprecated for precompiled binaries.
-- Configure cask name `runny`, `binaries: [runny]`, `directory: Casks`, homepage, description, license, and repository token.
-- Release workflow must pass `TAP_GITHUB_TOKEN` so GoReleaser can push cask commits to the tap repository.
+Required spec changes:
 
-Homebrew tap setup:
+- Remove `--auto` from docs, parser, config, tests, and app flow.
+- Remove auto-mode code path from `internal/app`.
+- Treat all CLI flags as startup config only.
+- Keep `--help` and `--version`.
+- Rework TUI rendering around top task/status dashboard plus list/preview.
+- Add command palette mode.
+- Expand help overlay to full keymap.
+- Make `/` filter visually central and tofuref-like.
+- Add preview/log scroll state.
+- Add golden files for every primary layout state.
 
-- Create a separate GitHub repository named `homebrew-tap`.
-- Add or keep Homebrew tap CI generated by `brew tap-new saewyn/tap` or equivalent `brew test-bot` workflow.
-- Document tap trust for users who set `HOMEBREW_REQUIRE_TAP_TRUST`:
-  - `brew trust --tap saewyn/tap`
-  - `tap "saewyn/tap", trusted: true` in Brewfile.
-- Track macOS signing/notarization as a release risk. MVP can ship unsigned, but signed/notarized casks are preferred for smooth macOS installs.
+## Open Follow-Up
 
-## Testing Strategy
+After this spec, implementation planning should split work into:
 
-Unit tests:
-
-- Config precedence and validation.
-- Discovery depth, hidden handling, symlink skipping, include/exclude behavior.
-- Runner worker count, serial mode, fail-fast, cancellation, exit-code summary.
-- Logging defaults, disabled logging, and `save_logs` conflict validation.
-- History read/write and retention.
-
-TUI tests:
-
-- Bubble Tea model update tests for selection, filtering, fold/unfold, overlays, and keybindings.
-- No real terminal required.
-
-Smoke tests:
-
-- `runny --version`
-- `runny --auto -- pwd`
-- `runny --auto --depth 1 --include <pattern> -- pwd`
-
-## Open Risks
-
-- TUI performance with very large trees depends on virtualized rendering or careful visible-row calculation.
-- Process-group cleanup needs attention so cancellation does not leave child processes behind.
-- Shell quoting must remain clear: command starts after `--`, and `runny` should not try to parse shell syntax itself.
-- Homebrew casks for unsigned binaries can trigger macOS Gatekeeper/quarantine friction; signing/notarization may be needed before broad distribution.
-
-## Implementation Boundary
-
-The MVP should produce a usable `runny` repo with:
-
-- Go module and CLI.
-- TUI with selected layout and keybindings.
-- Discovery, config, runner, history, logs.
-- README.
-- GitHub Actions.
-- GoReleaser config.
-- Homebrew tap publishing via GoReleaser.
-- Tests and smoke verification.
+1. CLI contract cleanup: remove non-interactive execution.
+2. TUI model refactor: modes, palette, filter, preview scrolling.
+3. TUI render refactor: dashboard, list/preview, overlays.
+4. Runner integration: keep worker scheduling visible and cancellable.
+5. Tests and docs: golden, E2E, README update, release checks.
