@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -94,6 +95,23 @@ func TestModelOverlaysAndCancelSelection(t *testing.T) {
 	model, _ = updateKey(model, "delete")
 	if model.Status["api"] != core.StatusCancelled {
 		t.Fatalf("status = %s", model.Status["api"])
+	}
+}
+
+func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+
+	view := model.View()
+	if !view.AltScreen {
+		t.Fatal("view should use alt screen")
+	}
+	for _, want := range []string{"Directories", "Logs", "Shortcuts"} {
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("view content should contain %q:\n%s", want, view.Content)
+		}
 	}
 }
 

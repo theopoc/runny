@@ -43,6 +43,13 @@ func TestRunnyTUISmokeWithPseudoTTY(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("run TUI through pseudo-tty: %v\n%s", err, out)
 	}
+	captured, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(captured), "\x1b[?1049h") {
+		t.Fatalf("TUI should enter alternate screen; capture:\n%s", captured)
+	}
 }
 
 func scriptCommand(capture string, command string) *exec.Cmd {
