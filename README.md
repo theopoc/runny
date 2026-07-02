@@ -86,8 +86,11 @@ exclude:
 | `/` | Focus filter |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
+| `up`, `k` | Move cursor up |
+| `down`, `j` | Move cursor down |
 | `right`, `l` | Unfold focused directory |
 | `left` | Fold focused directory |
+| `esc` | Leave filter focus |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
 | `del` | Cancel selected active runs, or focused active run |

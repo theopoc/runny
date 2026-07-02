@@ -55,14 +55,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.cancelAll()
 		return m, tea.Quit
+	case "esc":
+		if m.Focus == FocusFilter {
+			m.Focus = FocusTargets
+			return m, nil
+		}
 	case "q":
 		if !m.hasActiveRuns() {
 			return m, tea.Quit
 		}
+	case "up", "k":
+		m.moveCursor(-1)
+	case "down", "j":
+		m.moveCursor(1)
 	case "tab":
 		m.Focus = (m.Focus + 1) % 3
 	case "/":
 		m.Focus = FocusFilter
+	case "backspace":
+		if m.Focus == FocusFilter && len(m.Filter) > 0 {
+			m.Filter = m.Filter[:len(m.Filter)-1]
+			m.ensureCursorVisible()
+		}
 	case "?":
 		m.ShowHelp = !m.ShowHelp
 	case "H":
@@ -81,6 +95,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelSelectedOrFocused()
 	case "R":
 		m.ConfirmRun = true
+	default:
+		if m.Focus == FocusFilter && key.Key().Text != "" {
+			m.Filter += key.Key().Text
+			m.ensureCursorVisible()
+		}
 	}
 	return m, nil
 }
@@ -134,6 +153,7 @@ func (m *Model) toggleFocused() {
 	if len(m.Targets) == 0 {
 		return
 	}
+	m.ensureCursorVisible()
 	m.Targets[m.Cursor].Selected = !m.Targets[m.Cursor].Selected
 }
 
@@ -149,6 +169,7 @@ func (m *Model) setFolded(folded bool) {
 	if len(m.Targets) == 0 {
 		return
 	}
+	m.ensureCursorVisible()
 	m.Targets[m.Cursor].Folded = folded
 }
 
@@ -184,4 +205,40 @@ func (m Model) hasActiveRuns() bool {
 
 func (m Model) visible(target core.Target) bool {
 	return m.Filter == "" || strings.Contains(target.RelPath, m.Filter)
+}
+
+func (m *Model) moveCursor(delta int) {
+	if len(m.Targets) == 0 {
+		return
+	}
+	next := m.Cursor
+	for range m.Targets {
+		next += delta
+		if next < 0 {
+			next = len(m.Targets) - 1
+		}
+		if next >= len(m.Targets) {
+			next = 0
+		}
+		if m.visible(m.Targets[next]) {
+			m.Cursor = next
+			return
+		}
+	}
+}
+
+func (m *Model) ensureCursorVisible() {
+	if len(m.Targets) == 0 {
+		m.Cursor = 0
+		return
+	}
+	if m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.visible(m.Targets[m.Cursor]) {
+		for i, target := range m.Targets {
+			if m.visible(target) {
+				m.Cursor = i
+				return
+			}
+		}
+		m.Cursor = 0
+	}
 }

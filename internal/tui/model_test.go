@@ -26,6 +26,40 @@ func TestModelToggleSelectAllAndFilter(t *testing.T) {
 	}
 }
 
+func TestModelMovesCursorWithArrowKeys(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model, _ = updateSpecialKey(model, tea.KeyDown)
+	if model.Cursor != 1 {
+		t.Fatalf("cursor = %d, want 1", model.Cursor)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Cursor != 0 {
+		t.Fatalf("cursor = %d, want 0", model.Cursor)
+	}
+}
+
+func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model, _ = updateKey(model, "/")
+	model, _ = updateKey(model, "w")
+	if model.Filter != "w" {
+		t.Fatalf("filter = %q", model.Filter)
+	}
+	if model.Cursor != 1 {
+		t.Fatalf("cursor = %d, want 1", model.Cursor)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyBackspace)
+	if model.Filter != "" {
+		t.Fatalf("filter = %q", model.Filter)
+	}
+}
+
 func TestModelOverlaysAndCancelSelection(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusRunning
@@ -49,5 +83,10 @@ func updateKey(model Model, key string) (Model, tea.Cmd) {
 		msg = tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete})
 	}
 	updated, cmd := model.Update(msg)
+	return updated.(Model), cmd
+}
+
+func updateSpecialKey(model Model, key rune) (Model, tea.Cmd) {
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: key}))
 	return updated.(Model), cmd
 }
