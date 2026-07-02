@@ -33,6 +33,28 @@ runny --auto -- pnpm test
 
 By default, `runny` discovers direct child directories, excludes hidden directories, skips symlinked directories, and runs in parallel.
 
+## Docker
+
+Build the image:
+
+```bash
+docker build -t runny .
+```
+
+Run non-interactively against the current directory:
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace runny --auto -- true
+```
+
+Run the TUI in a container:
+
+```bash
+docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
+```
+
+Commands run inside the container. Tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
+
 ## Flags
 
 | Flag | Short | Description |

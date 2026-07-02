@@ -39,6 +39,11 @@ func TestModelMovesCursorWithArrowKeys(t *testing.T) {
 	if model.Cursor != 0 {
 		t.Fatalf("cursor = %d, want 0", model.Cursor)
 	}
+	model, _ = updateSpecialKey(model, tea.KeyDown)
+	model, _ = updateKey(model, " ")
+	if model.Targets[1].Selected {
+		t.Fatal("second target should be deselected after moving cursor")
+	}
 }
 
 func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
@@ -57,6 +62,21 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	model, _ = updateSpecialKey(model, tea.KeyBackspace)
 	if model.Filter != "" {
 		t.Fatalf("filter = %q", model.Filter)
+	}
+	model, _ = updateKey(model, "a")
+	model, _ = updateKey(model, "p")
+	model, _ = updateKey(model, "i")
+	model.Targets[1].Selected = false
+	model, _ = updateKey(model, "a")
+	if !model.Targets[0].Selected {
+		t.Fatal("visible api target should be selected")
+	}
+	if model.Targets[1].Selected {
+		t.Fatal("hidden web target should stay unselected")
+	}
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	if model.Focus != FocusTargets {
+		t.Fatal("escape should leave filter focus")
 	}
 }
 

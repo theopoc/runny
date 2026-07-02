@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.superpowers
+.runny
+.worktrees
+dist
+runny
+*.test
+*.log
+docs/superpowers/plans
+docs/superpowers/specs
