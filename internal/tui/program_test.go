@@ -19,8 +19,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	}})
 	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		return []core.RunResult{
-			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "api ok\n"},
-			{Target: req.Targets[1], Status: core.StatusSucceeded, Output: "web ok\n"},
+			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n"},
 		}, nil
 	}
 

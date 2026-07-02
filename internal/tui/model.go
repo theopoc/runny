@@ -70,6 +70,8 @@ type Model struct {
 	ShowHistory        bool
 	ConfirmRun         bool
 	Running            bool
+	PendingRuns        int
+	completedResults   []core.RunResult
 	RunError           string
 	Width              int
 	Height             int
@@ -82,6 +84,7 @@ type Model struct {
 	CommandHistoryPath string
 	RunHistoryPath     string
 	cancelRun          context.CancelFunc
+	targetCancels      map[string]context.CancelFunc
 	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
 }
 
@@ -110,6 +113,7 @@ func NewModel(opts Options) Model {
 		LogRoot:            opts.LogRoot,
 		CommandHistoryPath: opts.CommandHistoryPath,
 		RunHistoryPath:     opts.RunHistoryPath,
+		targetCancels:      map[string]context.CancelFunc{},
 		runFunc:            runner.Run,
 	}
 	if opts.CommandHistoryPath != "" {
@@ -132,8 +136,9 @@ func NewModel(opts Options) Model {
 func (m Model) Init() tea.Cmd { return nil }
 
 type runDoneMsg struct {
-	results []core.RunResult
-	err     error
+	targetID string
+	results  []core.RunResult
+	err      error
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -311,6 +316,8 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelRun = cancel
 	m.Running = true
+	m.PendingRuns = len(reqTargets)
+	m.completedResults = nil
 	m.RunError = ""
 	m.addHistory(req.Command)
 	if m.CommandHistoryPath != "" {
@@ -326,10 +333,22 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	if runFunc == nil {
 		runFunc = runner.Run
 	}
-	return m, func() tea.Msg {
-		results, err := runFunc(ctx, req)
-		return runDoneMsg{results: results, err: err}
+	cmds := make([]tea.Cmd, 0, len(reqTargets))
+	if m.targetCancels == nil {
+		m.targetCancels = map[string]context.CancelFunc{}
 	}
+	for _, target := range reqTargets {
+		target := target
+		targetCtx, targetCancel := context.WithCancel(ctx)
+		m.targetCancels[target.ID] = targetCancel
+		targetReq := req
+		targetReq.Targets = []core.Target{target}
+		cmds = append(cmds, func() tea.Msg {
+			results, err := runFunc(targetCtx, targetReq)
+			return runDoneMsg{targetID: target.ID, results: results, err: err}
+		})
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) targetsForRun(failedOnly bool) []core.Target {
@@ -349,24 +368,21 @@ func (m Model) targetsForRun(failedOnly bool) []core.Target {
 }
 
 func (m *Model) applyRunDone(done runDoneMsg) {
-	m.Running = false
-	m.cancelRun = nil
+	if done.targetID != "" {
+		delete(m.targetCancels, done.targetID)
+	}
+	if m.PendingRuns > 0 {
+		m.PendingRuns--
+	}
 	if done.err != nil {
 		m.RunError = done.err.Error()
 	}
-	summary := history.RunEntry{Time: time.Now()}
 	for _, result := range done.results {
-		summary.Command = m.Command
-		summary.Total++
-		switch result.Status {
-		case core.StatusSucceeded:
-			summary.Succeeded++
-		case core.StatusFailed:
-			summary.Failed++
-		case core.StatusCancelled:
-			summary.Cancelled++
+		if m.Status[result.Target.ID] == core.StatusCancelled && result.Status != core.StatusCancelled {
+			continue
 		}
 		m.Status[result.Target.ID] = result.Status
+		m.completedResults = append(m.completedResults, result)
 		var log strings.Builder
 		if result.Output != "" {
 			log.WriteString(result.Output)
@@ -379,14 +395,37 @@ func (m *Model) applyRunDone(done runDoneMsg) {
 		}
 		m.Logs[result.Target.ID] = log.String()
 	}
-	if m.RunHistoryPath != "" && summary.Total > 0 {
+	if m.PendingRuns == 0 {
+		m.appendRunHistory()
+		m.Running = false
+		m.cancelRun = nil
+	}
+}
+
+func (m *Model) appendRunHistory() {
+	summary := history.RunEntry{Command: m.Command, Time: time.Now()}
+	for _, result := range m.completedResults {
+		summary.Total++
+		switch result.Status {
+		case core.StatusSucceeded:
+			summary.Succeeded++
+		case core.StatusFailed:
+			summary.Failed++
+		case core.StatusCancelled:
+			summary.Cancelled++
+		}
+	}
+	if summary.Total == 0 {
+		return
+	}
+	if m.RunHistoryPath != "" {
 		if err := history.AppendRun(m.RunHistoryPath, summary); err != nil && m.RunError == "" {
 			m.RunError = err.Error()
 		}
-		m.RunHistory = append([]history.RunEntry{summary}, m.RunHistory...)
-		if len(m.RunHistory) > 100 {
-			m.RunHistory = m.RunHistory[:100]
-		}
+	}
+	m.RunHistory = append([]history.RunEntry{summary}, m.RunHistory...)
+	if len(m.RunHistory) > 100 {
+		m.RunHistory = m.RunHistory[:100]
 	}
 }
 
@@ -767,18 +806,24 @@ func (m *Model) setFolded(folded bool) {
 }
 
 func (m *Model) cancelSelectedOrFocused() {
-	if m.cancelRun != nil {
-		m.cancelRun()
-	}
 	cancelled := false
 	for _, target := range m.Targets {
 		if target.Selected && m.Status[target.ID] == core.StatusRunning {
+			if cancel := m.targetCancels[target.ID]; cancel != nil {
+				cancel()
+				delete(m.targetCancels, target.ID)
+			}
 			m.Status[target.ID] = core.StatusCancelled
 			cancelled = true
 		}
 	}
 	if !cancelled && len(m.Targets) > 0 && m.Status[m.Targets[m.Cursor].ID] == core.StatusRunning {
-		m.Status[m.Targets[m.Cursor].ID] = core.StatusCancelled
+		target := m.Targets[m.Cursor]
+		if cancel := m.targetCancels[target.ID]; cancel != nil {
+			cancel()
+			delete(m.targetCancels, target.ID)
+		}
+		m.Status[target.ID] = core.StatusCancelled
 	}
 }
 

@@ -193,9 +193,14 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 		{ID: "web", RelPath: "web", Selected: true},
 	}})
 	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		result := core.RunResult{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n"}
+		if req.Targets[0].ID == "web" {
+			result.Status = core.StatusFailed
+			result.Output = "web bad\n"
+			result.Error = "exit status 1"
+		}
 		return []core.RunResult{
-			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "api ok\n"},
-			{Target: req.Targets[1], Status: core.StatusFailed, Error: "exit status 1", Output: "web bad\n"},
+			result,
 		}, nil
 	}
 
@@ -211,9 +216,7 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 		t.Fatalf("statuses = %#v", model.Status)
 	}
 
-	msg := cmd()
-	updatedModel, _ := model.Update(msg)
-	model = updatedModel.(Model)
+	model = applyCmd(t, model, cmd)
 	if model.Running {
 		t.Fatal("model should stop running after results")
 	}
@@ -222,6 +225,45 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 	}
 	if !strings.Contains(model.Logs["web"], "web bad") || !strings.Contains(model.Logs["web"], "exit status 1") {
 		t.Fatalf("web logs = %q", model.Logs["web"])
+	}
+}
+
+func TestModelCancelsOnlySelectedRunningTarget(t *testing.T) {
+	model := NewModel(Options{Command: "sleep 10", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: false},
+	}})
+	model.Running = true
+	model.PendingRuns = 2
+	model.Status["api"] = core.StatusRunning
+	model.Status["web"] = core.StatusRunning
+	apiCancelled := false
+	webCancelled := false
+	model.targetCancels = map[string]context.CancelFunc{
+		"api": func() { apiCancelled = true },
+		"web": func() { webCancelled = true },
+	}
+
+	model, _ = updateKey(model, "delete")
+	if !apiCancelled {
+		t.Fatal("selected api target should be cancelled")
+	}
+	if webCancelled {
+		t.Fatal("unselected web target should keep running")
+	}
+	if model.Status["api"] != core.StatusCancelled || model.Status["web"] != core.StatusRunning {
+		t.Fatalf("statuses = %#v", model.Status)
+	}
+
+	updated, _ := model.Update(runDoneMsg{targetID: "api", results: []core.RunResult{{Target: model.Targets[0], Status: core.StatusCancelled}}})
+	model = updated.(Model)
+	updated, _ = model.Update(runDoneMsg{targetID: "web", results: []core.RunResult{{Target: model.Targets[1], Status: core.StatusSucceeded}}})
+	model = updated.(Model)
+	if model.Running {
+		t.Fatal("model should stop after remaining target completes")
+	}
+	if model.Status["web"] != core.StatusSucceeded {
+		t.Fatalf("web status = %s", model.Status["web"])
 	}
 }
 
@@ -260,9 +302,7 @@ func TestModelHistoryAndRerunFailed(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirm should start rerun")
 	}
-	modelMsg := cmd()
-	updatedModel, _ := model.Update(modelMsg)
-	model = updatedModel.(Model)
+	model = applyCmd(t, model, cmd)
 	if model.Status["web"] != core.StatusSucceeded {
 		t.Fatalf("web status = %s", model.Status["web"])
 	}
@@ -282,17 +322,17 @@ func TestModelPersistsHistory(t *testing.T) {
 		},
 	})
 	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		return []core.RunResult{
-			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "api ok\n"},
-			{Target: req.Targets[1], Status: core.StatusFailed, Error: "exit status 1"},
-		}, nil
+		result := core.RunResult{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n"}
+		if req.Targets[0].ID == "web" {
+			result.Status = core.StatusFailed
+			result.Error = "exit status 1"
+		}
+		return []core.RunResult{result}, nil
 	}
 
 	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
-	msg := cmd()
-	updatedModel, _ := model.Update(msg)
-	model = updatedModel.(Model)
+	model = applyCmd(t, model, cmd)
 	if model.RunError != "" {
 		t.Fatalf("run error = %q", model.RunError)
 	}
@@ -350,4 +390,17 @@ func updateSpecialKey(model Model, key rune) (Model, tea.Cmd) {
 func updateWindowSize(model Model, width int, height int) (Model, tea.Cmd) {
 	updated, cmd := model.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	return updated.(Model), cmd
+}
+
+func applyCmd(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, child := range batch {
+			model = applyCmd(t, model, child)
+		}
+		return model
+	}
+	updated, _ := model.Update(msg)
+	return updated.(Model)
 }
