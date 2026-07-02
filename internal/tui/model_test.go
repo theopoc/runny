@@ -122,6 +122,27 @@ func TestModelFilterKeepsParentContext(t *testing.T) {
 	}
 }
 
+func TestDirectoryPanelScrollsToCursor(t *testing.T) {
+	targets := make([]core.Target, 0, 12)
+	for i := 0; i < 12; i++ {
+		id := "svc-" + string(rune('a'+i))
+		targets = append(targets, core.Target{ID: id, RelPath: id, Selected: true})
+	}
+	model := NewModel(Options{Command: "test", Targets: targets})
+	model, _ = updateWindowSize(model, 80, 20)
+	for i := 0; i < 9; i++ {
+		model, _ = updateSpecialKey(model, tea.KeyDown)
+	}
+
+	view := stripANSI(model.render())
+	if !strings.Contains(view, "›") || !strings.Contains(view, "svc-j") {
+		t.Fatalf("directory panel should scroll focused row into view:\n%s", view)
+	}
+	if strings.Contains(view, "svc-a") {
+		t.Fatalf("directory panel should scroll past first rows:\n%s", view)
+	}
+}
+
 func TestModelOverlaysAndCancelSelection(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusRunning

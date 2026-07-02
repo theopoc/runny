@@ -65,6 +65,7 @@ type Model struct {
 	RunHistory         []history.RunEntry
 	Focus              Focus
 	Cursor             int
+	DirectoryOffset    int
 	HistoryPos         int
 	Filter             string
 	ShowHelp           bool
@@ -621,16 +622,22 @@ func (m Model) mode() core.ExecutionMode {
 
 func (m Model) renderDirectoryPanel(width int, height int) []string {
 	rows := []string{panelTitleStyle.Render(padRightVisible("SEL  DIR", width-18) + "STATUS")}
-	count := 0
+	visibleIndexes := m.visibleTargetIndexes()
 	limit := max(1, height-4)
-	for i, target := range m.Targets {
+	offset := m.DirectoryOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > max(0, len(visibleIndexes)-1) {
+		offset = max(0, len(visibleIndexes)-1)
+	}
+	count := 0
+	for _, targetIndex := range visibleIndexes[offset:] {
 		if count >= limit {
 			break
 		}
-		if !m.visible(target) || m.hiddenByFold(target) {
-			continue
-		}
-		rows = append(rows, m.renderTargetRow(i, target, width-4))
+		target := m.Targets[targetIndex]
+		rows = append(rows, m.renderTargetRow(targetIndex, target, width-4))
 		count++
 	}
 	if count == 0 {
@@ -846,7 +853,7 @@ func (m *Model) toggleFocused() {
 
 func (m *Model) setVisibleSelected(selected bool) {
 	for i := range m.Targets {
-		if m.visible(m.Targets[i]) {
+		if m.isVisibleTarget(m.Targets[i]) {
 			m.Targets[i].Selected = selected
 		}
 	}
@@ -971,8 +978,9 @@ func (m *Model) moveCursor(delta int) {
 		if next >= len(m.Targets) {
 			next = 0
 		}
-		if m.visible(m.Targets[next]) {
+		if m.isVisibleTarget(m.Targets[next]) {
 			m.Cursor = next
+			m.ensureDirectoryOffset()
 			return
 		}
 	}
@@ -983,13 +991,73 @@ func (m *Model) ensureCursorVisible() {
 		m.Cursor = 0
 		return
 	}
-	if m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.visible(m.Targets[m.Cursor]) {
+	if m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.isVisibleTarget(m.Targets[m.Cursor]) {
 		for i, target := range m.Targets {
-			if m.visible(target) {
+			if m.isVisibleTarget(target) {
 				m.Cursor = i
+				m.ensureDirectoryOffset()
 				return
 			}
 		}
 		m.Cursor = 0
 	}
+	m.ensureDirectoryOffset()
+}
+
+func (m *Model) ensureDirectoryOffset() {
+	indexes := m.visibleTargetIndexes()
+	if len(indexes) == 0 {
+		m.DirectoryOffset = 0
+		return
+	}
+	visiblePosition := 0
+	found := false
+	for position, targetIndex := range indexes {
+		if targetIndex == m.Cursor {
+			visiblePosition = position
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.DirectoryOffset = 0
+		return
+	}
+	limit := max(1, m.directoryViewportRows())
+	if visiblePosition < m.DirectoryOffset {
+		m.DirectoryOffset = visiblePosition
+	}
+	if visiblePosition >= m.DirectoryOffset+limit {
+		m.DirectoryOffset = visiblePosition - limit + 1
+	}
+	maxOffset := max(0, len(indexes)-limit)
+	if m.DirectoryOffset > maxOffset {
+		m.DirectoryOffset = maxOffset
+	}
+	if m.DirectoryOffset < 0 {
+		m.DirectoryOffset = 0
+	}
+}
+
+func (m Model) directoryViewportRows() int {
+	height := m.Height
+	if height < 20 {
+		height = 20
+	}
+	panelHeight := max(10, height-8)
+	return max(1, panelHeight-4)
+}
+
+func (m Model) visibleTargetIndexes() []int {
+	indexes := make([]int, 0, len(m.Targets))
+	for i, target := range m.Targets {
+		if m.isVisibleTarget(target) {
+			indexes = append(indexes, i)
+		}
+	}
+	return indexes
+}
+
+func (m Model) isVisibleTarget(target core.Target) bool {
+	return m.visible(target) && !m.hiddenByFold(target)
 }

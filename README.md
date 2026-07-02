@@ -115,7 +115,7 @@ exclude:
 | `esc` | Leave filter focus |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
-| `del` | Cancel selected active runs, or focused active run |
+| `del` | Cancel selected running or queued runs, or focused run |
 | `R` | Rerun all failed with confirmation |
 | `ctrl+c` | Cancel active runs and quit cleanly |
 

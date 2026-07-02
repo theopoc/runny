@@ -25,6 +25,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 
 	var out bytes.Buffer
 	reader, writer := io.Pipe()
+	defer writer.Close()
 	program := tea.NewProgram(
 		model,
 		tea.WithInput(reader),
@@ -43,13 +44,16 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 			err   error
 		}{model: finalModel, err: err}
 	}()
-	if _, err := writer.Write([]byte("\r")); err != nil {
-		t.Fatal(err)
-	}
+	program.Send(tea.KeyPressMsg(tea.Key{Code: '?'}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: '/'}))
+	program.Send(tea.KeyPressMsg(tea.Key{Text: "w"}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: ' '}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: 'a'}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	time.Sleep(100 * time.Millisecond)
-	if _, err := writer.Write([]byte("q")); err != nil {
-		t.Fatal(err)
-	}
+	program.Send(tea.KeyPressMsg(tea.Key{Code: 'q'}))
 	select {
 	case result := <-done:
 		if result.err != nil {
@@ -63,9 +67,8 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("program did not quit")
 	}
-	_ = writer.Close()
 	rendered := stripANSI(out.String())
-	for _, want := range []string{"runny", "Directories", "Logs", "succeeded"} {
+	for _, want := range []string{"runny", "Directories", "Logs", "filter w", "succeeded"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered output should contain %q:\n%s", want, rendered)
 		}
