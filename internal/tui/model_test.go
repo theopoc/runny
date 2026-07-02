@@ -3,11 +3,13 @@ package tui
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/saewyn/runny/internal/core"
+	"github.com/saewyn/runny/internal/history"
 )
 
 func TestModelToggleSelectAllAndFilter(t *testing.T) {
@@ -225,6 +227,51 @@ func TestModelHistoryAndRerunFailed(t *testing.T) {
 	model = updatedModel.(Model)
 	if model.Status["web"] != core.StatusSucceeded {
 		t.Fatalf("web status = %s", model.Status["web"])
+	}
+}
+
+func TestModelPersistsHistory(t *testing.T) {
+	tmp := t.TempDir()
+	commandHistory := filepath.Join(tmp, "home-history.jsonl")
+	runHistory := filepath.Join(tmp, "project-history.jsonl")
+	model := NewModel(Options{
+		Command:            "echo ok",
+		CommandHistoryPath: commandHistory,
+		RunHistoryPath:     runHistory,
+		Targets: []core.Target{
+			{ID: "api", RelPath: "api", Selected: true},
+			{ID: "web", RelPath: "web", Selected: true},
+		},
+	})
+	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		return []core.RunResult{
+			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "api ok\n"},
+			{Target: req.Targets[1], Status: core.StatusFailed, Error: "exit status 1"},
+		}, nil
+	}
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	msg := cmd()
+	updatedModel, _ := model.Update(msg)
+	model = updatedModel.(Model)
+	if model.RunError != "" {
+		t.Fatalf("run error = %q", model.RunError)
+	}
+
+	commands, err := history.ReadCommands(commandHistory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0].Command != "echo ok" {
+		t.Fatalf("commands = %#v", commands)
+	}
+	runs, err := history.ReadRuns(runHistory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Succeeded != 1 || runs[0].Failed != 1 || runs[0].Total != 2 {
+		t.Fatalf("runs = %#v", runs)
 	}
 }
 

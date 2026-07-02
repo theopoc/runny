@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/saewyn/runny/internal/core"
+	"github.com/saewyn/runny/internal/history"
 	"github.com/saewyn/runny/internal/runner"
 )
 
@@ -41,41 +43,45 @@ const (
 )
 
 type Options struct {
-	Command        string
-	Targets        []core.Target
-	Mode           core.ExecutionMode
-	Workers        int
-	FailFast       bool
-	SaveLogs       bool
-	DisableLogging bool
-	LogRoot        string
+	Command            string
+	Targets            []core.Target
+	Mode               core.ExecutionMode
+	Workers            int
+	FailFast           bool
+	SaveLogs           bool
+	DisableLogging     bool
+	LogRoot            string
+	CommandHistoryPath string
+	RunHistoryPath     string
 }
 
 type Model struct {
-	Command        string
-	Targets        []core.Target
-	Status         map[string]core.Status
-	Logs           map[string]string
-	History        []string
-	Focus          Focus
-	Cursor         int
-	HistoryPos     int
-	Filter         string
-	ShowHelp       bool
-	ShowHistory    bool
-	ConfirmRun     bool
-	Running        bool
-	RunError       string
-	Width          int
-	Height         int
-	Mode           core.ExecutionMode
-	Workers        int
-	FailFast       bool
-	SaveLogs       bool
-	DisableLogging bool
-	LogRoot        string
-	cancelRun      context.CancelFunc
-	runFunc        func(context.Context, core.RunRequest) ([]core.RunResult, error)
+	Command            string
+	Targets            []core.Target
+	Status             map[string]core.Status
+	Logs               map[string]string
+	History            []string
+	Focus              Focus
+	Cursor             int
+	HistoryPos         int
+	Filter             string
+	ShowHelp           bool
+	ShowHistory        bool
+	ConfirmRun         bool
+	Running            bool
+	RunError           string
+	Width              int
+	Height             int
+	Mode               core.ExecutionMode
+	Workers            int
+	FailFast           bool
+	SaveLogs           bool
+	DisableLogging     bool
+	LogRoot            string
+	CommandHistoryPath string
+	RunHistoryPath     string
+	cancelRun          context.CancelFunc
+	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
 }
 
 func NewModel(opts Options) Model {
@@ -89,20 +95,30 @@ func NewModel(opts Options) Model {
 	if opts.Command == "" {
 		focus = FocusCommand
 	}
-	return Model{
-		Command:        opts.Command,
-		Targets:        opts.Targets,
-		Status:         status,
-		Logs:           logs,
-		Focus:          focus,
-		Mode:           opts.Mode,
-		Workers:        opts.Workers,
-		FailFast:       opts.FailFast,
-		SaveLogs:       opts.SaveLogs,
-		DisableLogging: opts.DisableLogging,
-		LogRoot:        opts.LogRoot,
-		runFunc:        runner.Run,
+	model := Model{
+		Command:            opts.Command,
+		Targets:            opts.Targets,
+		Status:             status,
+		Logs:               logs,
+		Focus:              focus,
+		Mode:               opts.Mode,
+		Workers:            opts.Workers,
+		FailFast:           opts.FailFast,
+		SaveLogs:           opts.SaveLogs,
+		DisableLogging:     opts.DisableLogging,
+		LogRoot:            opts.LogRoot,
+		CommandHistoryPath: opts.CommandHistoryPath,
+		RunHistoryPath:     opts.RunHistoryPath,
+		runFunc:            runner.Run,
 	}
+	if opts.CommandHistoryPath != "" {
+		if entries, err := history.ReadCommands(opts.CommandHistoryPath); err == nil {
+			for i := len(entries) - 1; i >= 0; i-- {
+				model.History = append(model.History, entries[i].Command)
+			}
+		}
+	}
+	return model
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -260,6 +276,11 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	m.Running = true
 	m.RunError = ""
 	m.addHistory(req.Command)
+	if m.CommandHistoryPath != "" {
+		if err := history.AppendCommand(m.CommandHistoryPath, history.CommandEntry{Command: req.Command, Time: time.Now()}); err != nil {
+			m.RunError = err.Error()
+		}
+	}
 	for _, target := range reqTargets {
 		m.Status[target.ID] = core.StatusRunning
 		m.Logs[target.ID] = ""
@@ -296,7 +317,18 @@ func (m *Model) applyRunDone(done runDoneMsg) {
 	if done.err != nil {
 		m.RunError = done.err.Error()
 	}
+	summary := history.RunEntry{Time: time.Now()}
 	for _, result := range done.results {
+		summary.Command = m.Command
+		summary.Total++
+		switch result.Status {
+		case core.StatusSucceeded:
+			summary.Succeeded++
+		case core.StatusFailed:
+			summary.Failed++
+		case core.StatusCancelled:
+			summary.Cancelled++
+		}
 		m.Status[result.Target.ID] = result.Status
 		var log strings.Builder
 		if result.Output != "" {
@@ -309,6 +341,11 @@ func (m *Model) applyRunDone(done runDoneMsg) {
 			log.WriteString(result.Error)
 		}
 		m.Logs[result.Target.ID] = log.String()
+	}
+	if m.RunHistoryPath != "" && summary.Total > 0 {
+		if err := history.AppendRun(m.RunHistoryPath, summary); err != nil && m.RunError == "" {
+			m.RunError = err.Error()
+		}
 	}
 }
 

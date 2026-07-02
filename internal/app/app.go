@@ -96,14 +96,16 @@ func Run(opts Options) int {
 		mode = core.ModeSerial
 	}
 	if err := tui.Run(tui.Options{
-		Command:        cfg.Command,
-		Targets:        targets,
-		Mode:           mode,
-		Workers:        cfg.Workers,
-		FailFast:       cfg.FailFast,
-		SaveLogs:       cfg.SaveLogs,
-		DisableLogging: cfg.DisableLogging,
-		LogRoot:        filepath.Join(opts.WorkDir, ".runny", "runs"),
+		Command:            cfg.Command,
+		Targets:            targets,
+		Mode:               mode,
+		Workers:            cfg.Workers,
+		FailFast:           cfg.FailFast,
+		SaveLogs:           cfg.SaveLogs,
+		DisableLogging:     cfg.DisableLogging,
+		LogRoot:            filepath.Join(opts.WorkDir, ".runny", "runs"),
+		CommandHistoryPath: filepath.Join(opts.HomeDir, ".runny", "history.jsonl"),
+		RunHistoryPath:     filepath.Join(opts.WorkDir, ".runny", "history.jsonl"),
 	}); err != nil {
 		fmt.Fprintln(opts.Stderr, err)
 		return 1
