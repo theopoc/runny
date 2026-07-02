@@ -396,7 +396,7 @@ func (m Model) render() string {
 
 	b.WriteString(m.renderHeader(width))
 	b.WriteByte('\n')
-	b.WriteString(renderSubHeader(width, m.Filter, m.Focus))
+	b.WriteString(m.renderSubHeader(width))
 	b.WriteByte('\n')
 	left := m.renderDirectoryPanel(leftWidth, panelHeight)
 	right := m.renderLogPanel(rightWidth, panelHeight)
@@ -456,20 +456,24 @@ func (m Model) renderHeader(width int) string {
 	return headerStyle.Render(line)
 }
 
-func renderSubHeader(width int, filter string, focus Focus) string {
-	filterText := filter
+func (m Model) renderSubHeader(width int) string {
+	filterText := m.Filter
 	if filterText == "" {
 		filterText = "<none>"
 	}
 	focusText := "directories"
-	if focus == FocusCommand {
+	if m.Focus == FocusCommand {
 		focusText = "command"
-	} else if focus == FocusFilter {
+	} else if m.Focus == FocusFilter {
 		focusText = "filter"
-	} else if focus == FocusLogs {
+	} else if m.Focus == FocusLogs {
 		focusText = "logs"
 	}
-	line := " filter " + filterText + "  focus " + focusText + "  mode parallel"
+	workers := "auto"
+	if m.Workers > 0 {
+		workers = fmt.Sprintf("%d", m.Workers)
+	}
+	line := " filter " + filterText + "  focus " + focusText + "  mode " + string(m.mode()) + "  workers " + workers
 	return subtleStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
 

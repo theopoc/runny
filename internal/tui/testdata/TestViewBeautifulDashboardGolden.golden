@@ -1,5 +1,5 @@
  runny  pnpm test                                                  3/4 selected  running 1  failed 1
- filter <none>  focus directories  mode parallel
+ filter <none>  focus directories  mode parallel  workers auto
 ╭─ Directories ───────────────────────────────────────────╮  ╭─ Logs ──────────────────────────────╮
 │ SEL  DIR                                STATUS         │  │ focused api                        │
 │ › ●  − api                                   running   │  │ status running                     │
