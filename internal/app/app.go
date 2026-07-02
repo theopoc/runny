@@ -91,7 +91,20 @@ func Run(opts Options) int {
 	if cfg.Auto {
 		return runAuto(opts, cfg, targets)
 	}
-	if err := tui.Run(tui.Options{Command: cfg.Command, Targets: targets}); err != nil {
+	mode := core.ModeParallel
+	if cfg.Serial {
+		mode = core.ModeSerial
+	}
+	if err := tui.Run(tui.Options{
+		Command:        cfg.Command,
+		Targets:        targets,
+		Mode:           mode,
+		Workers:        cfg.Workers,
+		FailFast:       cfg.FailFast,
+		SaveLogs:       cfg.SaveLogs,
+		DisableLogging: cfg.DisableLogging,
+		LogRoot:        filepath.Join(opts.WorkDir, ".runny", "runs"),
+	}); err != nil {
 		fmt.Fprintln(opts.Stderr, err)
 		return 1
 	}

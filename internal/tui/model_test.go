@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -144,6 +145,86 @@ func TestViewBeautifulDashboardGolden(t *testing.T) {
 	got := stripANSI(view.Content)
 	if got != strings.TrimRight(string(want), "\n") {
 		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestModelRunsCommandAndShowsResults(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		return []core.RunResult{
+			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "api ok\n"},
+			{Target: req.Targets[1], Status: core.StatusFailed, Error: "exit status 1", Output: "web bad\n"},
+		}, nil
+	}
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	if cmd == nil {
+		t.Fatal("enter should start a run")
+	}
+	if !model.Running {
+		t.Fatal("model should be running")
+	}
+	if model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusRunning {
+		t.Fatalf("statuses = %#v", model.Status)
+	}
+
+	msg := cmd()
+	updatedModel, _ := model.Update(msg)
+	model = updatedModel.(Model)
+	if model.Running {
+		t.Fatal("model should stop running after results")
+	}
+	if model.Status["api"] != core.StatusSucceeded || model.Status["web"] != core.StatusFailed {
+		t.Fatalf("statuses = %#v", model.Status)
+	}
+	if !strings.Contains(model.Logs["web"], "web bad") || !strings.Contains(model.Logs["web"], "exit status 1") {
+		t.Fatalf("web logs = %q", model.Logs["web"])
+	}
+}
+
+func TestModelHistoryAndRerunFailed(t *testing.T) {
+	model := NewModel(Options{Command: "go test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Status["api"] = core.StatusSucceeded
+	model.Status["web"] = core.StatusFailed
+	model.History = []string{"go test", "pnpm test"}
+
+	model, _ = updateKey(model, "H")
+	if !model.ShowHistory {
+		t.Fatal("history should open")
+	}
+	model, _ = updateSpecialKey(model, tea.KeyDown)
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Command != "pnpm test" {
+		t.Fatalf("command = %q, want history command", model.Command)
+	}
+
+	model, _ = updateKey(model, "R")
+	if !model.ConfirmRun {
+		t.Fatal("R should open rerun confirmation")
+	}
+	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		if len(req.Targets) != 1 || req.Targets[0].ID != "web" {
+			t.Fatalf("rerun targets = %#v", req.Targets)
+		}
+		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "fixed\n"}}, nil
+	}
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	if cmd == nil {
+		t.Fatal("confirm should start rerun")
+	}
+	modelMsg := cmd()
+	updatedModel, _ := model.Update(modelMsg)
+	model = updatedModel.(Model)
+	if model.Status["web"] != core.StatusSucceeded {
+		t.Fatalf("web status = %s", model.Status["web"])
 	}
 }
 

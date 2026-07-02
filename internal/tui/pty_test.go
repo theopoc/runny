@@ -35,11 +35,15 @@ func TestRunnyTUISmokeWithPseudoTTY(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "web"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	wrapper := filepath.Join(tmp, "runny-wrapper.sh")
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nexec \""+bin+"\" -- true\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	capture := filepath.Join(tmp, "typescript")
-	cmd := scriptCommand(capture, bin)
+	cmd := scriptCommand(capture, wrapper)
 	cmd.Dir = root
-	cmd.Stdin = strings.NewReader("\x1b[B q")
+	cmd.Stdin = strings.NewReader("q")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("run TUI through pseudo-tty: %v\n%s", err, out)
 	}

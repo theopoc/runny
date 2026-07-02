@@ -76,9 +76,9 @@ func runOne(ctx context.Context, command string, target core.Target) core.RunRes
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	cmd.Dir = target.AbsPath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	err := cmd.Run()
+	out, err := cmd.CombinedOutput()
 	ended := time.Now()
-	result := core.RunResult{Target: target, Started: started, Ended: ended}
+	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: string(out)}
 	if ctx.Err() != nil {
 		result.Status = core.StatusCancelled
 		result.Error = ctx.Err().Error()

@@ -58,6 +58,7 @@ type RunResult struct {
 	Target   Target
 	Status   Status
 	ExitCode int
+	Output   string
 	Error    string
 	Started  time.Time
 	Ended    time.Time

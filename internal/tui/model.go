@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/saewyn/runny/internal/core"
+	"github.com/saewyn/runny/internal/runner"
 )
 
 var (
@@ -32,44 +34,92 @@ var (
 type Focus int
 
 const (
-	FocusTargets Focus = iota
+	FocusCommand Focus = iota
+	FocusTargets
 	FocusFilter
 	FocusLogs
 )
 
 type Options struct {
-	Command string
-	Targets []core.Target
+	Command        string
+	Targets        []core.Target
+	Mode           core.ExecutionMode
+	Workers        int
+	FailFast       bool
+	SaveLogs       bool
+	DisableLogging bool
+	LogRoot        string
 }
 
 type Model struct {
-	Command     string
-	Targets     []core.Target
-	Status      map[string]core.Status
-	Focus       Focus
-	Cursor      int
-	Filter      string
-	ShowHelp    bool
-	ShowHistory bool
-	ConfirmRun  bool
-	Width       int
-	Height      int
+	Command        string
+	Targets        []core.Target
+	Status         map[string]core.Status
+	Logs           map[string]string
+	History        []string
+	Focus          Focus
+	Cursor         int
+	HistoryPos     int
+	Filter         string
+	ShowHelp       bool
+	ShowHistory    bool
+	ConfirmRun     bool
+	Running        bool
+	RunError       string
+	Width          int
+	Height         int
+	Mode           core.ExecutionMode
+	Workers        int
+	FailFast       bool
+	SaveLogs       bool
+	DisableLogging bool
+	LogRoot        string
+	cancelRun      context.CancelFunc
+	runFunc        func(context.Context, core.RunRequest) ([]core.RunResult, error)
 }
 
 func NewModel(opts Options) Model {
 	status := map[string]core.Status{}
+	logs := map[string]string{}
 	for _, target := range opts.Targets {
 		status[target.ID] = core.StatusQueued
+		logs[target.ID] = ""
 	}
-	return Model{Command: opts.Command, Targets: opts.Targets, Status: status}
+	focus := FocusTargets
+	if opts.Command == "" {
+		focus = FocusCommand
+	}
+	return Model{
+		Command:        opts.Command,
+		Targets:        opts.Targets,
+		Status:         status,
+		Logs:           logs,
+		Focus:          focus,
+		Mode:           opts.Mode,
+		Workers:        opts.Workers,
+		FailFast:       opts.FailFast,
+		SaveLogs:       opts.SaveLogs,
+		DisableLogging: opts.DisableLogging,
+		LogRoot:        opts.LogRoot,
+		runFunc:        runner.Run,
+	}
 }
 
 func (m Model) Init() tea.Cmd { return nil }
+
+type runDoneMsg struct {
+	results []core.RunResult
+	err     error
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.Width = size.Width
 		m.Height = size.Height
+		return m, nil
+	}
+	if done, ok := msg.(runDoneMsg); ok {
+		m.applyRunDone(done)
 		return m, nil
 	}
 	key, ok := msg.(tea.KeyPressMsg)
@@ -80,36 +130,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key.Key().Text != "" {
 		keyName = key.Key().Text
 	}
+	if m.ShowHelp || m.ShowHistory || m.ConfirmRun {
+		return m.handleOverlayKey(keyName)
+	}
 	switch keyName {
 	case "ctrl+c":
 		m.cancelAll()
 		return m, tea.Quit
 	case "esc":
-		if m.Focus == FocusFilter {
+		if m.Focus == FocusFilter || m.Focus == FocusCommand {
 			m.Focus = FocusTargets
 			return m, nil
 		}
 	case "q":
-		if !m.hasActiveRuns() {
+		if !m.hasActiveRuns() && m.Focus != FocusCommand && m.Focus != FocusFilter {
 			return m, tea.Quit
 		}
+	case "enter":
+		return m.startRun(false)
 	case "up", "k":
 		m.moveCursor(-1)
 	case "down", "j":
 		m.moveCursor(1)
 	case "tab":
-		m.Focus = (m.Focus + 1) % 3
+		m.Focus = (m.Focus + 1) % 4
 	case "/":
 		m.Focus = FocusFilter
 	case "backspace":
 		if m.Focus == FocusFilter && len(m.Filter) > 0 {
 			m.Filter = m.Filter[:len(m.Filter)-1]
 			m.ensureCursorVisible()
+		} else if m.Focus == FocusCommand && len(m.Command) > 0 {
+			m.Command = m.Command[:len(m.Command)-1]
 		}
 	case "?":
 		m.ShowHelp = !m.ShowHelp
 	case "H":
 		m.ShowHistory = !m.ShowHistory
+		m.HistoryPos = 0
 	case " ":
 		m.toggleFocused()
 	case "a":
@@ -123,14 +181,151 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "delete":
 		m.cancelSelectedOrFocused()
 	case "R":
-		m.ConfirmRun = true
+		if !m.Running && m.failedCount() > 0 {
+			m.ConfirmRun = true
+		}
 	default:
 		if m.Focus == FocusFilter && key.Key().Text != "" {
 			m.Filter += key.Key().Text
 			m.ensureCursorVisible()
+		} else if m.Focus == FocusCommand && key.Key().Text != "" {
+			m.Command += key.Key().Text
 		}
 	}
 	return m, nil
+}
+
+func (m Model) handleOverlayKey(keyName string) (tea.Model, tea.Cmd) {
+	switch keyName {
+	case "esc", "q":
+		m.ShowHelp = false
+		m.ShowHistory = false
+		m.ConfirmRun = false
+	case "?":
+		m.ShowHelp = !m.ShowHelp
+	case "H":
+		m.ShowHelp = false
+		m.ShowHistory = true
+		m.HistoryPos = 0
+	case "delete":
+		m.cancelSelectedOrFocused()
+	case "up", "k":
+		if m.ShowHistory && m.HistoryPos > 0 {
+			m.HistoryPos--
+		}
+	case "down", "j":
+		if m.ShowHistory && m.HistoryPos < len(m.History)-1 {
+			m.HistoryPos++
+		}
+	case "enter":
+		if m.ShowHistory {
+			if len(m.History) > 0 {
+				m.Command = m.History[m.HistoryPos]
+			}
+			m.ShowHistory = false
+			m.Focus = FocusCommand
+			return m, nil
+		}
+		if m.ConfirmRun {
+			m.ConfirmRun = false
+			return m.startRun(true)
+		}
+		m.ShowHelp = false
+	}
+	return m, nil
+}
+
+func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
+	if m.Running || strings.TrimSpace(m.Command) == "" {
+		return m, nil
+	}
+	targets := m.targetsForRun(failedOnly)
+	if len(targets) == 0 {
+		m.RunError = "no selected targets"
+		return m, nil
+	}
+	reqTargets := append([]core.Target(nil), targets...)
+	req := core.RunRequest{
+		Command:        strings.TrimSpace(m.Command),
+		Targets:        reqTargets,
+		Mode:           m.mode(),
+		Workers:        m.Workers,
+		FailFast:       m.FailFast,
+		SaveLogs:       m.SaveLogs,
+		DisableLogging: m.DisableLogging,
+		LogRoot:        m.LogRoot,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.Running = true
+	m.RunError = ""
+	m.addHistory(req.Command)
+	for _, target := range reqTargets {
+		m.Status[target.ID] = core.StatusRunning
+		m.Logs[target.ID] = ""
+	}
+	runFunc := m.runFunc
+	if runFunc == nil {
+		runFunc = runner.Run
+	}
+	return m, func() tea.Msg {
+		results, err := runFunc(ctx, req)
+		return runDoneMsg{results: results, err: err}
+	}
+}
+
+func (m Model) targetsForRun(failedOnly bool) []core.Target {
+	targets := make([]core.Target, 0, len(m.Targets))
+	for _, target := range m.Targets {
+		if failedOnly {
+			if m.Status[target.ID] != core.StatusFailed {
+				continue
+			}
+			target.Selected = true
+		}
+		if target.Selected {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+func (m *Model) applyRunDone(done runDoneMsg) {
+	m.Running = false
+	m.cancelRun = nil
+	if done.err != nil {
+		m.RunError = done.err.Error()
+	}
+	for _, result := range done.results {
+		m.Status[result.Target.ID] = result.Status
+		var log strings.Builder
+		if result.Output != "" {
+			log.WriteString(result.Output)
+		}
+		if result.Error != "" {
+			if log.Len() > 0 && !strings.HasSuffix(log.String(), "\n") {
+				log.WriteByte('\n')
+			}
+			log.WriteString(result.Error)
+		}
+		m.Logs[result.Target.ID] = log.String()
+	}
+}
+
+func (m *Model) addHistory(command string) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return
+	}
+	for _, item := range m.History {
+		if item == command {
+			return
+		}
+	}
+	m.History = append([]string{command}, m.History...)
+	if len(m.History) > 50 {
+		m.History = m.History[:50]
+	}
 }
 
 func (m Model) View() tea.View {
@@ -172,6 +367,7 @@ func (m Model) render() string {
 	if m.ShowHelp {
 		b.WriteString("\n\n")
 		b.WriteString(renderBox(width, "Shortcuts", []string{
+			"tab focus command/directories/filter/logs   enter run",
 			"space toggle   a select all   A deselect all   / filter",
 			"up/down or j/k move   left fold   right/l unfold",
 			"H history   del cancel selected running   R rerun failed",
@@ -180,7 +376,18 @@ func (m Model) render() string {
 	}
 	if m.ShowHistory {
 		b.WriteString("\n\n")
-		b.WriteString(renderBox(width, "History", []string{"No command history loaded yet."}))
+		b.WriteString(renderBox(width, "History", m.historyRows()))
+	}
+	if m.ConfirmRun {
+		b.WriteString("\n\n")
+		b.WriteString(renderBox(width, "Rerun failed", []string{
+			fmt.Sprintf("%d failed target(s) will run again.", m.failedCount()),
+			"enter confirm   esc cancel",
+		}))
+	}
+	if m.RunError != "" {
+		b.WriteString("\n")
+		b.WriteString(statusStyles[core.StatusFailed].Render(" " + m.RunError))
 	}
 	b.WriteByte('\n')
 	b.WriteString(renderFooter(width))
@@ -218,13 +425,22 @@ func renderSubHeader(width int, filter string, focus Focus) string {
 		filterText = "<none>"
 	}
 	focusText := "directories"
-	if focus == FocusFilter {
+	if focus == FocusCommand {
+		focusText = "command"
+	} else if focus == FocusFilter {
 		focusText = "filter"
 	} else if focus == FocusLogs {
 		focusText = "logs"
 	}
 	line := " filter " + filterText + "  focus " + focusText + "  mode parallel"
 	return subtleStyle.Render(padRightVisible(truncateVisible(line, width), width))
+}
+
+func (m Model) mode() core.ExecutionMode {
+	if m.Mode == "" {
+		return core.ModeParallel
+	}
+	return m.Mode
 }
 
 func (m Model) renderDirectoryPanel(width int, height int) []string {
@@ -278,6 +494,11 @@ func (m Model) renderLogPanel(width int, height int) []string {
 		target := m.Targets[m.Cursor]
 		lines = append(lines, "focused "+target.RelPath)
 		lines = append(lines, "status "+string(m.Status[target.ID]))
+		if log := strings.TrimRight(m.Logs[target.ID], "\n"); log != "" {
+			lines = append(lines, "", "output")
+			lines = append(lines, strings.Split(log, "\n")...)
+			return boxLines(width, height, "Logs", lines, false)
+		}
 	} else {
 		lines = append(lines, "focused none")
 		lines = append(lines, "status none")
@@ -359,6 +580,25 @@ func renderFooter(width int) string {
 	return footerStyle.Render(padRightVisible(truncateVisible(text, width), width))
 }
 
+func (m Model) historyRows() []string {
+	if len(m.History) == 0 {
+		return []string{"No command history yet."}
+	}
+	rows := make([]string, 0, min(len(m.History), 8)+1)
+	for i, command := range m.History {
+		if i >= 8 {
+			break
+		}
+		prefix := "  "
+		if i == m.HistoryPos {
+			prefix = "› "
+		}
+		rows = append(rows, prefix+command)
+	}
+	rows = append(rows, "", "enter reuse   esc close")
+	return rows
+}
+
 func visibleJoin(left string, right string, width int) string {
 	space := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
 	return truncateVisible(left+strings.Repeat(" ", space)+right, width)
@@ -415,6 +655,9 @@ func (m *Model) setFolded(folded bool) {
 }
 
 func (m *Model) cancelSelectedOrFocused() {
+	if m.cancelRun != nil {
+		m.cancelRun()
+	}
 	cancelled := false
 	for _, target := range m.Targets {
 		if target.Selected && m.Status[target.ID] == core.StatusRunning {
@@ -428,6 +671,9 @@ func (m *Model) cancelSelectedOrFocused() {
 }
 
 func (m *Model) cancelAll() {
+	if m.cancelRun != nil {
+		m.cancelRun()
+	}
 	for id, status := range m.Status {
 		if status == core.StatusRunning || status == core.StatusQueued {
 			m.Status[id] = core.StatusCancelled
@@ -436,12 +682,25 @@ func (m *Model) cancelAll() {
 }
 
 func (m Model) hasActiveRuns() bool {
+	if m.Running {
+		return true
+	}
 	for _, status := range m.Status {
 		if status == core.StatusRunning {
 			return true
 		}
 	}
 	return false
+}
+
+func (m Model) failedCount() int {
+	count := 0
+	for _, status := range m.Status {
+		if status == core.StatusFailed {
+			count++
+		}
+	}
+	return count
 }
 
 func (m Model) visible(target core.Target) bool {
