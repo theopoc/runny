@@ -189,12 +189,13 @@ func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
 	}})
+	model.ShowHelp = true
 
 	view := model.View()
 	if !view.AltScreen {
 		t.Fatal("view should use alt screen")
 	}
-	for _, want := range []string{"Directories", "Logs", "Shortcuts"} {
+	for _, want := range []string{"Directories", "Logs", "Shortcuts", "selected run/q"} {
 		if !strings.Contains(view.Content, want) {
 			t.Fatalf("view content should contain %q:\n%s", want, view.Content)
 		}

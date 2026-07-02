@@ -544,7 +544,7 @@ func (m Model) render() string {
 			"tab focus command/directories/filter/logs   enter run",
 			"space toggle   a select all   A deselect all   / filter",
 			"up/down or j/k move   left fold   right/l unfold",
-			"H history   del cancel selected running   R rerun failed",
+			"H history   del cancel selected run/q   R rerun failed",
 			"ctrl+c cancel active runs and quit   q quit when idle",
 		}))
 	}
