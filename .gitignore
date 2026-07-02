@@ -1,0 +1,7 @@
+/.worktrees/
+/.runny/runs/
+/.superpowers/
+/.claude/
+/dist/
+/runny
+*.test
