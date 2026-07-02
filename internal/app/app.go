@@ -124,6 +124,7 @@ func runAuto(opts Options, cfg config.Config, targets []core.Target) int {
 		Mode:           mode,
 		Workers:        cfg.Workers,
 		FailFast:       cfg.FailFast,
+		SaveLogs:       cfg.SaveLogs,
 		DisableLogging: cfg.DisableLogging,
 		LogRoot:        filepath.Join(opts.WorkDir, ".runny", "runs"),
 	})

@@ -44,6 +44,44 @@ func TestRunnerMarksFailure(t *testing.T) {
 	}
 }
 
+func TestRunnerRespectsLoggingOptions(t *testing.T) {
+	target := core.Target{ID: "api/service", RelPath: "api/service", AbsPath: t.TempDir(), Selected: true}
+	logRoot := t.TempDir()
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:  "echo hello",
+		Targets:  []core.Target{target},
+		Mode:     core.ModeSerial,
+		SaveLogs: true,
+		LogRoot:  logRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Output != "hello\n" {
+		t.Fatalf("output = %q", results[0].Output)
+	}
+	data, err := os.ReadFile(filepath.Join(logRoot, "api_service.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello\n" {
+		t.Fatalf("saved log = %q", data)
+	}
+
+	results, err = Run(context.Background(), core.RunRequest{
+		Command:        "echo hidden",
+		Targets:        []core.Target{target},
+		Mode:           core.ModeSerial,
+		DisableLogging: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Output != "" {
+		t.Fatalf("disabled output = %q", results[0].Output)
+	}
+}
+
 func TestRunnerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

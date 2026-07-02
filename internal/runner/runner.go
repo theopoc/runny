@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/saewyn/runny/internal/core"
+	"github.com/saewyn/runny/internal/logs"
 )
 
 func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
@@ -22,6 +23,10 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		return nil, errors.New("no selected targets")
 	}
 	results := make([]core.RunResult, len(targets))
+	logStore, err := logs.NewStore(logs.Options{Root: req.LogRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
+	if err != nil {
+		return nil, err
+	}
 	if ctx.Err() != nil {
 		for i, target := range targets {
 			results[i] = cancelledResult(target)
@@ -44,7 +49,7 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
-				result := runOne(runCtx, req.Command, targets[idx])
+				result := runOne(runCtx, req.Command, targets[idx], logStore, req.DisableLogging)
 				results[idx] = result
 				if req.FailFast && result.Status == core.StatusFailed {
 					cancel()
@@ -69,7 +74,7 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 	return results, nil
 }
 
-func runOne(ctx context.Context, command string, target core.Target) core.RunResult {
+func runOne(ctx context.Context, command string, target core.Target, logStore *logs.Store, disableLogging bool) core.RunResult {
 	started := time.Now()
 	if ctx.Err() != nil {
 		return cancelledResult(target)
@@ -97,7 +102,14 @@ func runOne(ctx context.Context, command string, target core.Target) core.RunRes
 		}
 	}
 	ended := time.Now()
-	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: out.String()}
+	output := out.String()
+	if output != "" && logStore != nil {
+		_ = logStore.Append(target.ID, output)
+	}
+	if disableLogging {
+		output = ""
+	}
+	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: output}
 	if ctx.Err() != nil {
 		result.Status = core.StatusCancelled
 		result.Error = ctx.Err().Error()
