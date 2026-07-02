@@ -51,6 +51,7 @@ Flags:
 | `--serial` | `-s` | Run targets one by one. Incompatible with `--workers`. |
 | `--fail-fast` | `-f` | Stop queued work and cancel active runs after first failure. |
 | `--save-logs` | `-L` | Persist logs under `.runny/runs/<timestamp>/`. |
+| `--disable-logging` | `-N` | Disable per-target log capture. Logging is enabled by default. |
 | `--config PATH` | `-c PATH` | Load an explicit config file. |
 | `--version` | `-V` | Print version and exit. |
 | `--help` | `-h` | Print help and exit. |
@@ -59,6 +60,7 @@ Validation:
 
 - `--include` and `--exclude` are mutually exclusive in the MVP.
 - `--serial` and `--workers` are mutually exclusive.
+- `--disable-logging` and `--save-logs` are mutually exclusive.
 - `--depth` must be `>= 0`.
 - `--auto` requires a command.
 - `--version` exits before discovery or config validation that is unrelated to version output.
@@ -69,7 +71,7 @@ Default discovery:
 
 - Starts from current working directory.
 - Lists direct child directories only.
-- Ignores hidden directories by default.
+- Excludes hidden directories by default.
 - Ignores symlinked directories by default.
 - Selects all discovered targets initially.
 
@@ -122,9 +124,11 @@ workers: 0
 serial: false
 fail_fast: false
 save_logs: false
+disable_logging: false
 ```
 
 `workers: 0` means auto workers: `min(runtime.NumCPU(), selected_target_count)`.
+`disable_logging: false` means per-target log capture is enabled by default.
 
 ## Architecture
 
@@ -135,7 +139,7 @@ Packages:
 - `internal/discovery`: directory scan, depth handling, hidden handling, symlink handling, include/exclude filtering.
 - `internal/runner`: shell execution, worker pool, serial mode, cancellation, events.
 - `internal/history`: global command history and project run history.
-- `internal/logs`: in-memory log buffers and optional file persistence.
+- `internal/logs`: optional in-memory log buffers and optional file persistence.
 - `internal/tui`: Bubble Tea application, Bubbles components, key handling, overlays.
 
 Data flow:
@@ -151,7 +155,7 @@ Data flow:
 
 Core model:
 
-- `RunRequest`: command, targets, execution mode, workers, fail-fast, save-logs.
+- `RunRequest`: command, targets, execution mode, workers, fail-fast, save-logs, disable-logging.
 - `Target`: relative path, absolute path, parent/children links, selected state, folded state, symlink flag.
 - `TargetResult`: status, exit code, duration, log path if saved.
 - `RunnerEvent`: target status changes and output chunks.
@@ -247,15 +251,24 @@ Re-run failed:
 
 Default:
 
-- Logs are held in memory per target.
+- Per-target log capture is enabled by default.
+- Logs are held in memory per target unless logging is disabled.
 - TUI shows logs for the focused target.
 - Auto mode prefixes output by target or prints a structured summary at the end.
+
+Disabled logging:
+
+- `--disable-logging` / `-N` disables per-target log capture.
+- `disable_logging: true` disables per-target log capture from config.
+- When logging is disabled, the TUI still shows target statuses and final errors, but does not keep full stdout/stderr buffers.
+- Disabled logging is useful for very noisy commands or very large target sets.
 
 Optional persistence:
 
 - `--save-logs` writes files under `.runny/runs/<timestamp>/`.
 - Each target gets a sanitized log filename.
 - Run metadata records command, start time, end time, target statuses, and log paths.
+- `--save-logs` requires logging to remain enabled.
 
 ## History
 
@@ -283,7 +296,7 @@ Initial `README.md` should include:
 - `--auto` usage examples.
 - Config file examples for `~/.runny.yaml` and `./.runny.yaml`.
 - Keybindings.
-- History and log behavior.
+- History, default log behavior, `--disable-logging`, and `--save-logs`.
 - Release/install notes.
 
 ## CI and Release
@@ -311,6 +324,7 @@ Unit tests:
 - Config precedence and validation.
 - Discovery depth, hidden handling, symlink skipping, include/exclude behavior.
 - Runner worker count, serial mode, fail-fast, cancellation, exit-code summary.
+- Logging defaults, disabled logging, and `save_logs` conflict validation.
 - History read/write and retention.
 
 TUI tests:
