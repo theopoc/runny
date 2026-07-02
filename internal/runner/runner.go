@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os/exec"
@@ -73,12 +74,30 @@ func runOne(ctx context.Context, command string, target core.Target) core.RunRes
 	if ctx.Err() != nil {
 		return cancelledResult(target)
 	}
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = target.AbsPath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	out, err := cmd.CombinedOutput()
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Start()
+	if err == nil {
+		done := make(chan error, 1)
+		go func() {
+			done <- cmd.Wait()
+		}()
+		select {
+		case err = <-done:
+		case <-ctx.Done():
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				_ = cmd.Process.Kill()
+			}
+			err = <-done
+		}
+	}
 	ended := time.Now()
-	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: string(out)}
+	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: out.String()}
 	if ctx.Err() != nil {
 		result.Status = core.StatusCancelled
 		result.Error = ctx.Err().Error()
