@@ -267,6 +267,89 @@ func TestModelCancelsOnlySelectedRunningTarget(t *testing.T) {
 	}
 }
 
+func TestModelHonorsSerialMode(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Mode: core.ModeSerial, Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded}}, nil
+	}
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	if model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusQueued {
+		t.Fatalf("serial initial statuses = %#v", model.Status)
+	}
+	model, next := applyOneCmd(t, model, cmd)
+	if model.Status["api"] != core.StatusSucceeded || model.Status["web"] != core.StatusRunning {
+		t.Fatalf("serial after first completion statuses = %#v", model.Status)
+	}
+	if next == nil {
+		t.Fatal("serial should schedule next target")
+	}
+	model, next = applyOneCmd(t, model, next)
+	if next != nil {
+		t.Fatal("serial should have no more commands")
+	}
+	if model.Running {
+		t.Fatal("serial run should be complete")
+	}
+	if model.Status["web"] != core.StatusSucceeded {
+		t.Fatalf("web status = %s", model.Status["web"])
+	}
+}
+
+func TestModelHonorsWorkerLimit(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Workers: 2, Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "worker", RelPath: "worker", Selected: true},
+	}})
+	updated, _ := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	if model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusRunning || model.Status["worker"] != core.StatusQueued {
+		t.Fatalf("worker-limited statuses = %#v", model.Status)
+	}
+}
+
+func TestModelCancelsSelectedQueuedTargets(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Workers: 1, Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "worker", RelPath: "worker", Selected: true},
+	}})
+	updated, _ := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	model.Targets[0].Selected = false
+
+	model, _ = updateKey(model, "delete")
+	if model.Status["api"] != core.StatusRunning {
+		t.Fatalf("active unselected target should keep running: %#v", model.Status)
+	}
+	if model.Status["web"] != core.StatusCancelled || model.Status["worker"] != core.StatusCancelled {
+		t.Fatalf("queued selected targets should be cancelled: %#v", model.Status)
+	}
+	if model.PendingRuns != 1 {
+		t.Fatalf("pending runs = %d, want only active target", model.PendingRuns)
+	}
+	if len(model.runQueue) != 0 {
+		t.Fatalf("queue should be empty after cancelling queued targets: %#v", model.runQueue)
+	}
+
+	updatedModel, next := model.Update(runDoneMsg{targetID: "api", results: []core.RunResult{{Target: model.Targets[0], Status: core.StatusSucceeded}}})
+	model = updatedModel.(Model)
+	if next != nil {
+		t.Fatal("no follow-up command expected after queue was cancelled")
+	}
+	if model.Running {
+		t.Fatal("model should stop after active target completes")
+	}
+	if len(model.completedResults) != 3 {
+		t.Fatalf("completed results = %#v", model.completedResults)
+	}
+}
+
 func TestModelHistoryAndRerunFailed(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
@@ -403,4 +486,21 @@ func applyCmd(t *testing.T, model Model, cmd tea.Cmd) Model {
 	}
 	updated, _ := model.Update(msg)
 	return updated.(Model)
+}
+
+func applyOneCmd(t *testing.T, model Model, cmd tea.Cmd) (Model, tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		return model, nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var next tea.Cmd
+		for _, child := range batch {
+			model, next = applyOneCmd(t, model, child)
+		}
+		return model, next
+	}
+	updated, next := model.Update(msg)
+	return updated.(Model), next
 }

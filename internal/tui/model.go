@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -71,6 +72,8 @@ type Model struct {
 	ConfirmRun         bool
 	Running            bool
 	PendingRuns        int
+	runCtx             context.Context
+	runQueue           []core.Target
 	completedResults   []core.RunResult
 	RunError           string
 	Width              int
@@ -148,8 +151,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if done, ok := msg.(runDoneMsg); ok {
-		m.applyRunDone(done)
-		return m, nil
+		cmd := m.applyRunDone(done)
+		return m, cmd
 	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -303,52 +306,30 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	reqTargets := append([]core.Target(nil), targets...)
-	req := core.RunRequest{
-		Command:        strings.TrimSpace(m.Command),
-		Targets:        reqTargets,
-		Mode:           m.mode(),
-		Workers:        m.Workers,
-		FailFast:       m.FailFast,
-		SaveLogs:       m.SaveLogs,
-		DisableLogging: m.DisableLogging,
-		LogRoot:        m.LogRoot,
-	}
 	ctx, cancel := context.WithCancel(context.Background())
+	if m.targetCancels == nil {
+		m.targetCancels = map[string]context.CancelFunc{}
+	}
 	m.cancelRun = cancel
+	m.runCtx = ctx
+	m.targetCancels = map[string]context.CancelFunc{}
 	m.Running = true
 	m.PendingRuns = len(reqTargets)
+	m.runQueue = append([]core.Target(nil), reqTargets...)
 	m.completedResults = nil
 	m.RunError = ""
-	m.addHistory(req.Command)
+	command := strings.TrimSpace(m.Command)
+	m.addHistory(command)
 	if m.CommandHistoryPath != "" {
-		if err := history.AppendCommand(m.CommandHistoryPath, history.CommandEntry{Command: req.Command, Time: time.Now()}); err != nil {
+		if err := history.AppendCommand(m.CommandHistoryPath, history.CommandEntry{Command: command, Time: time.Now()}); err != nil {
 			m.RunError = err.Error()
 		}
 	}
 	for _, target := range reqTargets {
-		m.Status[target.ID] = core.StatusRunning
+		m.Status[target.ID] = core.StatusQueued
 		m.Logs[target.ID] = ""
 	}
-	runFunc := m.runFunc
-	if runFunc == nil {
-		runFunc = runner.Run
-	}
-	cmds := make([]tea.Cmd, 0, len(reqTargets))
-	if m.targetCancels == nil {
-		m.targetCancels = map[string]context.CancelFunc{}
-	}
-	for _, target := range reqTargets {
-		target := target
-		targetCtx, targetCancel := context.WithCancel(ctx)
-		m.targetCancels[target.ID] = targetCancel
-		targetReq := req
-		targetReq.Targets = []core.Target{target}
-		cmds = append(cmds, func() tea.Msg {
-			results, err := runFunc(targetCtx, targetReq)
-			return runDoneMsg{targetID: target.ID, results: results, err: err}
-		})
-	}
-	return m, tea.Batch(cmds...)
+	return m.startQueuedRuns()
 }
 
 func (m Model) targetsForRun(failedOnly bool) []core.Target {
@@ -367,7 +348,7 @@ func (m Model) targetsForRun(failedOnly bool) []core.Target {
 	return targets
 }
 
-func (m *Model) applyRunDone(done runDoneMsg) {
+func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 	if done.targetID != "" {
 		delete(m.targetCancels, done.targetID)
 	}
@@ -379,7 +360,7 @@ func (m *Model) applyRunDone(done runDoneMsg) {
 	}
 	for _, result := range done.results {
 		if m.Status[result.Target.ID] == core.StatusCancelled && result.Status != core.StatusCancelled {
-			continue
+			result.Status = core.StatusCancelled
 		}
 		m.Status[result.Target.ID] = result.Status
 		m.completedResults = append(m.completedResults, result)
@@ -398,8 +379,82 @@ func (m *Model) applyRunDone(done runDoneMsg) {
 	if m.PendingRuns == 0 {
 		m.appendRunHistory()
 		m.Running = false
+		m.runCtx = nil
+		m.runQueue = nil
 		m.cancelRun = nil
+		m.targetCancels = map[string]context.CancelFunc{}
+		return nil
 	}
+	next, cmd := m.startQueuedRuns()
+	*m = next
+	return cmd
+}
+
+func (m Model) startQueuedRuns() (Model, tea.Cmd) {
+	if !m.Running {
+		return m, nil
+	}
+	limit := m.workerLimit()
+	if limit <= 0 {
+		limit = 1
+	}
+	available := limit - len(m.targetCancels)
+	if available <= 0 || len(m.runQueue) == 0 {
+		return m, nil
+	}
+	cmds := make([]tea.Cmd, 0, available)
+	for available > 0 && len(m.runQueue) > 0 {
+		target := m.runQueue[0]
+		m.runQueue = m.runQueue[1:]
+		cmds = append(cmds, m.startTargetCmd(target))
+		available--
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
+	ctx := m.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	targetCtx, targetCancel := context.WithCancel(ctx)
+	if m.targetCancels == nil {
+		m.targetCancels = map[string]context.CancelFunc{}
+	}
+	m.targetCancels[target.ID] = targetCancel
+	m.Status[target.ID] = core.StatusRunning
+	runFunc := m.runFunc
+	if runFunc == nil {
+		runFunc = runner.Run
+	}
+	req := core.RunRequest{
+		Command:        strings.TrimSpace(m.Command),
+		Targets:        []core.Target{target},
+		Mode:           core.ModeSerial,
+		Workers:        1,
+		FailFast:       m.FailFast,
+		SaveLogs:       m.SaveLogs,
+		DisableLogging: m.DisableLogging,
+		LogRoot:        m.LogRoot,
+	}
+	return func() tea.Msg {
+		results, err := runFunc(targetCtx, req)
+		return runDoneMsg{targetID: target.ID, results: results, err: err}
+	}
+}
+
+func (m Model) workerLimit() int {
+	if m.mode() == core.ModeSerial {
+		return 1
+	}
+	if m.Workers > 0 {
+		return m.Workers
+	}
+	cpus := runtime.NumCPU()
+	if cpus < 1 {
+		return 1
+	}
+	return cpus
 }
 
 func (m *Model) appendRunHistory() {
@@ -808,23 +863,54 @@ func (m *Model) setFolded(folded bool) {
 func (m *Model) cancelSelectedOrFocused() {
 	cancelled := false
 	for _, target := range m.Targets {
-		if target.Selected && m.Status[target.ID] == core.StatusRunning {
-			if cancel := m.targetCancels[target.ID]; cancel != nil {
-				cancel()
-				delete(m.targetCancels, target.ID)
-			}
-			m.Status[target.ID] = core.StatusCancelled
-			cancelled = true
+		if target.Selected {
+			cancelled = m.cancelTarget(target) || cancelled
 		}
 	}
-	if !cancelled && len(m.Targets) > 0 && m.Status[m.Targets[m.Cursor].ID] == core.StatusRunning {
-		target := m.Targets[m.Cursor]
+	if !cancelled && len(m.Targets) > 0 {
+		m.ensureCursorVisible()
+		m.cancelTarget(m.Targets[m.Cursor])
+	}
+}
+
+func (m *Model) cancelTarget(target core.Target) bool {
+	switch m.Status[target.ID] {
+	case core.StatusRunning:
 		if cancel := m.targetCancels[target.ID]; cancel != nil {
 			cancel()
-			delete(m.targetCancels, target.ID)
 		}
 		m.Status[target.ID] = core.StatusCancelled
+		return true
+	case core.StatusQueued:
+		if !m.removeQueuedTarget(target.ID) {
+			return false
+		}
+		m.Status[target.ID] = core.StatusCancelled
+		if m.PendingRuns > 0 {
+			m.PendingRuns--
+		}
+		m.completedResults = append(m.completedResults, core.RunResult{Target: target, Status: core.StatusCancelled})
+		if m.PendingRuns == 0 {
+			m.appendRunHistory()
+			m.Running = false
+			m.runCtx = nil
+			m.cancelRun = nil
+			m.runQueue = nil
+			m.targetCancels = map[string]context.CancelFunc{}
+		}
+		return true
 	}
+	return false
+}
+
+func (m *Model) removeQueuedTarget(id string) bool {
+	for index, target := range m.runQueue {
+		if target.ID == id {
+			m.runQueue = append(m.runQueue[:index], m.runQueue[index+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) cancelAll() {
