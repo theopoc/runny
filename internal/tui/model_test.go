@@ -295,6 +295,26 @@ func TestModelPersistsHistory(t *testing.T) {
 	}
 }
 
+func TestModelHistoryOverlayShowsProjectRuns(t *testing.T) {
+	tmp := t.TempDir()
+	runHistory := filepath.Join(tmp, "project-history.jsonl")
+	if err := history.AppendRun(runHistory, history.RunEntry{Command: "go test", Total: 2, Succeeded: 1, Failed: 1}); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Options{
+		Command:        "echo ok",
+		RunHistoryPath: runHistory,
+		Targets:        []core.Target{{ID: "api", RelPath: "api", Selected: true}},
+	})
+	model, _ = updateKey(model, "H")
+	view := stripANSI(model.View().Content)
+	for _, want := range []string{"Project runs", "go test", "1 ok", "1 failed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("history overlay should contain %q:\n%s", want, view)
+		}
+	}
+}
+
 func updateKey(model Model, key string) (Model, tea.Cmd) {
 	msg := tea.KeyPressMsg(tea.Key{Text: key})
 	if key == "delete" {

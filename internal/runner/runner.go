@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -23,7 +24,11 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		return nil, errors.New("no selected targets")
 	}
 	results := make([]core.RunResult, len(targets))
-	logStore, err := logs.NewStore(logs.Options{Root: req.LogRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
+	logRoot := req.LogRoot
+	if req.SaveLogs && !req.DisableLogging {
+		logRoot = filepath.Join(req.LogRoot, time.Now().UTC().Format("20060102T150405.000000000Z"))
+	}
+	logStore, err := logs.NewStore(logs.Options{Root: logRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
 	if err != nil {
 		return nil, err
 	}

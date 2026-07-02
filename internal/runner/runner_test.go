@@ -60,7 +60,14 @@ func TestRunnerRespectsLoggingOptions(t *testing.T) {
 	if results[0].Output != "hello\n" {
 		t.Fatalf("output = %q", results[0].Output)
 	}
-	data, err := os.ReadFile(filepath.Join(logRoot, "api_service.log"))
+	matches, err := filepath.Glob(filepath.Join(logRoot, "*", "api_service.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("saved logs = %#v, want one run-scoped log file", matches)
+	}
+	data, err := os.ReadFile(matches[0])
 	if err != nil {
 		t.Fatal(err)
 	}

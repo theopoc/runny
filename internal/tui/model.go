@@ -61,6 +61,7 @@ type Model struct {
 	Status             map[string]core.Status
 	Logs               map[string]string
 	History            []string
+	RunHistory         []history.RunEntry
 	Focus              Focus
 	Cursor             int
 	HistoryPos         int
@@ -115,6 +116,13 @@ func NewModel(opts Options) Model {
 		if entries, err := history.ReadCommands(opts.CommandHistoryPath); err == nil {
 			for i := len(entries) - 1; i >= 0; i-- {
 				model.History = append(model.History, entries[i].Command)
+			}
+		}
+	}
+	if opts.RunHistoryPath != "" {
+		if entries, err := history.ReadRuns(opts.RunHistoryPath); err == nil {
+			for i := len(entries) - 1; i >= 0; i-- {
+				model.RunHistory = append(model.RunHistory, entries[i])
 			}
 		}
 	}
@@ -230,13 +238,13 @@ func (m Model) handleOverlayKey(keyName string) (tea.Model, tea.Cmd) {
 			m.HistoryPos--
 		}
 	case "down", "j":
-		if m.ShowHistory && m.HistoryPos < len(m.History)-1 {
+		if m.ShowHistory && m.HistoryPos < m.selectableHistoryLen()-1 {
 			m.HistoryPos++
 		}
 	case "enter":
 		if m.ShowHistory {
 			if len(m.History) > 0 {
-				m.Command = m.History[m.HistoryPos]
+				m.Command = m.History[m.clampHistoryPos()]
 			}
 			m.ShowHistory = false
 			m.Focus = FocusCommand
@@ -345,6 +353,10 @@ func (m *Model) applyRunDone(done runDoneMsg) {
 	if m.RunHistoryPath != "" && summary.Total > 0 {
 		if err := history.AppendRun(m.RunHistoryPath, summary); err != nil && m.RunError == "" {
 			m.RunError = err.Error()
+		}
+		m.RunHistory = append([]history.RunEntry{summary}, m.RunHistory...)
+		if len(m.RunHistory) > 100 {
+			m.RunHistory = m.RunHistory[:100]
 		}
 	}
 }
@@ -622,22 +634,52 @@ func renderFooter(width int) string {
 }
 
 func (m Model) historyRows() []string {
+	rows := []string{"Commands"}
 	if len(m.History) == 0 {
-		return []string{"No command history yet."}
-	}
-	rows := make([]string, 0, min(len(m.History), 8)+1)
-	for i, command := range m.History {
-		if i >= 8 {
-			break
+		rows = append(rows, "  No command history yet.")
+	} else {
+		for i, command := range m.History {
+			if i >= 6 {
+				break
+			}
+			prefix := "  "
+			if i == m.HistoryPos {
+				prefix = "› "
+			}
+			rows = append(rows, prefix+command)
 		}
-		prefix := "  "
-		if i == m.HistoryPos {
-			prefix = "› "
-		}
-		rows = append(rows, prefix+command)
 	}
-	rows = append(rows, "", "enter reuse   esc close")
+	rows = append(rows, "", "Project runs")
+	if len(m.RunHistory) == 0 {
+		rows = append(rows, "  No project runs yet.")
+	} else {
+		for i, run := range m.RunHistory {
+			if i >= 5 {
+				break
+			}
+			rows = append(rows, fmt.Sprintf("  %s  %d total  %d ok  %d failed  %d cancelled", run.Command, run.Total, run.Succeeded, run.Failed, run.Cancelled))
+		}
+	}
+	rows = append(rows, "", "enter reuse command   esc close")
 	return rows
+}
+
+func (m Model) selectableHistoryLen() int {
+	if len(m.History) > 6 {
+		return 6
+	}
+	return len(m.History)
+}
+
+func (m Model) clampHistoryPos() int {
+	limit := m.selectableHistoryLen()
+	if limit == 0 {
+		return 0
+	}
+	if m.HistoryPos >= limit {
+		return limit - 1
+	}
+	return m.HistoryPos
 }
 
 func visibleJoin(left string, right string, width int) string {

@@ -40,7 +40,14 @@ func TestRunAutoModeSaveLogs(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d output=%s", code, out.String())
 	}
-	data, err := os.ReadFile(filepath.Join(root, ".runny", "runs", "api.log"))
+	matches, err := filepath.Glob(filepath.Join(root, ".runny", "runs", "*", "api.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("saved logs = %#v, want one run-scoped log file", matches)
+	}
+	data, err := os.ReadFile(matches[0])
 	if err != nil {
 		t.Fatal(err)
 	}
