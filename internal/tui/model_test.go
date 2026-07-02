@@ -85,6 +85,26 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	}
 }
 
+func TestModelFilterKeepsParentContext(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model, _ = updateKey(model, "/")
+	model, _ = updateKey(model, "c")
+	model, _ = updateKey(model, "m")
+	model, _ = updateKey(model, "d")
+
+	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
+	if strings.Count(view, "api") < 2 || !strings.Contains(view, "api/cmd") {
+		t.Fatalf("filtered directory panel should keep parent context:\n%s", view)
+	}
+	if strings.Contains(view, "web") {
+		t.Fatalf("filtered view should hide non-matching sibling:\n%s", view)
+	}
+}
+
 func TestModelOverlaysAndCancelSelection(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusRunning

@@ -741,7 +741,15 @@ func (m Model) failedCount() int {
 }
 
 func (m Model) visible(target core.Target) bool {
-	return m.Filter == "" || strings.Contains(target.RelPath, m.Filter)
+	if m.Filter == "" || strings.Contains(target.RelPath, m.Filter) {
+		return true
+	}
+	for _, candidate := range m.Targets {
+		if candidate.ParentID == target.ID && m.visible(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) moveCursor(delta int) {
