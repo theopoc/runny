@@ -55,6 +55,15 @@ func TestStrictYamlRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestStrictYamlRejectsAutoField(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, ".runny.yaml"), "auto: true\n")
+	_, err := Load(LoadOptions{HomeDir: dir, WorkDir: dir})
+	if err == nil {
+		t.Fatal("expected auto field to be rejected")
+	}
+}
+
 func write(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

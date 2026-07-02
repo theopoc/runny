@@ -3,12 +3,12 @@ package cli
 import (
 	"errors"
 	"flag"
+	"io"
 	"strings"
 )
 
 type Options struct {
 	Command        string
-	Auto           bool
 	Config         string
 	Recursive      bool
 	Depth          *int
@@ -35,8 +35,7 @@ func (f *listFlag) Set(v string) error {
 func Parse(args []string) (Options, error) {
 	var opts Options
 	fs := flag.NewFlagSet("runny", flag.ContinueOnError)
-	fs.BoolVar(&opts.Auto, "auto", false, "")
-	fs.BoolVar(&opts.Auto, "a", false, "")
+	fs.SetOutput(io.Discard)
 	fs.StringVar(&opts.Config, "config", "", "")
 	fs.StringVar(&opts.Config, "c", "", "")
 	fs.BoolVar(&opts.Recursive, "recursive", false, "")

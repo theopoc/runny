@@ -49,6 +49,11 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	program.Send(tea.KeyPressMsg(tea.Key{Code: '/'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Text: "w"}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	program.Send(tea.KeyPressMsg(tea.Key{Text: ":"}))
+	for _, char := range "workers 1" {
+		program.Send(tea.KeyPressMsg(tea.Key{Text: string(char)}))
+	}
+	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: ' '}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'a'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
@@ -61,6 +66,9 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		}
 		finalModel := result.model
 		final := finalModel.(Model)
+		if final.Workers != 1 {
+			t.Fatalf("workers = %d, want 1", final.Workers)
+		}
 		if final.Status["api"] != core.StatusSucceeded || final.Status["web"] != core.StatusSucceeded {
 			t.Fatalf("statuses = %#v", final.Status)
 		}
@@ -68,7 +76,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		t.Fatal("program did not quit")
 	}
 	rendered := stripANSI(out.String())
-	for _, want := range []string{"runny", "Directories", "Logs", "filter w", "succeeded"} {
+	for _, want := range []string{"runny", "Tasks", "Preview", "/ w", "workers 1", "succeeded"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered output should contain %q:\n%s", want, rendered)
 		}

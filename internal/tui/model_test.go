@@ -79,6 +79,10 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	if model.Targets[1].Selected {
 		t.Fatal("hidden web target should stay unselected")
 	}
+	model, _ = updateKey(model, "ctrl+u")
+	if model.Filter != "" {
+		t.Fatalf("filter = %q, want cleared", model.Filter)
+	}
 	model, _ = updateSpecialKey(model, tea.KeyEsc)
 	if model.Focus != FocusTargets {
 		t.Fatal("escape should leave filter focus")
@@ -160,6 +164,115 @@ func TestModelOverlaysAndCancelSelection(t *testing.T) {
 	}
 }
 
+func TestModelCommandPaletteConfiguresExecution(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = runPaletteCommand(model, "workers 1")
+	if model.ShowPalette {
+		t.Fatal("command palette should close after executing command")
+	}
+	if model.Workers != 1 || model.Mode != core.ModeParallel {
+		t.Fatalf("workers/mode = %d/%s, want 1/parallel", model.Workers, model.Mode)
+	}
+
+	model, _ = runPaletteCommand(model, "serial")
+	if model.Workers != 0 || model.Mode != core.ModeSerial {
+		t.Fatalf("workers/mode = %d/%s, want 0/serial", model.Workers, model.Mode)
+	}
+
+	model, _ = runPaletteCommand(model, "parallel")
+	if model.Mode != core.ModeParallel {
+		t.Fatalf("mode = %s, want parallel", model.Mode)
+	}
+}
+
+func TestModelCommandPaletteRunsAndOpensOverlays(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, cmd := runPaletteCommand(model, "run")
+	if cmd == nil {
+		t.Fatal(":run should start selected targets")
+	}
+	if !model.Running || model.Status["api"] != core.StatusRunning {
+		t.Fatalf("running/status = %v/%s", model.Running, model.Status["api"])
+	}
+
+	model = NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Filter = "api"
+	model, _ = runPaletteCommand(model, "clear-filter")
+	if model.Filter != "" {
+		t.Fatalf("filter = %q, want cleared", model.Filter)
+	}
+
+	model, _ = runPaletteCommand(model, "history")
+	if !model.ShowHistory {
+		t.Fatal(":history should open history overlay")
+	}
+}
+
+func TestModelCommandPaletteCancelsSelectedTarget(t *testing.T) {
+	model := NewModel(Options{Command: "sleep 10", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	cancelled := false
+	model.Running = true
+	model.PendingRuns = 1
+	model.Status["api"] = core.StatusRunning
+	model.targetCancels = map[string]context.CancelFunc{"api": func() { cancelled = true }}
+
+	model, _ = runPaletteCommand(model, "cancel")
+	if !cancelled {
+		t.Fatal(":cancel should call target cancel function")
+	}
+	if model.Status["api"] != core.StatusCancelled {
+		t.Fatalf("status = %s, want cancelled", model.Status["api"])
+	}
+}
+
+func TestModelCommandPaletteSelectsFailedTargets(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: false},
+		{ID: "worker", RelPath: "worker", Selected: true},
+	}})
+	model.Status["api"] = core.StatusSucceeded
+	model.Status["web"] = core.StatusFailed
+	model.Status["worker"] = core.StatusFailed
+
+	model, _ = updateKey(model, ":")
+	model = typeText(model, "failed")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Targets[0].Selected || !model.Targets[1].Selected || !model.Targets[2].Selected {
+		t.Fatalf("selected targets = %#v", model.Targets)
+	}
+}
+
+func TestModelNavigationAndPreviewScrolling(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "worker", RelPath: "worker", Selected: true},
+	}})
+	model, _ = updateKey(model, "G")
+	if model.Cursor != 2 {
+		t.Fatalf("cursor = %d, want last target", model.Cursor)
+	}
+	model, _ = updateKey(model, "g")
+	if model.Cursor != 0 {
+		t.Fatalf("cursor = %d, want first target", model.Cursor)
+	}
+
+	model.Focus = FocusLogs
+	model.LogFollow = true
+	model, _ = updateKey(model, "pagedown")
+	if model.PreviewOffset != 5 {
+		t.Fatalf("preview offset = %d, want 5", model.PreviewOffset)
+	}
+	if model.LogFollow {
+		t.Fatal("manual preview scroll should disable follow mode")
+	}
+	model, _ = updateKey(model, "L")
+	if !model.LogFollow {
+		t.Fatal("L should re-enable follow mode")
+	}
+}
+
 func TestCtrlCCancelsAndQuitsFromOverlay(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	cancelled := false
@@ -195,7 +308,7 @@ func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 	if !view.AltScreen {
 		t.Fatal("view should use alt screen")
 	}
-	for _, want := range []string{"Directories", "Logs", "Shortcuts", "selected run/q"} {
+	for _, want := range []string{"Tasks", "Preview", "Keymap", ": command palette", "del/x cancel selected"} {
 		if !strings.Contains(view.Content, want) {
 			t.Fatalf("view content should contain %q:\n%s", want, view.Content)
 		}
@@ -509,6 +622,19 @@ func updateKey(model Model, key string) (Model, tea.Cmd) {
 	}
 	updated, cmd := model.Update(msg)
 	return updated.(Model), cmd
+}
+
+func typeText(model Model, text string) Model {
+	for _, char := range text {
+		model, _ = updateKey(model, string(char))
+	}
+	return model
+}
+
+func runPaletteCommand(model Model, command string) (Model, tea.Cmd) {
+	model, _ = updateKey(model, ":")
+	model = typeText(model, command)
+	return updateSpecialKey(model, tea.KeyEnter)
 }
 
 func updateSpecialKey(model Model, key rune) (Model, tea.Cmd) {

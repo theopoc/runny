@@ -26,7 +26,7 @@ func TestStatusTerminal(t *testing.T) {
 		}
 	}
 
-	active := []Status{StatusQueued, StatusRunning}
+	active := []Status{StatusIdle, StatusQueued, StatusRunning}
 	for _, status := range active {
 		if status.Terminal() {
 			t.Fatalf("%s should not be terminal", status)

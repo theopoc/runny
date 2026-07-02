@@ -1,14 +1,14 @@
  runny  pnpm test                                                  3/4 selected  running 1  failed 1
- filter <none>  focus directories  mode parallel  workers auto
-╭─ Directories ───────────────────────────────────────────╮  ╭─ Logs ──────────────────────────────╮
-│ SEL  DIR                                STATUS         │  │ focused api                        │
+  idle 0 │ queued 1 │ running 1 │ ok 0 │ failed 1 │ cancelled 0 │ workers auto │ mode parallel
+ / <none>  focus tasks  mode parallel  workers auto
+╭─ Tasks ─────────────────────────────────────────────────╮  ╭─ Preview ───────────────────────────╮
+│ SEL  DIR/TASK                           STATUS         │  │ path api                           │
 │ › ●  − api                                   running   │  │ status running                     │
-│   ●      api/cmd                             queued    │  │                                    │
-│   ○    web                                   skipped   │  │ output                             │
-│   ●    worker                                failed    │  │ No output yet.                     │
-│                                                        │  │                                    │
-│                                                        │  │                                    │
-│                                                        │  │                                    │
+│   ●      api/cmd                             queued    │  │ selected yes                       │
+│   ○    web                                   skipped   │  │ command pnpm test                  │
+│   ●    worker                                failed    │  │                                    │
+│                                                        │  │ output                             │
+│                                                        │  │ No output yet.                     │
 │                                                        │  │                                    │
 │                                                        │  │                                    │
 │                                                        │  │                                    │
@@ -18,4 +18,4 @@
 │                                                        │  │                                    │
 │                                                        │  │                                    │
 ╰────────────────────────────────────────────────────────╯  ╰────────────────────────────────────╯
- Shortcuts space toggle / filter a all A none enter run ? help H history del cancel ctrl+c quit
+ ? keymap  / search  : command  space select  enter run  del/x cancel  ctrl+c stop

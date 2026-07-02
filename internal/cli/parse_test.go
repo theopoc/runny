@@ -3,15 +3,24 @@ package cli
 import "testing"
 
 func TestParseCommandAfterDashDash(t *testing.T) {
-	opts, err := Parse([]string{"--auto", "-d", "2", "-w", "4", "--", "pnpm", "test"})
+	opts, err := Parse([]string{"-d", "2", "-w", "4", "--", "pnpm", "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opts.Auto || opts.Depth == nil || *opts.Depth != 2 || opts.Workers == nil || *opts.Workers != 4 {
+	if opts.Depth == nil || *opts.Depth != 2 || opts.Workers == nil || *opts.Workers != 4 {
 		t.Fatalf("unexpected opts: %#v", opts)
 	}
 	if opts.Command != "pnpm test" {
 		t.Fatalf("command = %q", opts.Command)
+	}
+}
+
+func TestParseRejectsAutoFlag(t *testing.T) {
+	if _, err := Parse([]string{"--auto"}); err == nil {
+		t.Fatal("expected --auto to be rejected")
+	}
+	if _, err := Parse([]string{"-a"}); err == nil {
+		t.Fatal("expected -a to be rejected")
 	}
 }
 

@@ -2,8 +2,7 @@ package app
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,40 +17,21 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
-func TestRunAutoMode(t *testing.T) {
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "api"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+func TestRunHelpDoesNotAdvertiseAuto(t *testing.T) {
 	var out bytes.Buffer
-	code := Run(Options{Args: []string{"--auto", "--", "true"}, WorkDir: root, HomeDir: root, Stdout: &out, Stderr: &out})
+	code := Run(Options{Args: []string{"--help"}, Stdout: &out, Stderr: &out})
 	if code != 0 {
 		t.Fatalf("code = %d output=%s", code, out.String())
+	}
+	if strings.Contains(out.String(), "--auto") {
+		t.Fatalf("help should not contain --auto:\n%s", out.String())
 	}
 }
 
-func TestRunAutoModeSaveLogs(t *testing.T) {
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "api"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+func TestRunRejectsAutoMode(t *testing.T) {
 	var out bytes.Buffer
-	code := Run(Options{Args: []string{"--auto", "--save-logs", "--", "echo saved"}, WorkDir: root, HomeDir: root, Stdout: &out, Stderr: &out})
-	if code != 0 {
+	code := Run(Options{Args: []string{"--auto"}, Stdout: &out, Stderr: &out})
+	if code != 2 {
 		t.Fatalf("code = %d output=%s", code, out.String())
-	}
-	matches, err := filepath.Glob(filepath.Join(root, ".runny", "runs", "*", "api.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 1 {
-		t.Fatalf("saved logs = %#v, want one run-scoped log file", matches)
-	}
-	data, err := os.ReadFile(matches[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "saved\n" {
-		t.Fatalf("log = %q", data)
 	}
 }

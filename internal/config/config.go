@@ -11,7 +11,6 @@ import (
 
 type Config struct {
 	Command        string   `yaml:"command"`
-	Auto           bool     `yaml:"auto"`
 	Recursive      bool     `yaml:"recursive"`
 	Depth          int      `yaml:"depth"`
 	IncludeHidden  bool     `yaml:"include_hidden"`
@@ -26,7 +25,6 @@ type Config struct {
 
 type FlagOverrides struct {
 	Command        *string
-	Auto           *bool
 	Recursive      *bool
 	Depth          *int
 	IncludeHidden  *bool
@@ -93,9 +91,6 @@ func mergeFile(cfg *Config, path string) error {
 func applyFlags(cfg *Config, flags FlagOverrides) {
 	if flags.Command != nil {
 		cfg.Command = *flags.Command
-	}
-	if flags.Auto != nil {
-		cfg.Auto = *flags.Auto
 	}
 	if flags.Recursive != nil {
 		cfg.Recursive = *flags.Recursive

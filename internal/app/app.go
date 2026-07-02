@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"github.com/saewyn/runny/internal/config"
 	"github.com/saewyn/runny/internal/core"
 	"github.com/saewyn/runny/internal/discovery"
-	"github.com/saewyn/runny/internal/runner"
 	"github.com/saewyn/runny/internal/tui"
 )
 
@@ -88,9 +86,6 @@ func Run(opts Options) int {
 		fmt.Fprintln(opts.Stderr, err)
 		return 1
 	}
-	if cfg.Auto {
-		return runAuto(opts, cfg, targets)
-	}
 	mode := core.ModeParallel
 	if cfg.Serial {
 		mode = core.ModeSerial
@@ -113,39 +108,9 @@ func Run(opts Options) int {
 	return 0
 }
 
-func runAuto(opts Options, cfg config.Config, targets []core.Target) int {
-	mode := core.ModeParallel
-	if cfg.Serial {
-		mode = core.ModeSerial
-	}
-	results, err := runner.Run(context.Background(), core.RunRequest{
-		Command:        cfg.Command,
-		Targets:        targets,
-		Mode:           mode,
-		Workers:        cfg.Workers,
-		FailFast:       cfg.FailFast,
-		SaveLogs:       cfg.SaveLogs,
-		DisableLogging: cfg.DisableLogging,
-		LogRoot:        filepath.Join(opts.WorkDir, ".runny", "runs"),
-	})
-	if err != nil {
-		fmt.Fprintln(opts.Stderr, err)
-		return 1
-	}
-	exit := 0
-	for _, result := range results {
-		fmt.Fprintf(opts.Stdout, "%s %s\n", result.Target.RelPath, result.Status)
-		if result.Status != core.StatusSucceeded {
-			exit = 1
-		}
-	}
-	return exit
-}
-
 func flagOverrides(parsed cli.Options) config.FlagOverrides {
 	return config.FlagOverrides{
 		Command:        strPtr(parsed.Command),
-		Auto:           boolPtr(parsed.Auto),
 		Recursive:      boolPtr(parsed.Recursive),
 		Depth:          parsed.Depth,
 		IncludeHidden:  boolPtr(parsed.IncludeHidden),
@@ -177,7 +142,6 @@ func helpText() string {
 	return `runny [flags] -- <command>
 
 Flags:
-  -a, --auto              run without TUI
   -c, --config FILE       config file
   -r, --recursive         discover recursively
   -d, --depth N           discovery depth, 0 unlimited

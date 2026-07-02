@@ -5,6 +5,7 @@ import "time"
 type Status string
 
 const (
+	StatusIdle      Status = "idle"
 	StatusQueued    Status = "queued"
 	StatusRunning   Status = "running"
 	StatusSucceeded Status = "succeeded"

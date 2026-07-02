@@ -28,10 +28,10 @@ cask "saewyn/tap/runny", trusted: true
 ```bash
 runny
 runny -- pnpm test
-runny --auto -- pnpm test
+runny --depth 2 --workers 4 -- pnpm test
 ```
 
-By default, `runny` discovers direct child directories, excludes hidden directories, skips symlinked directories, and runs in parallel.
+`runny` always opens the TUI. Flags and config files only prepare the initial discovery, command, execution mode, and logging options. By default, `runny` discovers direct child directories, excludes hidden directories, skips symlinked directories, and runs in parallel.
 
 ## Docker
 
@@ -41,16 +41,11 @@ Build the image:
 docker build -t runny .
 ```
 
-Run non-interactively against the current directory:
-
-```bash
-docker run --rm -v "$PWD:/workspace" -w /workspace runny --auto -- true
-```
-
 Run the TUI in a container:
 
 ```bash
 docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
+docker run --rm -it -v "$PWD:/workspace" -w /workspace runny --depth 2 -- pnpm test
 ```
 
 Commands run inside the container. Tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
@@ -59,7 +54,6 @@ Commands run inside the container. Tools installed only on the host, such as `pn
 
 | Flag | Short | Description |
 | --- | --- | --- |
-| `--auto` | `-a` | Run without TUI |
 | `--config FILE` | `-c` | Explicit config file |
 | `--recursive` | `-r` | Discover recursively |
 | `--depth N` | `-d` | Discovery depth, `1` direct children, `0` unlimited |
@@ -105,19 +99,26 @@ exclude:
 | `space` | Select/deselect focused directory |
 | `a` | Select all visible directories |
 | `A` | Deselect all visible directories |
-| `/` | Focus filter |
+| `/` | Focus filter/search |
+| `:` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
 | `up`, `k` | Move cursor up |
 | `down`, `j` | Move cursor down |
+| `g` | Move to first visible directory |
+| `G` | Move to last visible directory |
 | `right`, `l` | Unfold focused directory |
-| `left` | Fold focused directory |
+| `left`, `h` | Fold focused directory |
 | `esc` | Leave filter focus |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
-| `del` | Cancel selected running or queued runs, or focused run |
+| `del`, `x` | Cancel selected running or queued runs, or focused run |
 | `R` | Rerun all failed with confirmation |
+| `pageup`, `pagedown` | Scroll preview |
+| `L` | Toggle preview follow mode |
 | `ctrl+c` | Cancel active runs and quit cleanly |
+
+Palette commands include `run`, `workers N`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
 ## Development
 
