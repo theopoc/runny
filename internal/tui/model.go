@@ -1610,8 +1610,73 @@ func (m Model) renderFooter(width int) string {
 	if !m.hasActiveRuns() {
 		keys = append(keys, "q quit")
 	}
+	for i, key := range keys {
+		keys[i] = formatFooterHint(key)
+	}
 	text := " " + strings.Join(keys, "  ")
-	return footerStyle.Render(padRightVisible(truncateVisible(text, width), width))
+	return styleFooterHints(padRightVisible(truncateVisible(text, width), width))
+}
+
+func formatFooterHint(hint string) string {
+	key, label, ok := strings.Cut(hint, " ")
+	if !ok {
+		return hint
+	}
+	if key == "no" || key == "type" {
+		return titleFooterLabel(hint)
+	}
+	return key + " " + titleFooterLabel(label)
+}
+
+func titleFooterLabel(label string) string {
+	if label == "" {
+		return label
+	}
+	return strings.ToUpper(label[:1]) + label[1:]
+}
+
+func styleFooterHints(line string) string {
+	if strings.TrimSpace(line) == "" || noColorEnabled() {
+		return line
+	}
+	segments := strings.Split(line, "  ")
+	var b strings.Builder
+	background := ansiBackgroundHex(footerBackgroundHex)
+	labelStyle := ansiForegroundHex(footerLabelHex)
+	shortcutStyle := ansiForegroundHex(footerShortcutHex)
+	for i, segment := range segments {
+		if i > 0 {
+			b.WriteString(background)
+			b.WriteString(labelStyle)
+			b.WriteString("  ")
+		}
+		prefixLength := len(segment) - len(strings.TrimLeft(segment, " "))
+		prefix := segment[:prefixLength]
+		hint := segment[prefixLength:]
+		if hint == "" {
+			b.WriteString(background)
+			b.WriteString(labelStyle)
+			b.WriteString(segment)
+			continue
+		}
+		key, label, ok := strings.Cut(hint, " ")
+		b.WriteString(background)
+		b.WriteString(labelStyle)
+		b.WriteString(prefix)
+		b.WriteString(shortcutStyle)
+		b.WriteString("\x1b[1m")
+		b.WriteString(key)
+		b.WriteString("\x1b[22m")
+		if !ok {
+			continue
+		}
+		b.WriteString(background)
+		b.WriteString(labelStyle)
+		b.WriteByte(' ')
+		b.WriteString(label)
+	}
+	b.WriteString("\x1b[0m")
+	return b.String()
 }
 
 func (m Model) compactMode(width int) bool {

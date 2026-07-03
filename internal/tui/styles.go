@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 
@@ -9,39 +10,49 @@ import (
 )
 
 type tuiTheme struct {
-	fgDefault     color.Color
-	fgMuted       color.Color
-	fgEmphasis    color.Color
-	bgBase        color.Color
-	bgSurface     color.Color
-	bgElevated    color.Color
-	bgSelection   color.Color
-	bgRunning     color.Color
-	accentPrimary color.Color
-	accentWarm    color.Color
-	accentCommand color.Color
-	success       color.Color
-	warning       color.Color
-	error         color.Color
-	info          color.Color
+	fgDefault      color.Color
+	fgMuted        color.Color
+	fgEmphasis     color.Color
+	bgBase         color.Color
+	bgSurface      color.Color
+	bgElevated     color.Color
+	bgHelper       color.Color
+	bgSelection    color.Color
+	bgRunning      color.Color
+	accentPrimary  color.Color
+	accentShortcut color.Color
+	accentWarm     color.Color
+	accentCommand  color.Color
+	success        color.Color
+	warning        color.Color
+	error          color.Color
+	info           color.Color
 }
 
+const (
+	footerLabelHex      = "#94A3B8"
+	footerBackgroundHex = "#2E2D2C"
+	footerShortcutHex   = "#DE8B37"
+)
+
 var runnyTheme = tuiTheme{
-	fgDefault:     tuiColor("#CBD5E1"),
-	fgMuted:       tuiColor("#94A3B8"),
-	fgEmphasis:    tuiColor("#F8FAFC"),
-	bgBase:        tuiColor("#10131F"),
-	bgSurface:     tuiColor("#191D2B"),
-	bgElevated:    tuiColor("#252A3A"),
-	bgSelection:   tuiColor("#A78BFA"),
-	bgRunning:     tuiColor("#1E3144"),
-	accentPrimary: tuiColor("#7DD3FC"),
-	accentWarm:    tuiColor("#FBBF24"),
-	accentCommand: tuiColor("#C4B5FD"),
-	success:       tuiColor("#4ADE80"),
-	warning:       tuiColor("#FDE68A"),
-	error:         tuiColor("#FB7185"),
-	info:          tuiColor("#93C5FD"),
+	fgDefault:      tuiColor("#CBD5E1"),
+	fgMuted:        tuiColor(footerLabelHex),
+	fgEmphasis:     tuiColor("#F8FAFC"),
+	bgBase:         tuiColor("#10131F"),
+	bgSurface:      tuiColor("#191D2B"),
+	bgElevated:     tuiColor("#252A3A"),
+	bgHelper:       tuiColor(footerBackgroundHex),
+	bgSelection:    tuiColor("#A78BFA"),
+	bgRunning:      tuiColor("#1E3144"),
+	accentPrimary:  tuiColor("#7DD3FC"),
+	accentShortcut: tuiColor(footerShortcutHex),
+	accentWarm:     tuiColor("#FBBF24"),
+	accentCommand:  tuiColor("#C4B5FD"),
+	success:        tuiColor("#4ADE80"),
+	warning:        tuiColor("#FDE68A"),
+	error:          tuiColor("#FB7185"),
+	info:           tuiColor("#93C5FD"),
 }
 
 var (
@@ -94,12 +105,31 @@ var (
 	folderNameStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	treeGuideStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	statusHeaderStyle    = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
-	footerStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted).Background(runnyTheme.bgSurface)
 )
 
 func tuiColor(value string) color.Color {
-	if os.Getenv("NO_COLOR") != "" {
+	if noColorEnabled() {
 		return lipgloss.NoColor{}
 	}
 	return lipgloss.Color(value)
+}
+
+func noColorEnabled() bool {
+	return os.Getenv("NO_COLOR") != ""
+}
+
+func ansiForegroundHex(value string) string {
+	return ansiHex("38", value)
+}
+
+func ansiBackgroundHex(value string) string {
+	return ansiHex("48", value)
+}
+
+func ansiHex(kind string, value string) string {
+	var r, g, b int
+	if _, err := fmt.Sscanf(value, "#%02x%02x%02x", &r, &g, &b); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("\x1b[%s;2;%d;%d;%dm", kind, r, g, b)
 }
