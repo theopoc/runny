@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -852,7 +853,7 @@ func TestDirectoryPanelScrollsToCursor(t *testing.T) {
 	}
 
 	view := stripANSI(model.render())
-	if !strings.Contains(view, "›") || !strings.Contains(view, "svc-j") {
+	if strings.Contains(view, "›") || !strings.Contains(view, "svc-j") {
 		t.Fatalf("directory panel should scroll focused row into view:\n%s", view)
 	}
 	if strings.Contains(view, "svc-a") {
@@ -1461,11 +1462,12 @@ func TestPreviewShowsNumberedAndStyledLogs(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusFailed
 	model.Logs["api"] = "ok line\nexit status 1\n"
+	model.TargetStarted["api"] = time.Date(2026, 7, 3, 14, 5, 6, 0, time.Local)
 	model, _ = updateWindowSize(model, 90, 24)
 	view := model.renderLogPanel(40, 16)
 	rendered := strings.Join(view, "\n")
 	plain := stripANSI(rendered)
-	for _, want := range []string{"scroll", "Output (1-2/2 follow •)", "1 │ ok line", "2 │ exit status 1"} {
+	for _, want := range []string{"Command to run", "14:05:06  go test", "Output (1-2/2 follow •)", "1 │ ok line", "2 │ exit status 1"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("preview should contain %q:\n%s", want, plain)
 		}
@@ -1475,84 +1477,11 @@ func TestPreviewShowsNumberedAndStyledLogs(t *testing.T) {
 	}
 }
 
-func TestPreviewShowsExecutionConfig(t *testing.T) {
-	model := NewModel(Options{Command: "go test", Workers: 3, Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	view := stripANSI(strings.Join(model.renderLogPanel(72, 18), "\n"))
-	if !strings.Contains(view, "Command (parallel · workers 3)") {
-		t.Fatalf("preview should show execution config:\n%s", view)
-	}
-
-	model = NewModel(Options{Command: "go test", Mode: core.ModeSerial, Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	view = stripANSI(strings.Join(model.renderLogPanel(72, 18), "\n"))
-	if !strings.Contains(view, "Command (serial · workers auto)") {
-		t.Fatalf("preview should show serial execution config:\n%s", view)
-	}
-}
-
-func TestPreviewShowsContextualNextActions(t *testing.T) {
-	tests := []struct {
-		name    string
-		command string
-		target  core.Target
-		status  core.Status
-		filter  string
-		want    string
-	}{
-		{
-			name:    "running",
-			command: "go test",
-			target:  core.Target{ID: "api", RelPath: "api", Selected: true},
-			status:  core.StatusRunning,
-			want:    "next      del/x target   ctrl+c cancel+quit",
-		},
-		{
-			name:    "failed",
-			command: "go test",
-			target:  core.Target{ID: "api", RelPath: "api", Selected: true},
-			status:  core.StatusFailed,
-			want:    "next      R rerun failed   enter run selected",
-		},
-		{
-			name:    "unselected",
-			command: "go test",
-			target:  core.Target{ID: "api", RelPath: "api", Selected: false},
-			status:  core.StatusIdle,
-			want:    "next      space select   a select visible",
-		},
-		{
-			name:    "unselected filtered",
-			command: "go test",
-			target:  core.Target{ID: "api", RelPath: "api", Selected: false},
-			status:  core.StatusIdle,
-			filter:  "api",
-			want:    "next      space select   a select matches",
-		},
-		{
-			name:    "missing command",
-			command: "",
-			target:  core.Target{ID: "api", RelPath: "api", Selected: true},
-			status:  core.StatusIdle,
-			want:    "next      c edit command   ? keymap",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			model := NewModel(Options{Command: tt.command, Targets: []core.Target{tt.target}})
-			model.Status[tt.target.ID] = tt.status
-			model.Filter = tt.filter
-			view := stripANSI(strings.Join(model.renderLogPanel(72, 18), "\n"))
-			if !strings.Contains(view, tt.want) {
-				t.Fatalf("preview should contain %q:\n%s", tt.want, view)
-			}
-		})
-	}
-}
-
 func TestPreviewShowsUnsetCommandPlaceholder(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	view := strings.Join(model.renderLogPanel(72, 18), "\n")
 	plain := stripANSI(view)
-	for _, want := range []string{"Command", "(not set)", "next      c edit command   ? keymap"} {
+	for _, want := range []string{"Command to run", "--:--:--  (not set)", "Output (empty)"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("preview should contain %q:\n%s", want, plain)
 		}
@@ -1603,7 +1532,7 @@ func TestPreviewFollowShowsTailForCompletedLongLogs(t *testing.T) {
 	model.LogFollow = true
 
 	view := stripANSI(strings.Join(model.renderLogPanel(52, 18), "\n"))
-	for _, want := range []string{"scroll    3/3 follow", "Output (3-6/6 follow ↑)", "3 │ three", "6 │ six"} {
+	for _, want := range []string{"Output (3-6/6 follow ↑)", "3 │ three", "6 │ six"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("completed preview follow should show tail %q:\n%s", want, view)
 		}

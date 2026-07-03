@@ -42,6 +42,7 @@ type Model struct {
 	Targets            []core.Target
 	Status             map[string]core.Status
 	Logs               map[string]string
+	TargetStarted      map[string]time.Time
 	History            []string
 	RunHistory         []history.RunEntry
 	Focus              Focus
@@ -88,6 +89,7 @@ type Model struct {
 func NewModel(opts Options) Model {
 	status := map[string]core.Status{}
 	logs := map[string]string{}
+	started := map[string]time.Time{}
 	for _, target := range opts.Targets {
 		status[target.ID] = core.StatusIdle
 		logs[target.ID] = ""
@@ -101,6 +103,7 @@ func NewModel(opts Options) Model {
 		Targets:            opts.Targets,
 		Status:             status,
 		Logs:               logs,
+		TargetStarted:      started,
 		Focus:              focus,
 		Mode:               opts.Mode,
 		Workers:            opts.Workers,
@@ -657,6 +660,7 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	for _, target := range reqTargets {
 		m.Status[target.ID] = core.StatusQueued
 		m.Logs[target.ID] = ""
+		delete(m.TargetStarted, target.ID)
 	}
 	return m.startQueuedRuns()
 }
@@ -690,6 +694,9 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 	for _, result := range done.results {
 		if m.Status[result.Target.ID] == core.StatusCancelled && result.Status != core.StatusCancelled {
 			result.Status = core.StatusCancelled
+		}
+		if result.Started.IsZero() {
+			result.Started = m.TargetStarted[result.Target.ID]
 		}
 		m.Status[result.Target.ID] = result.Status
 		m.recordCompletedResult(result)
@@ -763,6 +770,10 @@ func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
 	}
 	m.targetCancels[target.ID] = targetCancel
 	m.Status[target.ID] = core.StatusRunning
+	if m.TargetStarted == nil {
+		m.TargetStarted = map[string]time.Time{}
+	}
+	m.TargetStarted[target.ID] = time.Now()
 	runFunc := m.runFunc
 	if runFunc == nil {
 		runFunc = runner.Run
@@ -994,7 +1005,7 @@ func (m Model) renderHeader(width int) string {
 			failed++
 		}
 	}
-	left := " " + runnyBadgeStyle.Render("runny") + "  " + command
+	left := " " + runnyBadgeStyle.Render("runny") + "  " + commandDisplayStyle.Render(" "+command+" ")
 	right := fmt.Sprintf("%d/%d selected  running %d  failed %d", selected, len(m.Targets), running, failed)
 	line := visibleJoin(left, right, width)
 	return headerStyle.Render(line)
@@ -1177,10 +1188,6 @@ func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
 }
 
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
-	cursor := " "
-	if index == m.Cursor {
-		cursor = cursorStyle.Render("›")
-	}
 	selected := unselectedStyle.Render("○")
 	if target.Selected {
 		selected = selectedStyle.Render("●")
@@ -1215,7 +1222,7 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	if style, ok := statusStyles[status]; ok {
 		statusText = style.Render(statusText)
 	}
-	row := cursor + " " + selected + " " + activity + " " + fold + "  " + padRightVisible(truncateVisible(name, nameWidth), nameWidth) + " " + statusText
+	row := "  " + selected + " " + activity + " " + fold + "  " + padRightVisible(truncateVisible(name, nameWidth), nameWidth) + " " + statusText
 	if index == m.Cursor {
 		return rowActiveStyle.Render(padRightVisible(row, width))
 	}
@@ -1229,28 +1236,15 @@ func (m Model) renderLogPanel(width int, height int) []string {
 	lines := []string{}
 	if len(m.Targets) > 0 && m.Cursor >= 0 && m.Cursor < len(m.Targets) {
 		target := m.Targets[m.Cursor]
-		selected := "no"
-		if target.Selected {
-			selected = "yes"
-		}
 		status := m.Status[target.ID]
-		lines = append(lines, panelTitleStyle.Render("Target"))
-		lines = append(lines, "path      "+target.RelPath)
-		lines = append(lines, "status    "+m.statusLabel(status))
-		lines = append(lines, "selected  "+selected)
-		lines = append(lines, "children  "+fmt.Sprintf("%d", len(target.Children)))
-		lines = append(lines, "scroll    "+m.previewScrollLabel(target.ID, height))
-		lines = append(lines, "next      "+truncateVisible(m.previewNextAction(target, status, width-14), width-14))
-		lines = append(lines, "")
-		lines = append(lines, panelTitleStyle.Render("Command ("+m.executionConfigLabel()+")"))
-		lines = append(lines, truncateVisible(m.previewCommandText(), width-4))
+		lines = append(lines, panelTitleStyle.Render("Command to run"))
+		lines = append(lines, truncateVisible(m.previewCommandLine(target), width-4))
 		lines = append(lines, "")
 		lines = append(lines, panelTitleStyle.Render("Output "+m.outputRangeLabel(target.ID, height)))
 		lines = append(lines, m.renderOutputLines(target.ID, status, height)...)
 	} else {
-		lines = append(lines, panelTitleStyle.Render("Target"))
-		lines = append(lines, "path      none")
-		lines = append(lines, "status    none")
+		lines = append(lines, panelTitleStyle.Render("Command to run"))
+		lines = append(lines, commandDisplayStyle.Render(" "+m.previewCommandText()+" "))
 		lines = append(lines, "", panelTitleStyle.Render("Output"), "No output yet.")
 	}
 	return boxLines(width, height, "Preview", lines, m.Focus == FocusLogs)
@@ -1262,6 +1256,18 @@ func (m Model) previewCommandText() string {
 		return subtleStyle.Render("(not set)")
 	}
 	return command
+}
+
+func (m Model) previewCommandLine(target core.Target) string {
+	command := strings.TrimSpace(m.Command)
+	if command == "" {
+		return subtleStyle.Render("--:--:--  (not set)")
+	}
+	started := m.TargetStarted[target.ID]
+	if started.IsZero() {
+		return commandDisplayStyle.Render(" --:--:--  " + command + " ")
+	}
+	return commandDisplayStyle.Render(" " + started.Format("15:04:05") + "  " + command + " ")
 }
 
 func (m Model) previewNextAction(target core.Target, status core.Status, width int) string {
