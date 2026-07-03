@@ -1,22 +1,13 @@
-# runny TUI Design
+# runny Functional Spec
 
 Date: 2026-07-03
-Status: approved direction, ready for implementation planning
+Status: approved functional scope
 
 ## Summary
 
 `runny` is a Go full-screen TUI for running one shell command across selected child directories. The CLI only launches the TUI and may prefill startup state. It does not provide non-interactive execution mode.
 
 Project name and command name: `runny`.
-
-## Reference Model
-
-The redesign uses these products as concrete UI references:
-
-- `derailed/k9s`: complete keymap overlay on `?`, strong modal shortcuts, command/filter mental model, escape-driven mode cancellation.
-- `djetelina/tofuref`: search-first workflow, list plus preview layout, focused item details visible without leaving terminal.
-- `leg100/pug`: task/status dashboard, parallel execution as first-class UI state, visible queue and operational control over running jobs.
-- Bubble Tea best practices from Leg100: keep event loop fast, treat command execution as messages, test layouts with fixed dimensions, test end-to-end with terminal-like flows.
 
 ## Goals
 
@@ -26,14 +17,14 @@ The redesign uses these products as concrete UI references:
 - Skip symlinked directories by default.
 - Support recursive discovery and bounded depth.
 - Support fold/unfold when recursive discovery shows hierarchy.
-- Let the user filter/search directories with `/`, inspired by tofuref.
+- Let the user filter/search directories with `/`.
 - Let the user select/deselect one, visible set, or all matching targets.
 - Run one command across selected directories.
 - Run in parallel by default with visible worker count.
 - Support serial execution and worker count changes.
-- Show task/status dashboard at the top, inspired by pug.
-- Show directory/task list plus focused preview/log panel, inspired by tofuref.
-- Show complete keymap overlay on `?`, inspired by pug and k9s.
+- Show task/status summary.
+- Show directory/task list and focused target logs/details.
+- Show complete keymap overlay on `?`.
 - Support command palette on `:` for discoverable actions.
 - Support command/run history inside the TUI.
 - Support cancelling selected running or queued tasks.
@@ -159,60 +150,20 @@ Pattern handling:
 - Repeated exclude patterns are OR.
 - Hidden directories stay excluded unless `include_hidden: true`.
 
-## TUI Layout
+## TUI Functional Areas
 
-The main view uses a stable full-screen dashboard:
+The TUI must expose:
 
-```text
-┌ runny ─ project/path ─ command ───────────────────── selected/running/failed ┐
-│ queued 12 │ running 4 │ succeeded 21 │ failed 3 │ workers 8 │ mode parallel │
-├─────────────────────────────────────────────┬────────────────────────────────┤
-│ / filter or : command                       │ Focused target preview         │
-│                                             │                                │
-│ SEL  DIR/TASK                    STATUS     │ path: api/payment              │
-│ › ●  api/payment                  running   │ status: running                │
-│   ●  api/users                    queued    │ command: pnpm test             │
-│   ○  web/admin                    idle      │                                │
-│   ●  worker                       failed    │ output/logs                    │
-│                                             │ ...                            │
-├─────────────────────────────────────────────┴────────────────────────────────┤
-│ ? keymap  / search  : command  space select  enter run  del cancel  ctrl+c   │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-Layout rules:
-
-- Top header: project path, command summary, selected count, running count, failed count.
-- Status dashboard: queued, running, succeeded, failed, cancelled, worker count, mode.
-- Left pane: searchable directory/task table.
-- Right pane: focused target preview and log output.
-- Bottom keybar: minimal persistent shortcuts only.
-- `?` overlay: complete keymap with all actions.
-- `:` command palette: actionable commands and settings.
-- `/` filter mode: prominent input, table narrowed live, preview follows cursor.
-
-## Visual Style
-
-Principles:
-
-- Operational, dense, readable.
-- No decorative cards.
-- Strong focus highlight.
-- Status color used only for status semantics.
-- Stable columns, no layout shift when statuses change.
-- Clear disabled state for unavailable actions.
-- High contrast but not neon-heavy.
-
-Color roles:
-
-- Running: amber.
-- Succeeded: green.
-- Failed: red.
-- Queued: blue.
-- Cancelled/skipped: muted gray.
-- Focus row: high contrast foreground/background.
-- Selected marker: green filled marker.
-- Unselected marker: muted hollow marker.
+- Current command.
+- Selected target count.
+- Status counts: idle, queued, running, succeeded, failed, cancelled, skipped.
+- Execution mode and worker count.
+- Searchable directory/task list.
+- Focused target details: path, status, selected state, command, output/logs.
+- Persistent shortcuts for common actions.
+- Complete keymap overlay.
+- Command palette.
+- Filter/search input.
 
 ## Navigation Model
 
@@ -245,19 +196,17 @@ Table keys:
 | `del`, `x` | Cancel selected running or queued targets. |
 | `R` | Rerun failed targets with confirmation. |
 
-Preview/log keys:
+Output/log keys:
 
 | Key | Action |
 | --- | --- |
-| `pageup`, `ctrl+b` | Scroll preview up. |
-| `pagedown`, `ctrl+f` | Scroll preview down. |
-| `ctrl+u` | Half-page preview up. |
-| `ctrl+d` | Half-page preview down. |
+| `pageup`, `ctrl+b` | Scroll focused target output up. |
+| `pagedown`, `ctrl+f` | Scroll focused target output down. |
+| `ctrl+u` | Half-page focused target output up. |
+| `ctrl+d` | Half-page focused target output down. |
 | `L` | Toggle log follow mode. |
 
 ## Filter/Search
-
-Inspired by tofuref:
 
 - `/` opens filter mode.
 - Filter input stays visible while active.
@@ -270,8 +219,6 @@ Inspired by tofuref:
 - Empty filter shows full tree respecting fold state.
 
 ## Command Palette
-
-Inspired by k9s:
 
 - `:` opens command palette.
 - Palette lists available commands, filters as user types, and executes on `enter`.
@@ -289,16 +236,14 @@ Initial commands:
 | `:workers N` | Set worker count. |
 | `:serial` | Switch to serial mode. |
 | `:parallel` | Switch to parallel mode. |
-| `:logs` | Focus preview/log pane. |
+| `:logs` | Focus target output/logs. |
 | `:history` | Open history overlay. |
 | `:clear-filter` | Clear filter. |
 
 ## Help / Keymap Overlay
 
-Inspired by pug:
-
 - `?` opens complete keymap overlay.
-- Overlay groups commands by context: global, table, filter, command palette, preview/logs, run control.
+- Overlay groups commands by context: global, table, filter, command palette, target output/logs, run control.
 - Current context appears first.
 - Disabled commands show muted reason.
 - `esc`, `?`, or `q` closes overlay.
@@ -314,7 +259,7 @@ Execution stays inside TUI:
 - Parallel mode is default.
 - Worker count controls max active targets.
 - Serial mode means worker count 1.
-- Queue is visible in task/status dashboard.
+- Queue is visible in status summary.
 - Completed targets keep final status and logs.
 - Rerun failed resets only failed target statuses/logs.
 
@@ -353,13 +298,13 @@ History is a TUI feature:
 Default:
 
 - Per-target log capture enabled.
-- Focused target log shown in preview pane.
+- Focused target log is visible.
 - Log follow mode enabled for running focused target unless user scrolls.
 
 Persistence:
 
 - `save_logs: true` writes logs under `.runny/runs/<timestamp>/<target>.log`.
-- `disable_logging: true` disables capture and preview output.
+- `disable_logging: true` disables capture and target output display.
 
 ## Architecture
 
@@ -385,8 +330,8 @@ Use layered TUI tests:
 
 - Unit tests for config, discovery, runner, logs, history.
 - Component tests for TUI key handling and state transitions.
-- Golden tests for main dashboard, help overlay, command palette, filter mode, history overlay.
-- E2E test with Bubble Tea program input covering filter, selection, run, preview update, help, command palette.
+- Golden tests for main TUI states, help overlay, command palette, filter mode, history overlay.
+- E2E test with Bubble Tea program input covering filter, selection, run, target output update, help, command palette.
 - Pseudo-TTY smoke test proving alternate screen and real binary startup.
 - Runtime smoke with real directories proving command execution remains TUI-driven.
 
@@ -417,7 +362,7 @@ Inside TUI:
 6. `:` opens command palette.
 7. `:workers 1` sets worker count.
 8. `enter` or `:run` runs selected targets.
-9. Preview shows focused logs.
+9. Focused logs are visible.
 10. `ctrl+c` cancels active work and exits cleanly.
 
 ## Migration From Current Build
@@ -428,19 +373,18 @@ Required spec changes:
 - Remove auto-mode code path from `internal/app`.
 - Treat all CLI flags as startup config only.
 - Keep `--help` and `--version`.
-- Rework TUI rendering around top task/status dashboard plus list/preview.
+- Rework TUI rendering around status summary, task list, and focused target logs/details.
 - Add command palette mode.
 - Expand help overlay to full keymap.
-- Make `/` filter visually central and tofuref-like.
-- Add preview/log scroll state.
-- Add golden files for every primary layout state.
+- Add target output scroll state.
+- Add golden files for primary functional states.
 
 ## Open Follow-Up
 
 After this spec, implementation planning should split work into:
 
 1. CLI contract cleanup: remove non-interactive execution.
-2. TUI model refactor: modes, palette, filter, preview scrolling.
-3. TUI render refactor: dashboard, list/preview, overlays.
+2. TUI model refactor: modes, palette, filter, target output scrolling.
+3. TUI render refactor: status summary, task list, focused target logs/details, overlays.
 4. Runner integration: keep worker scheduling visible and cancellable.
 5. Tests and docs: golden, E2E, README update, release checks.

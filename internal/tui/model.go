@@ -15,27 +15,6 @@ import (
 	"github.com/saewyn/runny/internal/runner"
 )
 
-var (
-	runnyBadgeStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#C4B5FD"))
-	headerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Background(lipgloss.Color("#111827"))
-	subtleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
-	panelStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1"))
-	panelTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#67E8F9"))
-	cursorStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FBBF24"))
-	selectedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
-	unselectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
-	statusStyles    = map[core.Status]lipgloss.Style{
-		core.StatusIdle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")),
-		core.StatusQueued:    lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")),
-		core.StatusRunning:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true),
-		core.StatusSucceeded: lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399")).Bold(true),
-		core.StatusFailed:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FB7185")).Bold(true),
-		core.StatusCancelled: lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")),
-		core.StatusSkipped:   lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")),
-	}
-	footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(lipgloss.Color("#1F2937"))
-)
-
 type Focus int
 
 const (
@@ -69,13 +48,19 @@ type Model struct {
 	Cursor             int
 	DirectoryOffset    int
 	HistoryPos         int
+	CommandHistoryPos  int
+	CommandDraft       string
 	Filter             string
 	ShowHelp           bool
 	ShowHistory        bool
 	ShowPalette        bool
 	ConfirmRun         bool
+	ConfirmCancelAll   bool
+	Zoom               bool
 	Palette            string
 	PalettePos         int
+	HistoryFilter      string
+	HistorySearching   bool
 	PreviewOffset      int
 	LogFollow          bool
 	Running            bool
@@ -84,6 +69,7 @@ type Model struct {
 	runQueue           []core.Target
 	completedResults   []core.RunResult
 	RunError           string
+	Notice             string
 	Width              int
 	Height             int
 	Mode               core.ExecutionMode
@@ -124,6 +110,7 @@ func NewModel(opts Options) Model {
 		LogRoot:            opts.LogRoot,
 		CommandHistoryPath: opts.CommandHistoryPath,
 		RunHistoryPath:     opts.RunHistoryPath,
+		CommandHistoryPos:  -1,
 		targetCancels:      map[string]context.CancelFunc{},
 		runFunc:            runner.Run,
 		LogFollow:          true,
@@ -160,11 +147,12 @@ type paletteCommand struct {
 
 var paletteCommands = []paletteCommand{
 	{Name: "run", Description: "run selected targets"},
+	{Name: "command", Description: "edit command input"},
 	{Name: "failed", Description: "select failed targets"},
 	{Name: "rerun-failed", Description: "rerun failed targets with confirmation"},
 	{Name: "cancel", Description: "cancel selected running or queued targets"},
 	{Name: "cancel-all", Description: "cancel all active and queued work"},
-	{Name: "workers N", Description: "set max parallel target runs"},
+	{Name: "workers N|auto", Description: "set max parallel target runs or auto"},
 	{Name: "serial", Description: "switch to serial mode"},
 	{Name: "parallel", Description: "switch to parallel mode"},
 	{Name: "logs", Description: "focus preview and logs"},
@@ -194,11 +182,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelAll()
 		return m, tea.Quit
 	}
+	if keyName == "?" {
+		m.ShowHelp = !m.ShowHelp
+		return m, nil
+	}
+	if m.ShowHelp || m.ShowHistory || m.ConfirmRun || m.ConfirmCancelAll {
+		return m.handleOverlayKey(keyName, key)
+	}
 	if m.ShowPalette {
 		return m.handlePaletteKey(keyName, key)
-	}
-	if m.ShowHelp || m.ShowHistory || m.ConfirmRun {
-		return m.handleOverlayKey(keyName)
 	}
 	if m.Focus == FocusCommand {
 		return m.handleCommandKey(keyName, key)
@@ -217,25 +209,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowPalette = true
 		m.Palette = ""
 		m.PalettePos = 0
+	case "c":
+		m.Focus = FocusCommand
+		m.Notice = "editing command"
 	case "enter":
 		return m.startRun(false)
 	case "up", "k":
 		m.moveCursor(-1)
 	case "down", "j":
 		m.moveCursor(1)
+	case "n":
+		if m.Filter != "" {
+			m.moveFilterMatch(1)
+		}
+	case "N":
+		if m.Filter != "" {
+			m.moveFilterMatch(-1)
+		}
 	case "home", "g":
 		m.moveCursorToEdge(false)
 	case "end", "G":
 		m.moveCursorToEdge(true)
 	case "tab":
-		m.Focus = (m.Focus + 1) % 4
+		m.cycleFocus(1)
+	case "shift+tab":
+		m.cycleFocus(-1)
 	case "/":
 		m.Focus = FocusFilter
-	case "?":
-		m.ShowHelp = !m.ShowHelp
 	case "H":
 		m.ShowHistory = !m.ShowHistory
 		m.HistoryPos = 0
+	case "z":
+		m.Zoom = !m.Zoom
+		if m.Zoom {
+			m.Notice = "zoom enabled"
+		} else {
+			m.Notice = "split view enabled"
+		}
 	case " ":
 		m.toggleFocused()
 	case "a":
@@ -249,8 +259,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "delete", "x":
 		m.cancelSelectedOrFocused()
 	case "R":
-		if !m.Running && m.failedCount() > 0 {
+		if !m.hasActiveRuns() && m.failedCount() > 0 {
 			m.ConfirmRun = true
+		} else if m.hasActiveRuns() {
+			m.Notice = "finish or cancel active run before rerun failed"
+		} else {
+			m.Notice = "no failed targets to rerun"
 		}
 	case "pageup", "ctrl+b":
 		m.scrollPreview(-5)
@@ -273,14 +287,30 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "esc":
 		m.Focus = FocusTargets
 	case "tab":
-		m.Focus = (m.Focus + 1) % 4
+		m.cycleFocus(1)
+	case "shift+tab":
+		m.cycleFocus(-1)
+	case "up":
+		m.previousCommandHistory()
+	case "down":
+		m.nextCommandHistory()
 	case "backspace":
 		if len(m.Command) > 0 {
 			m.Command = m.Command[:len(m.Command)-1]
 		}
+		m.resetCommandHistoryNavigation()
+	case "ctrl+u":
+		m.Command = ""
+		m.Notice = "command cleared"
+		m.RunError = ""
+		m.resetCommandHistoryNavigation()
+	case "ctrl+w":
+		m.Command = trimLastWord(m.Command)
+		m.resetCommandHistoryNavigation()
 	default:
 		if key.Key().Text != "" {
 			m.Command += key.Key().Text
+			m.resetCommandHistoryNavigation()
 		}
 	}
 	return m, nil
@@ -293,13 +323,24 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	case "ctrl+u":
 		m.Filter = ""
 		m.ensureCursorVisible()
+		m.Notice = "filter cleared"
+		m.RunError = ""
 	case "tab":
-		m.Focus = (m.Focus + 1) % 4
+		m.cycleFocus(1)
+	case "shift+tab":
+		m.cycleFocus(-1)
+	case "up":
+		m.moveFilterMatch(-1)
+	case "down":
+		m.moveFilterMatch(1)
 	case "backspace":
 		if len(m.Filter) > 0 {
 			m.Filter = m.Filter[:len(m.Filter)-1]
 			m.ensureCursorVisible()
 		}
+	case "ctrl+w":
+		m.Filter = trimLastWord(m.Filter)
+		m.ensureCursorVisible()
 	default:
 		if key.Key().Text != "" {
 			m.Filter += key.Key().Text
@@ -311,15 +352,17 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 
 func (m Model) handlePaletteKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch keyName {
-	case "esc", "q":
+	case "esc":
 		m.ShowPalette = false
 	case "ctrl+u":
 		m.Palette = ""
 		m.PalettePos = 0
+		m.RunError = ""
 	case "backspace":
 		if len(m.Palette) > 0 {
 			m.Palette = m.Palette[:len(m.Palette)-1]
 			m.PalettePos = 0
+			m.RunError = ""
 		}
 	case "up":
 		if m.PalettePos > 0 {
@@ -332,7 +375,12 @@ func (m Model) handlePaletteKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "enter":
 		command := strings.TrimSpace(m.Palette)
 		matches := m.filteredPaletteCommands()
-		if command == "" && len(matches) > 0 {
+		if len(matches) == 0 && !m.paletteInputIsRunnable(command) {
+			m.RunError = "no palette command matches"
+			m.Notice = ""
+			return m, nil
+		}
+		if len(matches) > 0 && (command == "" || !m.paletteInputIsRunnable(command)) {
 			command = matches[m.PalettePos].Name
 		}
 		m.ShowPalette = false
@@ -341,9 +389,26 @@ func (m Model) handlePaletteKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		if key.Key().Text != "" {
 			m.Palette += key.Key().Text
 			m.PalettePos = 0
+			m.RunError = ""
 		}
 	}
 	return m, nil
+}
+
+func (m Model) paletteInputIsRunnable(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	if fields[0] == "workers" {
+		return len(fields) == 2
+	}
+	for _, candidate := range paletteCommands {
+		if fields[0] == candidate.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) filteredPaletteCommands() []paletteCommand {
@@ -353,7 +418,7 @@ func (m Model) filteredPaletteCommands() []paletteCommand {
 	}
 	matches := make([]paletteCommand, 0, len(paletteCommands))
 	for _, command := range paletteCommands {
-		if strings.Contains(command.Name, query) || strings.Contains(command.Description, query) {
+		if filterMatches(command.Name, query) || filterMatches(command.Description, query) {
 			matches = append(matches, command)
 		}
 	}
@@ -370,93 +435,201 @@ func (m Model) executePaletteCommand(command string) (tea.Model, tea.Cmd) {
 		return m.startRun(false)
 	case "failed":
 		m.selectFailedTargets()
+	case "command":
+		m.Focus = FocusCommand
+		m.Notice = "editing command"
 	case "rerun-failed":
-		if !m.Running && m.failedCount() > 0 {
+		if !m.hasActiveRuns() && m.failedCount() > 0 {
 			m.ConfirmRun = true
 		}
 	case "cancel":
 		m.cancelSelectedOrFocused()
 	case "cancel-all":
-		m.cancelAll()
+		if m.hasActiveRuns() {
+			m.ConfirmCancelAll = true
+		} else {
+			m.cancelAll()
+		}
 	case "workers":
-		if len(fields) != 2 {
-			m.RunError = "usage: :workers N"
+		if len(fields) != 2 || fields[1] == "N" || fields[1] == "N|auto" {
+			m.RunError = "usage: :workers N|auto"
+			m.Notice = ""
+			return m, nil
+		}
+		if strings.EqualFold(fields[1], "auto") {
+			m.Workers = 0
+			m.Mode = core.ModeParallel
+			m.RunError = ""
+			m.Notice = "workers set to auto"
 			return m, nil
 		}
 		workers, err := strconv.Atoi(fields[1])
 		if err != nil || workers < 1 {
-			m.RunError = "workers must be >= 1"
+			m.RunError = "workers must be >= 1 or auto"
+			m.Notice = ""
 			return m, nil
 		}
 		m.Workers = workers
 		m.Mode = core.ModeParallel
 		m.RunError = ""
+		m.Notice = fmt.Sprintf("workers set to %d", workers)
 	case "serial":
 		m.Mode = core.ModeSerial
 		m.Workers = 0
+		m.Notice = "execution mode set to serial"
+		m.RunError = ""
 	case "parallel":
 		m.Mode = core.ModeParallel
+		m.Notice = "execution mode set to parallel"
+		m.RunError = ""
 	case "logs":
 		m.Focus = FocusLogs
+		m.Notice = "focused preview"
 	case "history":
 		m.ShowHistory = true
 		m.HistoryPos = 0
+		m.Notice = "opened history"
 	case "clear-filter":
 		m.Filter = ""
 		m.ensureCursorVisible()
+		m.Notice = "filter cleared"
+		m.RunError = ""
 	default:
 		m.RunError = "unknown command: " + fields[0]
 	}
 	return m, nil
 }
 
-func (m Model) handleOverlayKey(keyName string) (tea.Model, tea.Cmd) {
+func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.ShowHelp {
+		switch keyName {
+		case "esc", "q", "enter":
+			m.ShowHelp = false
+		case "H":
+			m.ShowHelp = false
+			m.ShowHistory = true
+			m.HistoryPos = 0
+		}
+		return m, nil
+	}
+	if m.ShowHistory {
+		return m.handleHistoryKey(keyName, key)
+	}
 	switch keyName {
-	case "esc", "q":
-		m.ShowHelp = false
-		m.ShowHistory = false
+	case "esc":
 		m.ConfirmRun = false
-	case "?":
-		m.ShowHelp = !m.ShowHelp
-	case "H":
-		m.ShowHelp = false
-		m.ShowHistory = true
-		m.HistoryPos = 0
-	case "delete", "x":
-		m.cancelSelectedOrFocused()
-	case "up", "k":
-		if m.ShowHistory && m.HistoryPos > 0 {
-			m.HistoryPos--
-		}
-	case "down", "j":
-		if m.ShowHistory && m.HistoryPos < m.selectableHistoryLen()-1 {
-			m.HistoryPos++
-		}
-	case "enter":
-		if m.ShowHistory {
-			if len(m.History) > 0 {
-				m.Command = m.History[m.clampHistoryPos()]
-			}
-			m.ShowHistory = false
-			m.Focus = FocusCommand
-			return m, nil
-		}
+		m.ConfirmCancelAll = false
+	case "n":
+		m.ConfirmRun = false
+		m.ConfirmCancelAll = false
+		m.Notice = "confirmation cancelled"
+	case "enter", "y":
 		if m.ConfirmRun {
 			m.ConfirmRun = false
 			return m.startRun(true)
+		}
+		if m.ConfirmCancelAll {
+			m.ConfirmCancelAll = false
+			m.cancelAll()
+			return m, nil
 		}
 		m.ShowHelp = false
 	}
 	return m, nil
 }
 
+func (m Model) handleHistoryKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.HistorySearching {
+		switch keyName {
+		case "esc":
+			m.HistorySearching = false
+		case "enter":
+			if command := m.selectedHistoryCommand(); command != "" {
+				m.Command = command
+				m.RunError = ""
+				m.ShowHistory = false
+				m.HistorySearching = false
+				m.Focus = FocusCommand
+			} else {
+				m.RunError = "no history command matches"
+			}
+		case "ctrl+u":
+			m.HistoryFilter = ""
+			m.HistoryPos = 0
+			m.RunError = ""
+		case "backspace":
+			if len(m.HistoryFilter) > 0 {
+				m.HistoryFilter = m.HistoryFilter[:len(m.HistoryFilter)-1]
+				m.HistoryPos = 0
+				m.RunError = ""
+			}
+		case "up", "k":
+			if m.HistoryPos > 0 {
+				m.HistoryPos--
+			}
+		case "down", "j":
+			if m.HistoryPos < m.selectableHistoryLen()-1 {
+				m.HistoryPos++
+			}
+		default:
+			if key.Key().Text != "" {
+				m.HistoryFilter += key.Key().Text
+				m.HistoryPos = 0
+				m.RunError = ""
+			}
+		}
+		return m, nil
+	}
+	switch keyName {
+	case "esc":
+		m.ShowHistory = false
+	case "/":
+		m.HistorySearching = true
+	case "ctrl+u":
+		m.HistoryFilter = ""
+		m.HistoryPos = 0
+		m.RunError = ""
+	case "up", "k":
+		if m.HistoryPos > 0 {
+			m.HistoryPos--
+		}
+	case "down", "j":
+		if m.HistoryPos < m.selectableHistoryLen()-1 {
+			m.HistoryPos++
+		}
+	case "enter":
+		if command := m.selectedHistoryCommand(); command != "" {
+			m.Command = command
+			m.RunError = ""
+			m.ShowHistory = false
+			m.Focus = FocusCommand
+		} else {
+			m.RunError = "no history command matches"
+		}
+	}
+	return m, nil
+}
+
 func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	if m.Running || strings.TrimSpace(m.Command) == "" {
+		if m.Running {
+			m.Notice = "run already in progress"
+		} else {
+			m.Focus = FocusCommand
+			m.RunError = "command is empty; press c to edit"
+		}
 		return m, nil
 	}
 	targets := m.targetsForRun(failedOnly)
 	if len(targets) == 0 {
-		m.RunError = "no selected targets"
+		if len(m.Targets) == 0 {
+			m.RunError = "no target directories found"
+		} else if m.Filter != "" {
+			m.RunError = "no selected targets; press a to select matching"
+		} else {
+			m.RunError = "no selected targets; press a to select visible"
+		}
+		m.Notice = ""
 		return m, nil
 	}
 	reqTargets := append([]core.Target(nil), targets...)
@@ -472,8 +645,10 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	m.runQueue = append([]core.Target(nil), reqTargets...)
 	m.completedResults = nil
 	m.RunError = ""
+	m.Notice = fmt.Sprintf("started %d target(s)", len(reqTargets))
 	command := strings.TrimSpace(m.Command)
 	m.addHistory(command)
+	m.resetCommandHistoryNavigation()
 	if m.CommandHistoryPath != "" {
 		if err := history.AppendCommand(m.CommandHistoryPath, history.CommandEntry{Command: command, Time: time.Now()}); err != nil {
 			m.RunError = err.Error()
@@ -517,7 +692,7 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 			result.Status = core.StatusCancelled
 		}
 		m.Status[result.Target.ID] = result.Status
-		m.completedResults = append(m.completedResults, result)
+		m.recordCompletedResult(result)
 		var log strings.Builder
 		if result.Output != "" {
 			log.WriteString(result.Output)
@@ -537,11 +712,22 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 		m.runQueue = nil
 		m.cancelRun = nil
 		m.targetCancels = map[string]context.CancelFunc{}
+		m.Notice = m.completionNotice()
 		return nil
 	}
 	next, cmd := m.startQueuedRuns()
 	*m = next
 	return cmd
+}
+
+func (m *Model) recordCompletedResult(result core.RunResult) {
+	for i, existing := range m.completedResults {
+		if existing.Target.ID == result.Target.ID {
+			m.completedResults[i] = result
+			return
+		}
+	}
+	m.completedResults = append(m.completedResults, result)
 }
 
 func (m Model) startQueuedRuns() (Model, tea.Cmd) {
@@ -665,11 +851,17 @@ func (m Model) View() tea.View {
 func (m Model) render() string {
 	var b strings.Builder
 	width := m.Width
-	if width < 80 {
+	if width > 0 && width < 80 {
+		return m.renderTooSmall(width, m.Height)
+	}
+	if width == 0 {
 		width = 80
 	}
 	height := m.Height
-	if height < 20 {
+	if height > 0 && height < 20 {
+		return m.renderTooSmall(width, height)
+	}
+	if height == 0 {
 		height = 20
 	}
 	panelHeight := max(10, height-9)
@@ -689,35 +881,98 @@ func (m Model) render() string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderSubHeader(width))
 	b.WriteByte('\n')
-	left := m.renderDirectoryPanel(leftWidth, panelHeight)
-	right := m.renderLogPanel(rightWidth, panelHeight)
-	b.WriteString(joinPanels(left, right))
-	if m.ShowHelp {
-		b.WriteString("\n\n")
-		b.WriteString(renderBox(width, "Keymap", m.helpRows()))
-	}
-	if m.ShowHistory {
-		b.WriteString("\n\n")
-		b.WriteString(renderBox(width, "History", m.historyRows()))
-	}
-	if m.ShowPalette {
-		b.WriteString("\n\n")
-		b.WriteString(renderBox(width, "Command palette", m.paletteRows()))
-	}
-	if m.ConfirmRun {
-		b.WriteString("\n\n")
-		b.WriteString(renderBox(width, "Rerun failed", []string{
-			fmt.Sprintf("%d failed target(s) will run again.", m.failedCount()),
-			"enter confirm   esc cancel",
-		}))
+	if overlay := m.renderOverlay(width, panelHeight); overlay != "" {
+		b.WriteString(overlay)
+	} else {
+		compact := m.compactMode(width)
+		if (m.Zoom || compact) && m.Focus == FocusLogs {
+			b.WriteString(strings.Join(m.renderLogPanel(m.singlePanelWidth(width), panelHeight), "\n"))
+		} else if m.Zoom || compact {
+			b.WriteString(strings.Join(m.renderDirectoryPanel(m.singlePanelWidth(width), panelHeight), "\n"))
+		} else {
+			left := m.renderDirectoryPanel(leftWidth, panelHeight)
+			right := m.renderLogPanel(rightWidth, panelHeight)
+			b.WriteString(joinPanels(left, right))
+		}
 	}
 	if m.RunError != "" {
 		b.WriteString("\n")
-		b.WriteString(statusStyles[core.StatusFailed].Render(" " + m.RunError))
+		b.WriteString(m.renderMessageBar(width, "ERROR", m.RunError, errorBarStyle))
+	} else if m.Notice != "" {
+		b.WriteString("\n")
+		label := "INFO"
+		style := noticeBarStyle
+		if strings.HasPrefix(m.Notice, "run complete:") && m.completionNeedsAttention() {
+			label = "WARN"
+			style = warningBarStyle
+		}
+		b.WriteString(m.renderMessageBar(width, label, m.Notice, style))
 	}
 	b.WriteByte('\n')
-	b.WriteString(renderFooter(width))
+	b.WriteString(m.renderFooter(width))
 	return b.String()
+}
+
+func (m Model) renderMessageBar(width int, label string, message string, style lipgloss.Style) string {
+	text := fmt.Sprintf(" %s  %s", label, message)
+	return style.Render(padRightVisible(truncateVisible(text, width), width))
+}
+
+func (m Model) completionNeedsAttention() bool {
+	stats := m.statusCounts()
+	return stats[core.StatusFailed] > 0 || stats[core.StatusCancelled] > 0
+}
+
+func (m Model) renderTooSmall(width int, height int) string {
+	if width <= 0 {
+		width = 40
+	}
+	if height <= 0 {
+		height = 10
+	}
+	rows := []string{
+		runnyBadgeStyle.Render("runny"),
+		"terminal too small",
+		fmt.Sprintf("need at least 80x20, got %dx%d", width, height),
+		"resize terminal to continue",
+	}
+	lines := make([]string, 0, height)
+	for i := 0; i < height; i++ {
+		row := ""
+		if i < len(rows) {
+			row = rows[i]
+		}
+		lines = append(lines, padRightVisible(truncateVisible(" "+row, width), width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderOverlay(width int, height int) string {
+	switch {
+	case m.ShowHelp:
+		return renderBox(width, "Keymap", clipOverlayRows(m.helpRows(), height))
+	case m.ShowHistory:
+		return renderBox(width, "History", clipOverlayRows(m.historyRows(), height))
+	case m.ShowPalette:
+		return renderBox(width, "Command palette", clipOverlayRows(m.paletteRows(), height))
+	case m.ConfirmRun:
+		return renderBox(width, "Rerun failed", []string{
+			fmt.Sprintf("%d failed target(s) will run again.", m.failedCount()),
+			"command: " + truncateVisible(m.previewCommandText(), 64),
+			"targets: " + m.statusTargetSummary(core.StatusFailed, 64),
+			"y/enter confirm   n/esc cancel",
+		})
+	case m.ConfirmCancelAll:
+		return renderBox(width, "Cancel all", []string{
+			fmt.Sprintf("%d active target(s) will be cancelled.", m.activeCount()),
+			fmt.Sprintf("breakdown: %d running, %d queued", m.statusCount(core.StatusRunning), m.statusCount(core.StatusQueued)),
+			"scope: running and queued targets only",
+			"targets: " + m.activeTargetSummary(64),
+			"y/enter confirm   n/esc cancel",
+		})
+	default:
+		return ""
+	}
 }
 
 func (m Model) renderHeader(width int) string {
@@ -747,22 +1002,29 @@ func (m Model) renderHeader(width int) string {
 
 func (m Model) renderDashboard(width int) string {
 	stats := m.statusCounts()
-	workers := "auto"
-	if m.Workers > 0 {
-		workers = fmt.Sprintf("%d", m.Workers)
+	workers := m.workersLabel()
+	active := stats[core.StatusRunning] + stats[core.StatusQueued]
+	done := stats[core.StatusSucceeded] + stats[core.StatusFailed] + stats[core.StatusCancelled]
+	progress := m.progressBar(done, len(m.Targets), 14)
+	stateLabel := m.executionState()
+	if m.Running {
+		stateLabel = fmt.Sprintf("running %d/%d", done, max(done+active, m.PendingRuns))
 	}
 	chips := []string{
-		fmt.Sprintf(" idle %d ", stats[core.StatusIdle]),
-		fmt.Sprintf(" queued %d ", stats[core.StatusQueued]),
-		fmt.Sprintf(" running %d ", stats[core.StatusRunning]),
-		fmt.Sprintf(" ok %d ", stats[core.StatusSucceeded]),
-		fmt.Sprintf(" failed %d ", stats[core.StatusFailed]),
-		fmt.Sprintf(" cancelled %d ", stats[core.StatusCancelled]),
-		" workers " + workers + " ",
-		" mode " + string(m.mode()) + " ",
+		metricRunningStyle.Render(fmt.Sprintf(" active %d ", active)),
+		metricQueuedStyle.Render(fmt.Sprintf(" queue %d ", stats[core.StatusQueued])),
+		metricSuccessStyle.Render(fmt.Sprintf(" ok %d ", stats[core.StatusSucceeded])),
+		metricFailedStyle.Render(fmt.Sprintf(" failed %d ", stats[core.StatusFailed])),
+		metricIdleStyle.Render(fmt.Sprintf(" idle %d ", stats[core.StatusIdle])),
+		subtleStyle.Render(fmt.Sprintf(" %s %d/%d %s ", progress, done, len(m.Targets), m.progressPercent(done, len(m.Targets)))),
+		subtleStyle.Render(" workers " + workers + " "),
+		subtleStyle.Render(" " + string(m.mode()) + " "),
 	}
-	line := strings.Join(chips, "│")
-	return subtleStyle.Render(padRightVisible(truncateVisible(" "+line, width), width))
+	if m.Running || width >= 110 {
+		chips = append([]string{subtleStyle.Render(" " + stateLabel + " ")}, chips...)
+	}
+	line := strings.Join(chips, subtleStyle.Render("│"))
+	return padRightVisible(truncateVisible(" "+line, width), width)
 }
 
 func (m Model) renderSubHeader(width int) string {
@@ -770,27 +1032,59 @@ func (m Model) renderSubHeader(width int) string {
 	if filterText == "" {
 		filterText = "<none>"
 	}
-	focusText := "tasks"
-	if m.Focus == FocusCommand {
-		focusText = "command"
-	} else if m.Focus == FocusFilter {
-		focusText = "filter"
-	} else if m.Focus == FocusLogs {
-		focusText = "logs"
-	}
-	workers := "auto"
-	if m.Workers > 0 {
-		workers = fmt.Sprintf("%d", m.Workers)
-	}
+	focusText := m.focusName()
+	workers := m.workersLabel()
 	prompt := "/ " + filterText
+	if m.Focus == FocusFilter {
+		prompt += "▌"
+	}
+	if m.Focus == FocusCommand {
+		command := m.Command
+		if command == "" {
+			command = "<type command, enter to run>"
+		}
+		prompt = "> " + command + "▌"
+	}
 	if m.ShowPalette {
 		prompt = ": " + m.Palette
 		if strings.TrimSpace(m.Palette) == "" {
 			prompt = ": <command>"
 		}
 	}
-	line := " " + prompt + "  focus " + focusText + "  mode " + string(m.mode()) + "  workers " + workers
-	return subtleStyle.Render(padRightVisible(truncateVisible(line, width), width))
+	state := m.executionState()
+	viewText := ""
+	if m.Zoom {
+		viewText = "  view zoom"
+	} else if m.compactMode(width) {
+		viewText = "  view compact"
+	}
+	metadata := []string{
+		fmt.Sprintf("focus %s%s", focusText, viewText),
+		fmt.Sprintf("visible %d/%d", len(m.visibleTargetIndexes()), len(m.Targets)),
+		m.filterMatchLabel(),
+		fmt.Sprintf("selected %d", m.selectedCount()),
+		fmt.Sprintf("mode %s", m.mode()),
+		fmt.Sprintf("workers %s", workers),
+		fmt.Sprintf("state %s", state),
+	}
+	if width >= 140 {
+		if path := m.focusedPathLabel(); path != "" {
+			metadata = append(metadata, path)
+		}
+	}
+	line := " " + commandPromptStyle.Render(" "+prompt+" ") + " " + subtleStyle.Render(strings.Join(metadata, "  "))
+	return padRightVisible(truncateVisible(line, width), width)
+}
+
+func (m Model) focusedPathLabel() string {
+	if m.Cursor < 0 || m.Cursor >= len(m.Targets) {
+		return ""
+	}
+	path := strings.TrimSpace(m.Targets[m.Cursor].RelPath)
+	if path == "" {
+		return ""
+	}
+	return "path " + strings.ReplaceAll(path, "/", " › ")
 }
 
 func (m Model) mode() core.ExecutionMode {
@@ -800,16 +1094,33 @@ func (m Model) mode() core.ExecutionMode {
 	return m.Mode
 }
 
+func (m Model) workersLabel() string {
+	if m.Workers > 0 {
+		return fmt.Sprintf("%d", m.Workers)
+	}
+	return "auto"
+}
+
+func (m Model) executionConfigLabel() string {
+	return fmt.Sprintf("%s · workers %s", m.mode(), m.workersLabel())
+}
+
 func (m Model) renderDirectoryPanel(width int, height int) []string {
-	rows := []string{panelTitleStyle.Render(padRightVisible("SEL  DIR/TASK", width-18) + "STATUS")}
+	rows := []string{panelTitleStyle.Render(m.taskHeader(width - 4))}
 	visibleIndexes := m.visibleTargetIndexes()
 	limit := max(1, height-4)
+	if len(visibleIndexes) > 0 {
+		limit = max(1, height-5)
+	}
 	offset := m.DirectoryOffset
 	if offset < 0 {
 		offset = 0
 	}
 	if offset > max(0, len(visibleIndexes)-1) {
 		offset = max(0, len(visibleIndexes)-1)
+	}
+	if len(visibleIndexes) > 0 {
+		rows = append(rows, subtleStyle.Render(m.directoryScrollLabel(offset, limit, len(visibleIndexes))))
 	}
 	count := 0
 	for _, targetIndex := range visibleIndexes[offset:] {
@@ -821,9 +1132,48 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 		count++
 	}
 	if count == 0 {
-		rows = append(rows, "  no directories")
+		if m.Filter == "" {
+			rows = append(rows, sectionStyle.Render("No target directories found"))
+			rows = append(rows, "  runny executes inside child directories of current cwd")
+			rows = append(rows, "  create directories or run from a project root")
+		} else {
+			rows = append(rows, sectionStyle.Render("No matches for /"+m.Filter))
+			rows = append(rows, "  "+m.filterModeLabel()+" filter has no visible target")
+			rows = append(rows, "  edit query, ctrl+u clears filter, esc returns to tasks")
+		}
 	}
 	return boxLines(width, height, "Tasks", rows, m.Focus == FocusTargets)
+}
+
+func (m Model) filterModeLabel() string {
+	_, exact := filterQuery(strings.TrimSpace(m.Filter))
+	if exact {
+		return "exact"
+	}
+	return "fuzzy"
+}
+
+func (m Model) taskHeader(width int) string {
+	left := "SEL RUN FOLD  DIR/TASK"
+	if width <= 46 {
+		left = "SEL RUN  DIR/TASK"
+	}
+	return visibleJoin(left, "STATUS", width)
+}
+
+func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
+	end := min(total, offset+limit)
+	markers := ""
+	if offset > 0 {
+		markers += "↑"
+	}
+	if end < total {
+		markers += "↓"
+	}
+	if markers == "" {
+		markers = "•"
+	}
+	return fmt.Sprintf("showing %d-%d of %d %s", offset+1, end, total, markers)
 }
 
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
@@ -835,20 +1185,44 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	if target.Selected {
 		selected = selectedStyle.Render("●")
 	}
+	activity := " "
+	switch m.Status[target.ID] {
+	case core.StatusQueued:
+		activity = subtleStyle.Render("…")
+	case core.StatusRunning:
+		activity = metricRunningStyle.Render("▶")
+	case core.StatusCancelled:
+		activity = subtleStyle.Render("×")
+	case core.StatusSucceeded:
+		activity = metricSuccessStyle.Render("✓")
+	case core.StatusFailed:
+		activity = metricFailedStyle.Render("!")
+	}
 	fold := " "
-	if target.Folded {
+	if target.Folded && m.Filter == "" {
 		fold = "+"
 	} else if len(target.Children) > 0 {
 		fold = "−"
 	}
-	name := strings.Repeat("  ", max(0, target.Depth-1)) + target.RelPath
 	status := m.Status[target.ID]
-	nameWidth := max(10, width-17)
-	statusText := padRightVisible(string(status), 8)
+	namePrefix := strings.Repeat("  ", max(0, target.Depth-1))
+	if target.Depth > 1 {
+		namePrefix += "└ "
+	}
+	name := namePrefix + m.highlightMatch(target.RelPath)
+	nameWidth := max(10, width-24)
+	statusText := padRightVisible(m.statusLabel(status), 11)
 	if style, ok := statusStyles[status]; ok {
 		statusText = style.Render(statusText)
 	}
-	return cursor + " " + selected + "  " + fold + " " + padRightVisible(truncateVisible(name, nameWidth), nameWidth) + " " + statusText
+	row := cursor + " " + selected + " " + activity + " " + fold + "  " + padRightVisible(truncateVisible(name, nameWidth), nameWidth) + " " + statusText
+	if index == m.Cursor {
+		return rowActiveStyle.Render(padRightVisible(row, width))
+	}
+	if status == core.StatusRunning {
+		return rowRunningStyle.Render(padRightVisible(row, width))
+	}
+	return row
 }
 
 func (m Model) renderLogPanel(width int, height int) []string {
@@ -859,32 +1233,155 @@ func (m Model) renderLogPanel(width int, height int) []string {
 		if target.Selected {
 			selected = "yes"
 		}
-		lines = append(lines, "path "+target.RelPath)
-		lines = append(lines, "status "+string(m.Status[target.ID]))
-		lines = append(lines, "selected "+selected)
-		lines = append(lines, "command "+strings.TrimSpace(m.Command))
-		lines = append(lines, "", "output")
-		output := strings.Split(strings.TrimRight(m.Logs[target.ID], "\n"), "\n")
-		if len(output) == 1 && output[0] == "" {
-			output = []string{"No output yet."}
-		}
-		offset := m.PreviewOffset
-		if m.LogFollow && m.Status[target.ID] == core.StatusRunning {
-			offset = max(0, len(output)-(height-9))
-		}
-		if offset > max(0, len(output)-1) {
-			offset = max(0, len(output)-1)
-		}
-		if offset < 0 {
-			offset = 0
-		}
-		lines = append(lines, output[offset:]...)
+		status := m.Status[target.ID]
+		lines = append(lines, panelTitleStyle.Render("Target"))
+		lines = append(lines, "path      "+target.RelPath)
+		lines = append(lines, "status    "+m.statusLabel(status))
+		lines = append(lines, "selected  "+selected)
+		lines = append(lines, "children  "+fmt.Sprintf("%d", len(target.Children)))
+		lines = append(lines, "scroll    "+m.previewScrollLabel(target.ID, height))
+		lines = append(lines, "next      "+truncateVisible(m.previewNextAction(target, status, width-14), width-14))
+		lines = append(lines, "")
+		lines = append(lines, panelTitleStyle.Render("Command ("+m.executionConfigLabel()+")"))
+		lines = append(lines, truncateVisible(m.previewCommandText(), width-4))
+		lines = append(lines, "")
+		lines = append(lines, panelTitleStyle.Render("Output "+m.outputRangeLabel(target.ID, height)))
+		lines = append(lines, m.renderOutputLines(target.ID, status, height)...)
 	} else {
-		lines = append(lines, "path none")
-		lines = append(lines, "status none")
-		lines = append(lines, "", "output", "No output yet.")
+		lines = append(lines, panelTitleStyle.Render("Target"))
+		lines = append(lines, "path      none")
+		lines = append(lines, "status    none")
+		lines = append(lines, "", panelTitleStyle.Render("Output"), "No output yet.")
 	}
 	return boxLines(width, height, "Preview", lines, m.Focus == FocusLogs)
+}
+
+func (m Model) previewCommandText() string {
+	command := strings.TrimSpace(m.Command)
+	if command == "" {
+		return subtleStyle.Render("(not set)")
+	}
+	return command
+}
+
+func (m Model) previewNextAction(target core.Target, status core.Status, width int) string {
+	if strings.TrimSpace(m.Command) == "" {
+		return "c edit command   ? keymap"
+	}
+	switch status {
+	case core.StatusQueued, core.StatusRunning:
+		if width < 30 {
+			return "del/x target  ctrl+c all"
+		}
+		return "del/x target   ctrl+c cancel+quit"
+	case core.StatusFailed:
+		return "R rerun failed   enter run selected"
+	}
+	if target.Selected {
+		return "enter run selected   space deselect"
+	}
+	return "space select   a " + m.bulkSelectionLabel()
+}
+
+func (m Model) outputRangeLabel(targetID string, height int) string {
+	output := strings.Split(strings.TrimRight(m.Logs[targetID], "\n"), "\n")
+	if len(output) == 1 && output[0] == "" {
+		return "(empty)"
+	}
+	visible := max(1, height-14)
+	offset := m.previewOutputOffset(len(output), visible)
+	end := min(len(output), offset+visible)
+	markers := ""
+	if offset > 0 {
+		markers += "↑"
+	}
+	if end < len(output) {
+		markers += "↓"
+	}
+	if markers == "" {
+		markers = "•"
+	}
+	mode := "manual"
+	if m.LogFollow {
+		mode = "follow"
+	}
+	return fmt.Sprintf("(%d-%d/%d %s %s)", offset+1, end, len(output), mode, markers)
+}
+
+func (m Model) renderOutputLines(targetID string, status core.Status, height int) []string {
+	output := strings.Split(strings.TrimRight(m.Logs[targetID], "\n"), "\n")
+	if len(output) == 1 && output[0] == "" {
+		switch status {
+		case core.StatusQueued:
+			return []string{
+				logInfoStyle.Render("Waiting for worker slot."),
+				subtleStyle.Render("Use :workers N to raise parallelism, or del/x to cancel."),
+			}
+		case core.StatusRunning:
+			return []string{
+				logInfoStyle.Render("Running. Output appears here when command writes."),
+				subtleStyle.Render("Press L to toggle follow, del/x to cancel this target."),
+			}
+		default:
+			return []string{subtleStyle.Render("No output yet.")}
+		}
+	}
+	visible := max(1, height-14)
+	offset := m.previewOutputOffset(len(output), visible)
+	rows := make([]string, 0, visible)
+	for i, line := range output[offset:] {
+		if i >= visible {
+			break
+		}
+		number := logNumberStyle.Render(fmt.Sprintf("%4d │ ", offset+i+1))
+		rows = append(rows, number+m.styleLogLine(line))
+	}
+	return rows
+}
+
+func (m Model) previewOutputOffset(total int, visible int) int {
+	maxOffset := max(0, total-visible)
+	if m.LogFollow {
+		return maxOffset
+	}
+	if m.PreviewOffset > maxOffset {
+		return maxOffset
+	}
+	if m.PreviewOffset < 0 {
+		return 0
+	}
+	return m.PreviewOffset
+}
+
+func (m Model) previewScrollLabel(targetID string, height int) string {
+	output := strings.Split(strings.TrimRight(m.Logs[targetID], "\n"), "\n")
+	if len(output) == 1 && output[0] == "" {
+		output = nil
+	}
+	if len(output) == 0 {
+		if m.LogFollow {
+			return "follow"
+		}
+		return "manual"
+	}
+	visible := max(1, height-14)
+	maxOffset := max(0, len(output)-visible)
+	offset := m.PreviewOffset
+	if m.LogFollow {
+		offset = maxOffset
+	}
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	return fmt.Sprintf("%d/%d %s", offset+1, maxOffset+1, ternary(m.LogFollow, "follow", "manual"))
+}
+
+func (m Model) styleLogLine(line string) string {
+	lower := strings.ToLower(line)
+	if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "exit status") {
+		return logErrorStyle.Render(line)
+	}
+	return logInfoStyle.Render(line)
 }
 
 func (m Model) hiddenByFold(target core.Target) bool {
@@ -908,129 +1405,550 @@ func (m Model) hiddenByFold(target core.Target) bool {
 	return false
 }
 
-func joinPanels(left []string, right []string) string {
+func (m Model) renderFooter(width int) string {
+	activeStopHint := "ctrl+c all+quit"
+	if width >= 110 {
+		activeStopHint = "ctrl+c cancel+quit"
+	}
+	zoomLabel := "z zoom"
+	if m.Zoom {
+		zoomLabel = "z split"
+	}
+	keys := []string{"? help", "/ search", ": cmd", "H hist", zoomLabel}
+	if width < 110 && m.hasActiveRuns() {
+		keys = []string{"? help", "/ search", ": cmd", "H hist"}
+	}
+	if width >= 110 {
+		keys = []string{"? keymap", "/ search", ": command", "H history", "tab panels", zoomLabel}
+	}
+	if m.ShowHelp {
+		keys = []string{"? close", "q close", "esc close", "H history"}
+	} else if m.ShowHistory {
+		keys = []string{"/ search", "enter reuse", "up/down choose", "ctrl+u clear", "esc close", "? keymap"}
+		if m.selectableHistoryLen() == 0 {
+			keys = []string{"/ search", "no reuse", "ctrl+u clear", "esc close", "? keymap"}
+		}
+	} else if m.ShowPalette {
+		keys = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close"}
+	} else if m.ConfirmRun {
+		keys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+	} else if m.ConfirmCancelAll {
+		keys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+	}
+	if m.hasActiveRuns() {
+		keys = append(keys, activeStopHint)
+	}
+	if !m.ShowHelp && !m.ShowHistory && !m.ShowPalette && !m.ConfirmRun && !m.ConfirmCancelAll {
+		switch m.Focus {
+		case FocusCommand:
+			if width >= 110 {
+				keys = append(keys, "enter run", "esc tasks", "up/down hist", "backspace edit")
+			} else {
+				keys = []string{"? help", "H hist"}
+				if m.hasActiveRuns() {
+					keys = append(keys, activeStopHint)
+				}
+				keys = append(keys, "enter run", "esc tasks", "↑↓ hist", "ctrl+u clear")
+			}
+		case FocusFilter:
+			if width >= 110 {
+				keys = []string{"? keymap", "H history"}
+				if m.hasActiveRuns() {
+					keys = append(keys, activeStopHint)
+				}
+				keys = append(keys, "type fuzzy", "' exact", "↑↓/nN matches", "ctrl+u clear", "enter/esc tasks")
+			} else {
+				keys = []string{"? help", "H hist"}
+				if m.hasActiveRuns() {
+					keys = append(keys, activeStopHint)
+				}
+				keys = append(keys, "type fuzzy", "' exact", "↑↓/nN", "ctrl+u clear", "enter/esc")
+			}
+		case FocusLogs:
+			if width >= 110 {
+				keys = append(keys, "pgup/pgdn scroll", "L follow", "tab tasks")
+			} else {
+				keys = []string{"? help", "H hist"}
+				if m.hasActiveRuns() {
+					keys = append(keys, activeStopHint)
+				}
+				keys = append(keys, "pgup/pgdn scroll", "L follow", "tab tasks")
+			}
+		default:
+			keys = append(keys, "space select")
+			if width >= 110 {
+				bulkAction := "a/A all"
+				if m.Filter != "" {
+					bulkAction = "a/A matches"
+				}
+				keys = append(keys, "c command", bulkAction, "h/l fold")
+			} else {
+				keys = []string{"? help", "H hist"}
+				if m.hasActiveRuns() {
+					keys = append(keys, activeStopHint)
+				}
+				keys = append(keys, "space select", "tab preview", "c cmd")
+			}
+			if !m.hasActiveRuns() && m.failedCount() > 0 {
+				keys = append(keys, "R failed")
+			}
+			keys = append(keys, "enter run", "del/x cancel")
+		}
+	}
+	if !m.hasActiveRuns() {
+		keys = append(keys, "q quit")
+	}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		label, desc, ok := strings.Cut(key, " ")
+		if !ok {
+			parts = append(parts, key)
+			continue
+		}
+		parts = append(parts, footerKeyStyle.Render(label)+" "+desc)
+	}
+	text := " " + strings.Join(parts, "  ")
+	return footerStyle.Render(padRightVisible(truncateVisible(text, width), width))
+}
+
+func (m Model) compactMode(width int) bool {
+	return width < 96
+}
+
+func (m Model) singlePanelWidth(width int) int {
+	if width <= 80 {
+		return width - 1
+	}
+	return width
+}
+
+func (m Model) highlightMatch(value string) string {
+	if m.Filter == "" {
+		return value
+	}
+	query, exact := filterQuery(m.Filter)
+	if query == "" {
+		return value
+	}
+	index := indexFold(value, query)
+	if index < 0 {
+		if exact {
+			return value
+		}
+		return highlightFuzzyMatch(value, query)
+	}
+	before := value[:index]
+	match := value[index : index+len(query)]
+	after := value[index+len(query):]
+	return before + matchStyle.Render(match) + after
+}
+
+func highlightFuzzyMatch(value string, query string) string {
+	indexes := fuzzyIndexesFold(value, query)
+	if len(indexes) == 0 {
+		return value
+	}
+	matched := make(map[int]struct{}, len(indexes))
+	for _, index := range indexes {
+		matched[index] = struct{}{}
+	}
 	var b strings.Builder
-	height := max(len(left), len(right))
-	for i := range height {
-		if i < len(left) {
-			b.WriteString(left[i])
-		} else {
-			b.WriteString(strings.Repeat(" ", len(left[0])))
+	for index, r := range value {
+		if _, ok := matched[index]; ok {
+			b.WriteString(matchStyle.Render(string(r)))
+			continue
 		}
-		b.WriteString("  ")
-		if i < len(right) {
-			b.WriteString(right[i])
-		}
-		if i < height-1 {
-			b.WriteByte('\n')
-		}
+		b.WriteRune(r)
 	}
 	return b.String()
 }
 
-func renderBox(width int, title string, rows []string) string {
-	return strings.Join(boxLines(width, len(rows)+2, title, rows, false), "\n")
+func (m Model) focusName() string {
+	switch m.Focus {
+	case FocusCommand:
+		return "command"
+	case FocusFilter:
+		return "filter"
+	case FocusLogs:
+		return "preview"
+	default:
+		return "tasks"
+	}
 }
 
-func boxLines(width int, height int, title string, rows []string, active bool) []string {
-	width = max(width, len(title)+6)
-	height = max(height, 3)
-	lines := make([]string, 0, height)
-	titleText := " " + panelTitleStyle.Render(title) + " "
-	topFill := max(0, width-lipgloss.Width(titleText)-2)
-	borderStyle := panelStyle
-	if active {
-		borderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#67E8F9"))
-	}
-	lines = append(lines, borderStyle.Render("╭─")+titleText+borderStyle.Render(strings.Repeat("─", topFill)+"╮"))
-	contentWidth := width - 4
-	for i := 0; i < height-2; i++ {
-		row := ""
-		if i < len(rows) {
-			row = rows[i]
+func (m Model) selectedCount() int {
+	selected := 0
+	for _, target := range m.Targets {
+		if target.Selected {
+			selected++
 		}
-		lines = append(lines, borderStyle.Render("│")+" "+padRightVisible(truncateVisible(row, contentWidth), contentWidth)+" "+borderStyle.Render("│"))
 	}
-	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
-	return lines
+	return selected
 }
 
-func renderFooter(width int) string {
-	text := " ? keymap  / search  : command  space select  enter run  del/x cancel  ctrl+c stop"
-	return footerStyle.Render(padRightVisible(truncateVisible(text, width), width))
+func (m Model) executionState() string {
+	if m.Running {
+		return "running"
+	}
+	if m.failedCount() > 0 {
+		return "failed"
+	}
+	stats := m.statusCounts()
+	if len(m.Targets) > 0 && stats[core.StatusSucceeded] == len(m.Targets) {
+		return "succeeded"
+	}
+	return "ready"
+}
+
+func (m Model) statusLabel(status core.Status) string {
+	if status == "" {
+		status = core.StatusIdle
+	}
+	switch status {
+	case core.StatusIdle:
+		return "○ idle"
+	case core.StatusQueued:
+		return "◌ queued"
+	case core.StatusRunning:
+		return "● running"
+	case core.StatusSucceeded:
+		return "✓ ok"
+	case core.StatusFailed:
+		return "✕ failed"
+	case core.StatusCancelled:
+		return "– cancelled"
+	case core.StatusSkipped:
+		return "○ skipped"
+	default:
+		return string(status)
+	}
+}
+
+func (m Model) progressBar(done int, total int, width int) string {
+	if total <= 0 || width <= 0 {
+		return strings.Repeat("░", max(0, width))
+	}
+	if done < 0 {
+		done = 0
+	}
+	if done > total {
+		done = total
+	}
+	filled := done * width / total
+	if done > 0 && filled == 0 {
+		filled = 1
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+}
+
+func (m Model) progressPercent(done int, total int) string {
+	if total <= 0 {
+		return "0%"
+	}
+	if done < 0 {
+		done = 0
+	}
+	if done > total {
+		done = total
+	}
+	return fmt.Sprintf("%d%%", done*100/total)
 }
 
 func (m Model) helpRows() []string {
-	return []string{
-		"Global",
-		"  ? keymap   / search   : command palette   tab focus   esc close mode   q quit idle   ctrl+c stop+quit",
-		"Tasks",
-		"  up/down j/k move   g first   G last   space toggle   a select visible   A deselect visible",
-		"  left/h fold   right/l unfold   enter run   del/x cancel selected   R rerun failed",
-		"Filter",
-		"  type filter   ctrl+u clear   esc keep filter and return",
-		"Command palette",
-		"  :run   :workers N   :serial   :parallel   :failed   :rerun-failed   :cancel   :history",
-		"Preview",
-		"  pageup/ctrl+b up   pagedown/ctrl+f down   ctrl+u half up   ctrl+d half down   L follow",
+	sections := []helpSection{
+		{
+			id:    "global",
+			title: "Global",
+			rows: []string{
+				"  ? keymap   / filter   : palette   H history   tab toggle tasks/preview   z zoom/split",
+				"  esc close mode   q quit when idle   ctrl+c cancel active work + quit cleanly",
+			},
+		},
+		{
+			id:    "input",
+			title: "Input and filter",
+			rows: []string{
+				"  c edit command   type/backspace edit   up/down history   ctrl+w word back   ctrl+u clear",
+				"  / fuzzy filter   ' prefix exact filter   n/N next/previous match",
+			},
+		},
+		{
+			id:    "tasks",
+			title: "Tasks",
+			rows: []string{
+				"  up/down j/k move   g/G first/last   space toggle   a/A select/deselect visible or matching filter",
+				"  left/h fold   right/l unfold   enter run selected   del/x cancel selected active",
+			},
+		},
+		{
+			id:    "runs",
+			title: "Runs and status",
+			rows: []string{
+				"  R rerun failed confirm   ▶ running   … queued   ✓ ok   ! failed   × cancelled",
+			},
+		},
+		{
+			id:    "palette",
+			title: "Palette",
+			rows: []string{
+				"  :run   :workers N|auto   :serial   :parallel   :failed   :rerun-failed   :cancel   :cancel-all   :history",
+				"  type fuzzy   ' prefix exact match   enter run selected command   esc close",
+			},
+		},
+		{
+			id:    "history",
+			title: "History",
+			rows: []string{
+				"  H open history   / search commands and project runs   ' prefix exact match",
+				"  up/down choose   enter reuse selected command   ctrl+u clear   esc close",
+			},
+		},
+		{
+			id:    "preview",
+			title: "Preview",
+			rows: []string{
+				"  pageup/ctrl+b up   pagedown/ctrl+f down   ctrl+u up   ctrl+d down   L follow",
+			},
+		},
+	}
+	activeID := m.activeHelpSectionID()
+	ordered := make([]helpSection, 0, len(sections))
+	for _, section := range sections {
+		if section.id == activeID {
+			ordered = append(ordered, section)
+			break
+		}
+	}
+	for _, section := range sections {
+		if section.id != activeID {
+			ordered = append(ordered, section)
+		}
+	}
+	rows := make([]string, 0, 24)
+	for i, section := range ordered {
+		if i > 0 {
+			rows = append(rows, "")
+		}
+		rows = append(rows, sectionStyle.Render(section.title))
+		rows = append(rows, section.rows...)
+	}
+	return rows
+}
+
+type helpSection struct {
+	id    string
+	title string
+	rows  []string
+}
+
+func (m Model) activeHelpSectionID() string {
+	switch {
+	case m.ShowPalette:
+		return "palette"
+	case m.ShowHistory:
+		return "history"
+	case m.ConfirmRun || m.ConfirmCancelAll || m.hasActiveRuns():
+		return "runs"
+	case m.Focus == FocusCommand || m.Focus == FocusFilter:
+		return "input"
+	case m.Focus == FocusLogs:
+		return "preview"
+	default:
+		return "tasks"
 	}
 }
 
 func (m Model) paletteRows() []string {
-	rows := []string{": " + m.Palette}
-	matches := m.filteredPaletteCommands()
-	if len(matches) == 0 {
-		return append(rows, "  no commands")
+	input := m.Palette
+	if input == "" {
+		input = "<type command>"
 	}
+	matches := m.filteredPaletteCommands()
+	helpText := "0 matches   ctrl+u clear   esc close"
+	if len(matches) > 0 {
+		selected := matches[min(m.PalettePos, len(matches)-1)].Name
+		if strings.Contains(selected, " ") {
+			selected = "command"
+		}
+		helpText = fmt.Sprintf("%d fuzzy match(es)   enter %s   esc close   ↑↓ choose", len(matches), selected)
+	}
+	rows := []string{
+		commandPromptStyle.Render(" : " + input + " "),
+		subtleStyle.Render(helpText),
+		"",
+	}
+	if len(matches) == 0 {
+		return append(rows, "  no commands; backspace or ctrl+u to edit")
+	}
+	visibleLimit := 8
 	for i, command := range matches {
-		if i >= 8 {
+		if i >= visibleLimit {
 			break
 		}
 		prefix := "  "
 		if i == m.PalettePos {
 			prefix = "› "
 		}
-		rows = append(rows, prefix+padRightVisible(command.Name, 16)+command.Description)
+		name := m.highlightPaletteMatch(command.Name)
+		description := m.highlightPaletteMatch(command.Description)
+		line := prefix + padRightVisible(name, 16) + description
+		if i == m.PalettePos {
+			line = paletteActiveStyle.Render(padRightVisible(line, 72))
+		}
+		rows = append(rows, line)
+	}
+	if hidden := len(matches) - min(len(matches), visibleLimit); hidden > 0 {
+		rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more command(s); keep typing to narrow", hidden)))
 	}
 	return rows
+}
+
+func (m Model) highlightPaletteMatch(value string) string {
+	query := strings.TrimSpace(m.Palette)
+	if query == "" {
+		return value
+	}
+	query, exact := filterQuery(query)
+	if query == "" {
+		return value
+	}
+	index := indexFold(value, query)
+	if index >= 0 {
+		before := value[:index]
+		match := value[index : index+len(query)]
+		after := value[index+len(query):]
+		return before + matchStyle.Render(match) + after
+	}
+	if exact {
+		return value
+	}
+	return highlightFuzzyMatch(value, query)
 }
 
 func (m Model) historyRows() []string {
-	rows := []string{"Commands"}
+	commands := m.visibleHistoryCommands()
+	commandTotal := m.filteredHistoryCommandCount()
+	commandTitle := fmt.Sprintf("Commands (%d/%d)", len(commands), commandTotal)
+	prompt := "/ " + m.HistoryFilter
+	if m.HistorySearching {
+		prompt += "▌"
+	}
+	searchHelp := subtleStyle.Render(" / search   ' exact   ctrl+u clear")
+	rows := []string{
+		commandPromptStyle.Render(" "+prompt+" ") + " " + searchHelp,
+		sectionStyle.Render(commandTitle),
+		subtleStyle.Render("  #  command"),
+	}
 	if len(m.History) == 0 {
 		rows = append(rows, "  No command history yet.")
+	} else if len(commands) == 0 {
+		rows = append(rows, "  No command matches.")
 	} else {
-		for i, command := range m.History {
-			if i >= 6 {
-				break
-			}
-			prefix := "  "
+		for i, command := range commands {
+			prefix := fmt.Sprintf("  %d  ", i+1)
 			if i == m.HistoryPos {
-				prefix = "› "
+				prefix = fmt.Sprintf("› %d  ", i+1)
 			}
-			rows = append(rows, prefix+command)
+			line := prefix + truncateVisible(m.highlightHistoryMatch(command), 72)
+			if i == m.HistoryPos {
+				line = paletteActiveStyle.Render(padRightVisible(line, 76))
+			}
+			rows = append(rows, line)
+		}
+		if hidden := commandTotal - len(commands); hidden > 0 {
+			rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more command(s); search to narrow", hidden)))
 		}
 	}
-	rows = append(rows, "", "Project runs")
+	runs := m.visibleRunHistory()
+	runTotal := m.filteredRunHistoryCount()
+	runTitle := fmt.Sprintf("Project runs (%d/%d)", len(runs), runTotal)
+	rows = append(rows, "", sectionStyle.Render(runTitle), subtleStyle.Render("  when     result     total  ok  fail  cancel  command"))
 	if len(m.RunHistory) == 0 {
 		rows = append(rows, "  No project runs yet.")
+	} else if len(runs) == 0 {
+		rows = append(rows, "  No project runs match.")
 	} else {
-		for i, run := range m.RunHistory {
-			if i >= 5 {
-				break
+		for i, run := range runs {
+			when := formatHistoryTime(run.Time)
+			result := padRightVisible(m.runHistoryOutcome(run), 8)
+			line := fmt.Sprintf("  %-8s %s %5d %3d %5d %7d  %s", when, result, run.Total, run.Succeeded, run.Failed, run.Cancelled, truncateVisible(m.highlightHistoryMatch(run.Command), 26))
+			if m.HistoryPos == len(commands)+i {
+				line = paletteActiveStyle.Render(padRightVisible("›"+line[1:], 76))
 			}
-			rows = append(rows, fmt.Sprintf("  %s  %d total  %d ok  %d failed  %d cancelled", run.Command, run.Total, run.Succeeded, run.Failed, run.Cancelled))
+			rows = append(rows, line)
+		}
+		if hidden := runTotal - len(runs); hidden > 0 {
+			rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more project run(s); search to narrow", hidden)))
 		}
 	}
-	rows = append(rows, "", "enter reuse command   esc close")
+	footer := "/ search   enter reuse selected command   up/down choose   esc close"
+	if len(commands)+len(runs) == 0 {
+		footer = "/ search   no command to reuse   esc close"
+	}
+	rows = append(rows, "", subtleStyle.Render(footer))
 	return rows
 }
 
-func (m Model) selectableHistoryLen() int {
-	if len(m.History) > 6 {
-		return 6
+func (m Model) runHistoryOutcome(run history.RunEntry) string {
+	switch {
+	case run.Failed > 0:
+		return metricFailedStyle.Render("failed")
+	case run.Cancelled > 0:
+		return statusStyles[core.StatusCancelled].Render("cancelled")
+	case run.Total > 0 && run.Succeeded == run.Total:
+		return metricSuccessStyle.Render("ok")
+	case run.Succeeded > 0:
+		return metricSuccessStyle.Render("partial")
+	default:
+		return subtleStyle.Render("unknown")
 	}
-	return len(m.History)
+}
+
+func (m Model) highlightHistoryMatch(value string) string {
+	query := strings.TrimSpace(m.HistoryFilter)
+	if query == "" {
+		return value
+	}
+	query, exact := filterQuery(query)
+	if query == "" {
+		return value
+	}
+	index := indexFold(value, query)
+	if index >= 0 {
+		before := value[:index]
+		match := value[index : index+len(query)]
+		after := value[index+len(query):]
+		return before + matchStyle.Render(match) + after
+	}
+	if exact {
+		return value
+	}
+	return highlightFuzzyMatch(value, query)
+}
+
+func formatHistoryTime(value time.Time) string {
+	if value.IsZero() {
+		return "-"
+	}
+	now := time.Now()
+	if value.After(now) {
+		return "now"
+	}
+	delta := now.Sub(value)
+	switch {
+	case delta < time.Minute:
+		return "now"
+	case delta < time.Hour:
+		return fmt.Sprintf("%dm", int(delta.Minutes()))
+	case delta < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(delta.Hours()))
+	default:
+		return value.Format("Jan02")
+	}
+}
+
+func (m Model) selectableHistoryLen() int {
+	return len(m.visibleHistoryCommands()) + len(m.visibleRunHistory())
 }
 
 func (m Model) clampHistoryPos() int {
@@ -1044,35 +1962,96 @@ func (m Model) clampHistoryPos() int {
 	return m.HistoryPos
 }
 
-func visibleJoin(left string, right string, width int) string {
-	space := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
-	return truncateVisible(left+strings.Repeat(" ", space)+right, width)
+func (m Model) selectedHistoryCommand() string {
+	pos := m.clampHistoryPos()
+	commands := m.visibleHistoryCommands()
+	if pos < len(commands) {
+		return commands[pos]
+	}
+	runs := m.visibleRunHistory()
+	runIndex := pos - len(commands)
+	if runIndex >= 0 && runIndex < len(runs) {
+		return runs[runIndex].Command
+	}
+	return ""
 }
 
-func truncateVisible(value string, width int) string {
-	if lipgloss.Width(value) <= width {
-		return value
-	}
-	if width <= 1 {
-		return ""
-	}
-	var b strings.Builder
-	for _, r := range value {
-		if lipgloss.Width(b.String()+string(r)+"~") > width {
-			break
+func (m Model) visibleHistoryCommands() []string {
+	commands := make([]string, 0, len(m.History))
+	for _, command := range m.History {
+		if m.HistoryFilter == "" || filterMatches(command, m.HistoryFilter) {
+			commands = append(commands, command)
 		}
-		b.WriteRune(r)
 	}
-	b.WriteString("~")
-	return b.String()
+	if len(commands) > 6 {
+		return commands[:6]
+	}
+	return commands
 }
 
-func padRightVisible(value string, width int) string {
-	current := lipgloss.Width(value)
-	if current >= width {
-		return value
+func (m Model) filteredHistoryCommandCount() int {
+	count := 0
+	for _, command := range m.History {
+		if m.HistoryFilter == "" || filterMatches(command, m.HistoryFilter) {
+			count++
+		}
 	}
-	return value + strings.Repeat(" ", width-current)
+	return count
+}
+
+func (m Model) visibleRunHistory() []history.RunEntry {
+	runs := make([]history.RunEntry, 0, len(m.RunHistory))
+	for _, run := range m.RunHistory {
+		if m.HistoryFilter == "" || filterMatches(run.Command, m.HistoryFilter) {
+			runs = append(runs, run)
+		}
+	}
+	if len(runs) > 5 {
+		return runs[:5]
+	}
+	return runs
+}
+
+func (m Model) filteredRunHistoryCount() int {
+	count := 0
+	for _, run := range m.RunHistory {
+		if m.HistoryFilter == "" || filterMatches(run.Command, m.HistoryFilter) {
+			count++
+		}
+	}
+	return count
+}
+
+func (m *Model) previousCommandHistory() {
+	if len(m.History) == 0 {
+		return
+	}
+	if m.CommandHistoryPos < 0 {
+		m.CommandDraft = m.Command
+		m.CommandHistoryPos = 0
+	} else if m.CommandHistoryPos < len(m.History)-1 {
+		m.CommandHistoryPos++
+	}
+	m.Command = m.History[m.CommandHistoryPos]
+}
+
+func (m *Model) nextCommandHistory() {
+	if m.CommandHistoryPos < 0 {
+		return
+	}
+	if m.CommandHistoryPos == 0 {
+		m.CommandHistoryPos = -1
+		m.Command = m.CommandDraft
+		m.CommandDraft = ""
+		return
+	}
+	m.CommandHistoryPos--
+	m.Command = m.History[m.CommandHistoryPos]
+}
+
+func (m *Model) resetCommandHistoryNavigation() {
+	m.CommandHistoryPos = -1
+	m.CommandDraft = ""
 }
 
 func (m *Model) toggleFocused() {
@@ -1081,21 +2060,67 @@ func (m *Model) toggleFocused() {
 	}
 	m.ensureCursorVisible()
 	m.Targets[m.Cursor].Selected = !m.Targets[m.Cursor].Selected
+	state := "deselected"
+	if m.Targets[m.Cursor].Selected {
+		state = "selected"
+	}
+	m.Notice = state + " " + m.Targets[m.Cursor].RelPath
+	m.RunError = ""
+}
+
+func (m *Model) cycleFocus(_ int) {
+	switch m.Focus {
+	case FocusTargets:
+		m.Focus = FocusLogs
+	case FocusLogs:
+		m.Focus = FocusTargets
+	default:
+		m.Focus = FocusTargets
+	}
 }
 
 func (m *Model) setVisibleSelected(selected bool) {
-	for i := range m.Targets {
-		if m.isVisibleTarget(m.Targets[i]) {
-			m.Targets[i].Selected = selected
-		}
+	indexes := m.visibleTargetIndexes()
+	scope := "visible"
+	if m.Filter != "" {
+		indexes = m.matchingTargetIndexes()
+		scope = "matching"
 	}
+	count := 0
+	for _, i := range indexes {
+		m.Targets[i].Selected = selected
+		count++
+	}
+	action := "selected"
+	if !selected {
+		action = "deselected"
+	}
+	m.Notice = fmt.Sprintf("%s %d %s target(s)", action, count, scope)
+	m.RunError = ""
+}
+
+func (m Model) bulkSelectionLabel() string {
+	if m.Filter != "" {
+		return "select matches"
+	}
+	return "select visible"
 }
 
 func (m *Model) selectFailedTargets() {
+	count := 0
 	for i := range m.Targets {
 		m.Targets[i].Selected = m.Status[m.Targets[i].ID] == core.StatusFailed
+		if m.Targets[i].Selected {
+			count++
+		}
 	}
 	m.ensureCursorVisible()
+	if count == 0 {
+		m.Notice = "no failed targets to select"
+	} else {
+		m.Notice = fmt.Sprintf("selected %d failed target(s)", count)
+	}
+	m.RunError = ""
 }
 
 func (m *Model) setFolded(folded bool) {
@@ -1104,18 +2129,34 @@ func (m *Model) setFolded(folded bool) {
 	}
 	m.ensureCursorVisible()
 	m.Targets[m.Cursor].Folded = folded
+	action := "unfolded"
+	if folded {
+		action = "folded"
+	}
+	m.Notice = action + " " + m.Targets[m.Cursor].RelPath
+	m.RunError = ""
 }
 
 func (m *Model) cancelSelectedOrFocused() {
-	cancelled := false
+	cancelled := 0
 	for _, target := range m.Targets {
 		if target.Selected {
-			cancelled = m.cancelTarget(target) || cancelled
+			if m.cancelTarget(target) {
+				cancelled++
+			}
 		}
 	}
-	if !cancelled && len(m.Targets) > 0 {
+	if cancelled == 0 && len(m.Targets) > 0 {
 		m.ensureCursorVisible()
-		m.cancelTarget(m.Targets[m.Cursor])
+		if m.cancelTarget(m.Targets[m.Cursor]) {
+			cancelled++
+		}
+	}
+	if cancelled > 0 {
+		m.Notice = fmt.Sprintf("cancelled %d target(s)", cancelled)
+		m.RunError = ""
+	} else {
+		m.Notice = "nothing running or queued to cancel"
 	}
 }
 
@@ -1135,7 +2176,7 @@ func (m *Model) cancelTarget(target core.Target) bool {
 		if m.PendingRuns > 0 {
 			m.PendingRuns--
 		}
-		m.completedResults = append(m.completedResults, core.RunResult{Target: target, Status: core.StatusCancelled})
+		m.recordCompletedResult(core.RunResult{Target: target, Status: core.StatusCancelled})
 		if m.PendingRuns == 0 {
 			m.appendRunHistory()
 			m.Running = false
@@ -1163,11 +2204,46 @@ func (m *Model) cancelAll() {
 	if m.cancelRun != nil {
 		m.cancelRun()
 	}
-	for id, status := range m.Status {
-		if status == core.StatusRunning || status == core.StatusQueued {
-			m.Status[id] = core.StatusCancelled
+	for _, cancel := range m.targetCancels {
+		if cancel != nil {
+			cancel()
 		}
 	}
+	cancelled := 0
+	for _, target := range m.Targets {
+		switch m.Status[target.ID] {
+		case core.StatusRunning:
+			m.Status[target.ID] = core.StatusCancelled
+			cancelled++
+		case core.StatusQueued:
+			m.Status[target.ID] = core.StatusCancelled
+			if m.PendingRuns > 0 {
+				m.PendingRuns--
+			}
+			m.recordCompletedResult(core.RunResult{Target: target, Status: core.StatusCancelled})
+			cancelled++
+		}
+	}
+	m.runQueue = nil
+	if m.PendingRuns == 0 {
+		m.appendRunHistory()
+		m.Running = false
+		m.runCtx = nil
+		m.cancelRun = nil
+		m.targetCancels = map[string]context.CancelFunc{}
+	}
+	if cancelled > 0 {
+		m.Notice = fmt.Sprintf("cancelled %d active target(s)", cancelled)
+	}
+}
+
+func (m Model) completionNotice() string {
+	stats := m.statusCounts()
+	notice := fmt.Sprintf("run complete: %d ok, %d failed, %d cancelled", stats[core.StatusSucceeded], stats[core.StatusFailed], stats[core.StatusCancelled])
+	if stats[core.StatusFailed] > 0 {
+		notice += " · press R to rerun failed"
+	}
+	return notice
 }
 
 func (m Model) hasActiveRuns() bool {
@@ -1175,11 +2251,57 @@ func (m Model) hasActiveRuns() bool {
 		return true
 	}
 	for _, status := range m.Status {
-		if status == core.StatusRunning {
+		if status == core.StatusRunning || status == core.StatusQueued {
 			return true
 		}
 	}
 	return false
+}
+
+func (m Model) activeCount() int {
+	count := 0
+	for _, status := range m.Status {
+		if status == core.StatusRunning || status == core.StatusQueued {
+			count++
+		}
+	}
+	return count
+}
+
+func (m Model) statusCount(want core.Status) int {
+	count := 0
+	for _, status := range m.Status {
+		if status == want {
+			count++
+		}
+	}
+	return count
+}
+
+func (m Model) activeTargetSummary(width int) string {
+	return m.statusTargetSummary(core.StatusRunning, width, core.StatusQueued)
+}
+
+func (m Model) statusTargetSummary(status core.Status, width int, extra ...core.Status) string {
+	names := make([]string, 0, len(m.Targets))
+	statuses := append([]core.Status{status}, extra...)
+	for _, target := range m.Targets {
+		current := m.Status[target.ID]
+		for _, candidate := range statuses {
+			if current == candidate {
+				names = append(names, target.RelPath)
+				break
+			}
+		}
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	summary := strings.Join(names, ", ")
+	if len(names) > 3 {
+		summary = strings.Join(names[:3], ", ") + fmt.Sprintf(", +%d more", len(names)-3)
+	}
+	return truncateVisible(summary, width)
 }
 
 func (m Model) failedCount() int {
@@ -1213,7 +2335,7 @@ func (m Model) statusCounts() map[core.Status]int {
 }
 
 func (m Model) visible(target core.Target) bool {
-	if m.Filter == "" || strings.Contains(target.RelPath, m.Filter) {
+	if m.Filter == "" || filterMatches(target.RelPath, m.Filter) {
 		return true
 	}
 	for _, candidate := range m.Targets {
@@ -1245,6 +2367,27 @@ func (m *Model) moveCursor(delta int) {
 	}
 }
 
+func (m *Model) moveFilterMatch(delta int) {
+	indexes := m.matchingTargetIndexes()
+	if len(indexes) == 0 {
+		return
+	}
+	position := 0
+	for i, targetIndex := range indexes {
+		if targetIndex == m.Cursor {
+			position = i
+			break
+		}
+	}
+	position += delta
+	for position < 0 {
+		position += len(indexes)
+	}
+	position %= len(indexes)
+	m.Cursor = indexes[position]
+	m.ensureDirectoryOffset()
+}
+
 func (m *Model) moveCursorToEdge(last bool) {
 	indexes := m.visibleTargetIndexes()
 	if len(indexes) == 0 {
@@ -1270,6 +2413,13 @@ func (m *Model) ensureCursorVisible() {
 	if len(m.Targets) == 0 {
 		m.Cursor = 0
 		return
+	}
+	if m.Filter != "" && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !filterMatches(m.Targets[m.Cursor].RelPath, m.Filter) || m.hiddenByFold(m.Targets[m.Cursor])) {
+		if indexes := m.matchingTargetIndexes(); len(indexes) > 0 {
+			m.Cursor = indexes[0]
+			m.ensureDirectoryOffset()
+			return
+		}
 	}
 	if m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.isVisibleTarget(m.Targets[m.Cursor]) {
 		for i, target := range m.Targets {
@@ -1325,7 +2475,7 @@ func (m Model) directoryViewportRows() int {
 		height = 20
 	}
 	panelHeight := max(10, height-9)
-	return max(1, panelHeight-4)
+	return max(1, panelHeight-5)
 }
 
 func (m Model) visibleTargetIndexes() []int {
@@ -1338,6 +2488,38 @@ func (m Model) visibleTargetIndexes() []int {
 	return indexes
 }
 
+func (m Model) matchingTargetIndexes() []int {
+	if m.Filter == "" {
+		return nil
+	}
+	indexes := make([]int, 0, len(m.Targets))
+	for i, target := range m.Targets {
+		if filterMatches(target.RelPath, m.Filter) {
+			indexes = append(indexes, i)
+		}
+	}
+	return indexes
+}
+
+func (m Model) filterMatchLabel() string {
+	if m.Filter == "" {
+		return "match -"
+	}
+	indexes := m.matchingTargetIndexes()
+	if len(indexes) == 0 {
+		return "match 0/0"
+	}
+	for i, targetIndex := range indexes {
+		if targetIndex == m.Cursor {
+			return fmt.Sprintf("match %d/%d", i+1, len(indexes))
+		}
+	}
+	return fmt.Sprintf("match -/%d", len(indexes))
+}
+
 func (m Model) isVisibleTarget(target core.Target) bool {
+	if m.Filter != "" {
+		return m.visible(target)
+	}
 	return m.visible(target) && !m.hiddenByFold(target)
 }

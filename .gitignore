@@ -1,5 +1,6 @@
 /.worktrees/
 /.runny/runs/
+/.runny/history.jsonl
 /.superpowers/
 /.claude/
 /dist/

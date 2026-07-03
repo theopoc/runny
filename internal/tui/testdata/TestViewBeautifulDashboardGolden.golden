@@ -1,21 +1,21 @@
  runny  pnpm test                                                  3/4 selected  running 1  failed 1
-  idle 0 │ queued 1 │ running 1 │ ok 0 │ failed 1 │ cancelled 0 │ workers auto │ mode parallel
- / <none>  focus tasks  mode parallel  workers auto
+  active 2 │ queue 1 │ ok 0 │ failed 1 │ idle 0 │ ███░░░░░░░░░░░ 1/4 25% │ workers auto │ parallel
+  / <none>  focus tasks  visible 4/4  match -  selected 3  mode parallel  workers auto  state failed
 ╭─ Tasks ─────────────────────────────────────────────────╮  ╭─ Preview ───────────────────────────╮
-│ SEL  DIR/TASK                           STATUS         │  │ path api                           │
-│ › ●  − api                                   running   │  │ status running                     │
-│   ●      api/cmd                             queued    │  │ selected yes                       │
-│   ○    web                                   skipped   │  │ command pnpm test                  │
-│   ●    worker                                failed    │  │                                    │
-│                                                        │  │ output                             │
-│                                                        │  │ No output yet.                     │
+│ SEL RUN FOLD  DIR/TASK                          STATUS │  │ Target                             │
+│ showing 1-4 of 4 •                                     │  │ path      api                      │
+│ › ● ▶ −  api                            ● running      │  │ status    ● running                │
+│   ● …      └ api/cmd                    ◌ queued       │  │ selected  yes                      │
+│   ○      web                            ○ skipped      │  │ children  1                        │
+│   ● !    worker                         ✕ failed       │  │ scroll    follow                   │
+│                                                        │  │ next      del/x target  ctrl+c all │
 │                                                        │  │                                    │
+│                                                        │  │ Command (parallel · workers auto)  │
+│                                                        │  │ pnpm test                          │
 │                                                        │  │                                    │
-│                                                        │  │                                    │
-│                                                        │  │                                    │
-│                                                        │  │                                    │
-│                                                        │  │                                    │
-│                                                        │  │                                    │
+│                                                        │  │ Output (empty)                     │
+│                                                        │  │ Running. Output appears here when~ │
+│                                                        │  │ Press L to toggle follow, del/x t~ │
 │                                                        │  │                                    │
 ╰────────────────────────────────────────────────────────╯  ╰────────────────────────────────────╯
- ? keymap  / search  : command  space select  enter run  del/x cancel  ctrl+c stop
+ ? help  H hist  ctrl+c all+quit  space select  tab preview  c cmd  enter run  del/x cancel

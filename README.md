@@ -118,7 +118,7 @@ exclude:
 | `L` | Toggle preview follow mode |
 | `ctrl+c` | Cancel active runs and quit cleanly |
 
-Palette commands include `run`, `workers N`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
 ## Development
 

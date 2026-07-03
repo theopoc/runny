@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "tui-testing",
+  "owner": "colonyops",
+  "repo": "hive",
+  "path": ".claude/skills/tui-testing",
+  "branch": "main",
+  "sha": "1dcf1aaec28e97904a974fb43dd6b8d9b1396170",
+  "source": "manual"
+}
