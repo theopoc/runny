@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"charm.land/lipgloss/v2"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 type tuiTheme struct {

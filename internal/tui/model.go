@@ -10,9 +10,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/saewyn/runny/internal/core"
-	"github.com/saewyn/runny/internal/history"
-	"github.com/saewyn/runny/internal/runner"
+	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/history"
+	"github.com/theopoc/runny/internal/runner"
 )
 
 type Focus int

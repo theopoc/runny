@@ -1,4 +1,4 @@
-module github.com/saewyn/runny
+module github.com/theopoc/runny
 
 go 1.26.4
 

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/saewyn/runny/internal/app"
+	"github.com/theopoc/runny/internal/app"
 )
 
 func main() {

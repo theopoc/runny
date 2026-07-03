@@ -19,7 +19,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/saewyn/runny/internal/app.Version={{.Version}}
+      - -s -w -X github.com/theopoc/runny/internal/app.Version={{.Version}}
 
 archives:
   - id: runny
@@ -41,11 +41,11 @@ homebrew_casks:
   - name: runny
     ids: [runny]
     repository:
-      owner: saewyn
+      owner: theopoc
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Casks
-    homepage: https://github.com/saewyn/runny
+    homepage: https://github.com/theopoc/runny
     description: Run shell commands across selected child directories from a TUI
     license: MIT
     commit_author:
@@ -55,5 +55,5 @@ homebrew_casks:
       - runny
     caveats: |
       To trust the tap before install:
-        brew tap saewyn/tap
-        brew trust --tap saewyn/tap
+        brew tap theopoc/tap
+        brew trust --tap theopoc/tap

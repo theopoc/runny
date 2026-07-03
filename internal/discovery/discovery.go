@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 type Target = core.Target

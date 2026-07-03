@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
-    -ldflags="-s -w -X github.com/saewyn/runny/internal/app.Version=${VERSION}" \
+    -ldflags="-s -w -X github.com/theopoc/runny/internal/app.Version=${VERSION}" \
     -o /out/runny ./cmd/runny
 
 FROM alpine:3.22

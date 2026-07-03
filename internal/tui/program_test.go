@@ -9,7 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func TestRunnyTUIProgramEndToEnd(t *testing.T) {

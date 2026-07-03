@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/saewyn/runny/internal/cli"
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
-	"github.com/saewyn/runny/internal/discovery"
-	"github.com/saewyn/runny/internal/tui"
+	"github.com/theopoc/runny/internal/cli"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/discovery"
+	"github.com/theopoc/runny/internal/tui"
 )
 
 var Version = "dev"

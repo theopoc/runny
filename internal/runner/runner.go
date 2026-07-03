@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/saewyn/runny/internal/core"
-	"github.com/saewyn/runny/internal/logs"
+	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/logs"
 )
 
 func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {

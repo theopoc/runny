@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func TestRunnerRunsCommandInTargetDirectory(t *testing.T) {

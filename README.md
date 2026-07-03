@@ -9,22 +9,22 @@
 ## Install
 
 ```bash
-brew install --cask saewyn/tap/runny
+brew install --cask theopoc/tap/runny
 ```
 
 If your Homebrew setup requires trusted taps:
 
 ```bash
-brew tap saewyn/tap
-brew trust --tap saewyn/tap
+brew tap theopoc/tap
+brew trust --tap theopoc/tap
 brew install --cask runny
 ```
 
 Brewfile:
 
 ```ruby
-tap "saewyn/tap", trusted: true
-cask "saewyn/tap/runny", trusted: true
+tap "theopoc/tap", trusted: true
+cask "theopoc/tap/runny", trusted: true
 ```
 
 ## Usage

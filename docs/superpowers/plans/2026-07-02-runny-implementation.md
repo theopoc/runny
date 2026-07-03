@@ -6,7 +6,7 @@
 
 **Architecture:** Keep one shared core model used by CLI, discovery, runner, logs, history, and TUI. The CLI builds validated options, discovery builds a target tree, the runner emits events, and the TUI or auto renderer consumes those events.
 
-**Tech Stack:** Go module `github.com/saewyn/runny`, standard `flag` package for CLI parsing, `go.yaml.in/yaml/v4` for strict YAML config loading, Bubble Tea v2/Bubbles v2/Lip Gloss for TUI, GoReleaser v2, GitHub Actions, Homebrew tap publishing to `saewyn/homebrew-tap`.
+**Tech Stack:** Go module `github.com/theopoc/runny`, standard `flag` package for CLI parsing, `go.yaml.in/yaml/v4` for strict YAML config loading, Bubble Tea v2/Bubbles v2/Lip Gloss for TUI, GoReleaser v2, GitHub Actions, Homebrew tap publishing to `theopoc/homebrew-tap`.
 
 ---
 
@@ -51,7 +51,7 @@ Before implementation, verify Go is available. Current planning environment retu
 
 ## Shared Decisions
 
-- Module path: `github.com/saewyn/runny`.
+- Module path: `github.com/theopoc/runny`.
 - Command string: join all args after `--` with one space.
 - Shell: `/bin/sh -c <command>`.
 - Config precedence: defaults, `~/.runny.yaml`, `./.runny.yaml`, explicit `--config`, CLI flags.
@@ -65,10 +65,10 @@ Before implementation, verify Go is available. Current planning environment retu
 - `--disable-logging` and `--save-logs` are mutually exclusive.
 - `workers: 0` means `min(runtime.NumCPU(), selected_target_count)`.
 - Per-target logging is enabled by default.
-- Homebrew tap repository: `github.com/saewyn/homebrew-tap`.
-- Homebrew tap name for users: `saewyn/tap`.
-- Release workflow needs secret `TAP_GITHUB_TOKEN` with permission to push to `saewyn/homebrew-tap`.
-- Homebrew trust docs should include `brew trust --tap saewyn/tap` and `tap "saewyn/tap", trusted: true` for Brewfiles.
+- Homebrew tap repository: `github.com/theopoc/homebrew-tap`.
+- Homebrew tap name for users: `theopoc/tap`.
+- Release workflow needs secret `TAP_GITHUB_TOKEN` with permission to push to `theopoc/homebrew-tap`.
+- Homebrew trust docs should include `brew trust --tap theopoc/tap` and `tap "theopoc/tap", trusted: true` for Brewfiles.
 - Use GoReleaser `homebrew_casks`, not `brews`, because GoReleaser Homebrew formulas are deprecated for precompiled binaries.
 - User install command should use `brew install --cask`.
 
@@ -97,7 +97,7 @@ Expected: prints Go version. If command is missing, install Go before continuing
 Run:
 
 ```bash
-go mod init github.com/saewyn/runny
+go mod init github.com/theopoc/runny
 go get go.yaml.in/yaml/v4
 go get charm.land/bubbletea/v2
 go get charm.land/bubbles/v2
@@ -267,7 +267,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/saewyn/runny/internal/app"
+	"github.com/theopoc/runny/internal/app"
 )
 
 var (
@@ -700,7 +700,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/saewyn/runny/internal/config"
+	"github.com/theopoc/runny/internal/config"
 )
 
 type Result struct {
@@ -863,8 +863,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func TestDiscoverDirectExcludesHiddenAndSymlink(t *testing.T) {
@@ -988,8 +988,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func Discover(root string, opts config.Options) ([]core.Target, error) {
@@ -1468,7 +1468,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func TestRunSucceeds(t *testing.T) {
@@ -1563,7 +1563,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 type Summary struct {
@@ -1836,13 +1836,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/saewyn/runny/internal/cli"
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
-	"github.com/saewyn/runny/internal/discovery"
-	"github.com/saewyn/runny/internal/logs"
-	"github.com/saewyn/runny/internal/runner"
-	"github.com/saewyn/runny/internal/tui"
+	"github.com/theopoc/runny/internal/cli"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/discovery"
+	"github.com/theopoc/runny/internal/logs"
+	"github.com/theopoc/runny/internal/runner"
+	"github.com/theopoc/runny/internal/tui"
 )
 
 type BuildInfo struct {
@@ -1950,8 +1950,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
 )
 
 type Options struct {
@@ -2016,8 +2016,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func TestToggleSelection(t *testing.T) {
@@ -2076,8 +2076,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 
-	"github.com/saewyn/runny/internal/config"
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/config"
+	"github.com/theopoc/runny/internal/core"
 )
 
 type Options struct {
@@ -2221,7 +2221,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/saewyn/runny/internal/core"
+	"github.com/theopoc/runny/internal/core"
 )
 
 func (m Model) View() string {
@@ -2482,28 +2482,28 @@ Create `README.md`:
 With Homebrew:
 
 ```bash
-brew install --cask saewyn/tap/runny
+brew install --cask theopoc/tap/runny
 ```
 
 If your Homebrew setup requires tap trust:
 
 ```bash
-brew tap saewyn/tap
-brew trust --tap saewyn/tap
+brew tap theopoc/tap
+brew trust --tap theopoc/tap
 brew install --cask runny
 ```
 
 In a Brewfile:
 
 ```ruby
-tap "saewyn/tap", trusted: true
-cask "saewyn/tap/runny", trusted: true
+tap "theopoc/tap", trusted: true
+cask "theopoc/tap/runny", trusted: true
 ```
 
 With Go:
 
 ```bash
-go install github.com/saewyn/runny/cmd/runny@latest
+go install github.com/theopoc/runny/cmd/runny@latest
 ```
 
 ## Usage
@@ -2604,7 +2604,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-GoReleaser publishes release archives and updates the Homebrew cask in `saewyn/homebrew-tap`. Configure repository secret `TAP_GITHUB_TOKEN` with write access to that tap before the first tag release.
+GoReleaser publishes release archives and updates the Homebrew cask in `theopoc/homebrew-tap`. Configure repository secret `TAP_GITHUB_TOKEN` with write access to that tap before the first tag release.
 ```
 
 - [ ] **Step 3: Create CI workflow**
@@ -2729,14 +2729,14 @@ homebrew_casks:
     binaries:
       - runny
     directory: Casks
-    homepage: "https://github.com/saewyn/runny"
+    homepage: "https://github.com/theopoc/runny"
     description: "Run one shell command across selected child directories from a TUI"
     license: "MIT"
     caveats: |
       If your Homebrew setup requires trusted taps:
-        brew trust --tap saewyn/tap
+        brew trust --tap theopoc/tap
     repository:
-      owner: saewyn
+      owner: theopoc
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     commit_author:
@@ -2752,16 +2752,16 @@ snapshot:
 Before first tag release, create or verify the tap repository and secret:
 
 ```bash
-gh repo view saewyn/homebrew-tap
+gh repo view theopoc/homebrew-tap
 ```
 
 Expected: repository exists. If missing, create it as a public repository named `homebrew-tap`.
 
 ```bash
-gh secret set TAP_GITHUB_TOKEN --repo saewyn/runny
+gh secret set TAP_GITHUB_TOKEN --repo theopoc/runny
 ```
 
-Expected: secret saved in the main `runny` repository. Token must have contents write access to `saewyn/homebrew-tap`.
+Expected: secret saved in the main `runny` repository. Token must have contents write access to `theopoc/homebrew-tap`.
 
 - [ ] **Step 7: Run formatting, tests, builds, GoReleaser check**
 
@@ -2795,8 +2795,8 @@ Expected: version prints, auto mode prints target-prefixed output for `api`, exi
 After GitHub release and tap update complete:
 
 ```bash
-brew tap saewyn/tap
-brew trust --tap saewyn/tap
+brew tap theopoc/tap
+brew trust --tap theopoc/tap
 brew install --cask runny
 runny --version
 brew uninstall --cask runny
@@ -2843,8 +2843,8 @@ goreleaser check
 - [ ] Verify Homebrew tap prerequisites:
 
 ```bash
-gh repo view saewyn/homebrew-tap
-gh secret list --repo saewyn/runny | grep TAP_GITHUB_TOKEN
+gh repo view theopoc/homebrew-tap
+gh secret list --repo theopoc/runny | grep TAP_GITHUB_TOKEN
 ```
 
 - [ ] Smoke CLI:
@@ -2860,7 +2860,7 @@ Expected final state:
 - `runny` builds.
 - Tests pass.
 - CI and release config exist.
-- GoReleaser cask config publishes to `saewyn/homebrew-tap`.
-- README documents `brew install --cask`, `brew trust --tap saewyn/tap`, and Brewfile `trusted: true`.
+- GoReleaser cask config publishes to `theopoc/homebrew-tap`.
+- README documents `brew install --cask`, `brew trust --tap theopoc/tap`, and Brewfile `trusted: true`.
 - README documents TUI, `--auto`, config, hidden directory default, logging default, `--disable-logging`, `--save-logs`, and keybindings.
 - Git history contains small commits per task.
