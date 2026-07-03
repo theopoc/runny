@@ -8,10 +8,10 @@
       "computedHash": "6a4e216d1feac98f1a48358b807f12492722bee2406417f5f6fbecaf6155ea83"
     },
     "tui-design": {
-      "source": "hyperb1iss/hyperskills",
+      "source": "gfargo/tui-design-skill",
       "sourceType": "github",
-      "skillPath": "skills/tui-design/SKILL.md",
-      "computedHash": "92b969f3473842ee731e0c7a5c571e3b89e5dac7da81be5e635e1715b0084e6e"
+      "skillPath": "plugins/tui-design/skills/tui-design/SKILL.md",
+      "computedHash": "068db32d0f940477263626e7ef47c722b2d9526a7d081a9b87c2831bcc48b453"
     }
   }
 }
