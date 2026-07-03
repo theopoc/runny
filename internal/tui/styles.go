@@ -30,15 +30,15 @@ var runnyTheme = tuiTheme{
 	fgDefault:     tuiColor("#CBD5E1"),
 	fgMuted:       tuiColor("#94A3B8"),
 	fgEmphasis:    tuiColor("#F8FAFC"),
-	bgBase:        tuiColor("#0F172A"),
-	bgSurface:     tuiColor("#111827"),
-	bgElevated:    tuiColor("#1F2937"),
-	bgSelection:   tuiColor("#C084FC"),
-	bgRunning:     tuiColor("#172554"),
-	accentPrimary: tuiColor("#67E8F9"),
+	bgBase:        tuiColor("#10131F"),
+	bgSurface:     tuiColor("#191D2B"),
+	bgElevated:    tuiColor("#252A3A"),
+	bgSelection:   tuiColor("#A78BFA"),
+	bgRunning:     tuiColor("#1E3144"),
+	accentPrimary: tuiColor("#7DD3FC"),
 	accentWarm:    tuiColor("#FBBF24"),
 	accentCommand: tuiColor("#C4B5FD"),
-	success:       tuiColor("#34D399"),
+	success:       tuiColor("#4ADE80"),
 	warning:       tuiColor("#FDE68A"),
 	error:         tuiColor("#FB7185"),
 	info:          tuiColor("#93C5FD"),
@@ -55,13 +55,14 @@ var (
 	selectedStyle       = lipgloss.NewStyle().Foreground(runnyTheme.success)
 	unselectedStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	rowActiveStyle      = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.bgSelection).Bold(true)
+	rowSelectedStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSurface)
 	rowRunningStyle     = lipgloss.NewStyle().Background(runnyTheme.bgRunning)
 	metricIdleStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	metricQueuedStyle   = lipgloss.NewStyle().Foreground(runnyTheme.info)
 	metricRunningStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
 	metricSuccessStyle  = lipgloss.NewStyle().Foreground(runnyTheme.success).Bold(true)
 	metricFailedStyle   = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	commandPromptStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
+	commandPromptStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
 	commandDisplayStyle = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
 	commandBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).BorderForeground(runnyTheme.accentPrimary).Border(lipgloss.NormalBorder(), true, false, true, false)
 	matchStyle          = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.warning).Bold(true)
@@ -87,10 +88,13 @@ var (
 		core.StatusSkipped:   lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 	}
 	dashboardWidgetStyle = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault).Background(runnyTheme.bgElevated)
+	dashboardLabelStyle  = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted).Background(runnyTheme.bgElevated)
 	folderIconStyle      = lipgloss.NewStyle().Foreground(runnyTheme.info).Bold(true)
+	folderPathStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	folderNameStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	treeGuideStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	statusHeaderStyle    = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
-	footerStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault).Background(runnyTheme.bgElevated)
+	footerStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted).Background(runnyTheme.bgSurface)
 )
 
 func tuiColor(value string) color.Color {

@@ -1,15 +1,15 @@
- runny dashboard                                        failed  3/4 selected  workers auto  parallel
+ runny dashboard
  state failed   active 2   queue 1   ok 0   failed 1   progress ███░░░░░░░░░░░ 1/4 25%
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- / <none> focus tasks  visible 4/4  match -  selected 3  mode parallel  workers auto  state failed
+ > pnpm test │ focus tasks  visible 4/4  selected 3
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ╭─ Tasks ─────────────────────────────────────────────────╮  ╭─ Preview ───────────────────────────╮
 │ SEL RUN FOLD  DIRECTORY                         STATUS │  │ Command to run                     │
 │ showing 1-4 of 4 •                                     │  │  --:--:--  pnpm test               │
-│   ● ▶ −  ▰ api                            ● running    │  │                                    │
-│   ● …    └─ ▰ api/cmd                     ◌ queued     │  │ Output (empty)                     │
-│   ○      ▰ web                            ○ skipped    │  │ Running. Output appears here when~ │
-│   ● !    ▰ worker                         ✕ failed     │  │ Press L to toggle follow, del/x t~ │
+│   ● ▶ −  ▾ api                            ● running    │  │                                    │
+│   ● …    └─ ▸ api/cmd                     ◌ queued     │  │ Output (empty)                     │
+│   ○      ▸ web                            ○ skipped    │  │ Running. Output appears here when~ │
+│   ● !    ▸ worker                         ✕ failed     │  │ Press L to toggle follow, del/x t~ │
 │                                                        │  │                                    │
 │                                                        │  │                                    │
 │                                                        │  │                                    │

@@ -961,7 +961,7 @@ func (m Model) renderTooSmall(width int, height int) string {
 func (m Model) renderOverlay(width int, height int) string {
 	switch {
 	case m.ShowHelp:
-		return renderBox(width, "Keymap", clipOverlayRows(m.helpRows(), height))
+		return renderBox(width, "Keymap", clipOverlayRows(m.helpRows(width), height))
 	case m.ShowHistory:
 		return renderBox(width, "History", clipOverlayRows(m.historyRows(), height))
 	case m.ShowPalette:
@@ -987,10 +987,8 @@ func (m Model) renderOverlay(width int, height int) string {
 }
 
 func (m Model) renderHeader(width int) string {
-	state := m.executionState()
 	left := runnyBadgeStyle.Render("runny") + " " + subtleStyle.Render("dashboard")
-	right := fmt.Sprintf("%s  %d/%d selected  workers %s  %s", state, m.selectedCount(), len(m.Targets), m.workersLabel(), m.mode())
-	line := " " + visibleJoin(left, right, width-1)
+	line := " " + padRightVisible(left, width-1)
 	return headerStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
 
@@ -999,7 +997,13 @@ func (m Model) renderDashboard(width int) string {
 	workers := m.workersLabel()
 	active := stats[core.StatusRunning] + stats[core.StatusQueued]
 	done := stats[core.StatusSucceeded] + stats[core.StatusFailed] + stats[core.StatusCancelled]
-	progress := m.progressBar(done, len(m.Targets), 14)
+	progressWidth := 14
+	if width >= 140 {
+		progressWidth = 18
+	} else if width < 96 {
+		progressWidth = 10
+	}
+	progress := m.progressBar(done, len(m.Targets), progressWidth)
 	stateLabel := m.executionState()
 	if m.Running {
 		stateLabel = fmt.Sprintf("running %d/%d", done, max(done+active, m.PendingRuns))
@@ -1024,35 +1028,14 @@ func (m Model) renderDashboard(width int) string {
 }
 
 func (m Model) dashboardWidget(label string, value string, valueStyle lipgloss.Style) string {
-	text := " " + subtleStyle.Render(label+" ") + valueStyle.Render(value) + " "
+	valueStyle = valueStyle.Background(runnyTheme.bgElevated)
+	text := " " + dashboardLabelStyle.Render(label+" ") + valueStyle.Render(value) + " "
 	return dashboardWidgetStyle.Render(text)
 }
 
 func (m Model) renderSubHeader(width int) string {
-	filterText := m.Filter
-	if filterText == "" {
-		filterText = "<none>"
-	}
 	focusText := m.focusName()
-	workers := m.workersLabel()
-	prompt := "/ " + filterText
-	if m.Focus == FocusFilter {
-		prompt += "▌"
-	}
-	if m.Focus == FocusCommand {
-		command := m.Command
-		if command == "" {
-			command = "<type command, enter to run>"
-		}
-		prompt = "> " + command + "▌"
-	}
-	if m.ShowPalette {
-		prompt = ": " + m.Palette
-		if strings.TrimSpace(m.Palette) == "" {
-			prompt = ": <command>"
-		}
-	}
-	state := m.executionState()
+	prompt := m.commandBarPrompt()
 	viewText := ""
 	if m.Zoom {
 		viewText = "  view zoom"
@@ -1062,19 +1045,46 @@ func (m Model) renderSubHeader(width int) string {
 	metadata := []string{
 		fmt.Sprintf("focus %s%s", focusText, viewText),
 		fmt.Sprintf("visible %d/%d", len(m.visibleTargetIndexes()), len(m.Targets)),
-		m.filterMatchLabel(),
 		fmt.Sprintf("selected %d", m.selectedCount()),
-		fmt.Sprintf("mode %s", m.mode()),
-		fmt.Sprintf("workers %s", workers),
-		fmt.Sprintf("state %s", state),
+	}
+	if strings.TrimSpace(m.Filter) != "" {
+		metadata = append(metadata, m.filterMatchLabel(), "filter "+m.Filter)
 	}
 	if width >= 140 {
 		if path := m.focusedPathLabel(); path != "" {
 			metadata = append(metadata, path)
 		}
 	}
-	promptLine := " " + commandPromptStyle.Render(prompt) + " " + subtleStyle.Render(strings.Join(metadata, "  "))
+	promptLine := " " + commandPromptStyle.Render(prompt)
+	if len(metadata) > 0 {
+		promptLine += subtleStyle.Render(" │ " + strings.Join(metadata, "  "))
+	}
 	return commandBarStyle.Width(width).Render(padRightVisible(truncateVisible(promptLine, width), width))
+}
+
+func (m Model) commandBarPrompt() string {
+	if m.ShowPalette {
+		palette := strings.TrimSpace(m.Palette)
+		if palette == "" {
+			palette = "<command>"
+		}
+		return ": " + palette
+	}
+	if m.Focus == FocusFilter {
+		filterText := m.Filter
+		if filterText == "" {
+			filterText = "<filter>"
+		}
+		return "/ " + filterText + "▌"
+	}
+	command := strings.TrimSpace(m.Command)
+	if command == "" {
+		command = "<type command, enter to run>"
+	}
+	if m.Focus == FocusCommand {
+		return "> " + command + "▌"
+	}
+	return "> " + command
 }
 
 func (m Model) focusedPathLabel() string {
@@ -1215,20 +1225,117 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	if status == core.StatusRunning {
 		return rowRunningStyle.Render(padRightVisible(row, width))
 	}
+	if target.Selected {
+		return rowSelectedStyle.Render(padRightVisible(row, width))
+	}
 	return row
 }
 
 func (m Model) renderTargetName(target core.Target) string {
-	guide := ""
-	if target.Depth > 1 {
-		guide = strings.Repeat("  ", max(0, target.Depth-2)) + treeGuideStyle.Render("└─ ")
+	guide := m.treeGuide(target)
+	icon := "▸"
+	if len(target.Children) > 0 && !target.Folded {
+		icon = "▾"
 	}
-	icon := folderIconStyle.Render("▰")
-	name := target.RelPath
+	name := targetName(target)
 	if target.Name != "" {
 		name = target.Name
 	}
-	return guide + icon + " " + m.highlightMatch(name)
+	return guide + folderIconStyle.Render(icon) + " " + m.renderTargetDisplayName(name)
+}
+
+func (m Model) treeGuide(target core.Target) string {
+	if target.Depth <= 1 || target.ParentID == "" {
+		return ""
+	}
+	ancestors := m.targetAncestors(target)
+	var b strings.Builder
+	for _, ancestor := range ancestors[min(1, len(ancestors)):] {
+		if m.isLastChild(ancestor) {
+			b.WriteString(treeGuideStyle.Render("  "))
+		} else {
+			b.WriteString(treeGuideStyle.Render("│ "))
+		}
+	}
+	branch := "└─ "
+	if !m.isLastChild(target) {
+		branch = "├─ "
+	}
+	b.WriteString(treeGuideStyle.Render(branch))
+	return b.String()
+}
+
+func (m Model) targetAncestors(target core.Target) []core.Target {
+	var reversed []core.Target
+	seen := map[string]bool{}
+	parentID := target.ParentID
+	for parentID != "" && !seen[parentID] {
+		seen[parentID] = true
+		parent, ok := m.targetByID(parentID)
+		if !ok {
+			break
+		}
+		reversed = append(reversed, parent)
+		parentID = parent.ParentID
+	}
+	ancestors := make([]core.Target, 0, len(reversed))
+	for i := len(reversed) - 1; i >= 0; i-- {
+		ancestors = append(ancestors, reversed[i])
+	}
+	return ancestors
+}
+
+func (m Model) targetByID(id string) (core.Target, bool) {
+	for _, target := range m.Targets {
+		if target.ID == id {
+			return target, true
+		}
+	}
+	return core.Target{}, false
+}
+
+func (m Model) renderTargetDisplayName(name string) string {
+	if strings.TrimSpace(m.Filter) != "" {
+		return folderNameStyle.Render(m.highlightMatch(name))
+	}
+	parent, base := splitTargetPath(name)
+	if parent == "" {
+		return folderNameStyle.Render(base)
+	}
+	return folderPathStyle.Render(parent+"/") + folderNameStyle.Render(base)
+}
+
+func (m Model) isLastChild(target core.Target) bool {
+	if target.ParentID == "" {
+		return true
+	}
+	for _, candidate := range m.Targets {
+		if candidate.ID != target.ParentID {
+			continue
+		}
+		if len(candidate.Children) == 0 {
+			return true
+		}
+		return candidate.Children[len(candidate.Children)-1] == target.ID
+	}
+	return true
+}
+
+func targetName(target core.Target) string {
+	value := strings.Trim(target.RelPath, "/")
+	if value == "" {
+		return target.ID
+	}
+	return value
+}
+
+func splitTargetPath(value string) (string, string) {
+	value = strings.Trim(value, "/")
+	index := strings.LastIndex(value, "/")
+	if index < 0 {
+		return "", value
+	}
+	return value[:index], value[index+1:]
 }
 
 func (m Model) renderLogPanel(width int, height int) []string {
@@ -1650,7 +1757,11 @@ func (m Model) progressPercent(done int, total int) string {
 	return fmt.Sprintf("%d%%", done*100/total)
 }
 
-func (m Model) helpRows() []string {
+func (m Model) helpRows(width ...int) []string {
+	columns := 3
+	if len(width) > 0 && width[0] < 96 {
+		columns = 2
+	}
 	sections := []helpSection{
 		{
 			id:    "global",
@@ -1737,7 +1848,7 @@ func (m Model) helpRows() []string {
 			rows = append(rows, "")
 		}
 		rows = append(rows, sectionStyle.Render(section.title))
-		rows = append(rows, formatHelpBindings(section.bindings, 3)...)
+		rows = append(rows, formatHelpBindings(section.bindings, columns)...)
 	}
 	return rows
 }

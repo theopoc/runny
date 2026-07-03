@@ -297,6 +297,14 @@ func TestHelpRowsPutActiveContextFirst(t *testing.T) {
 	}
 }
 
+func TestHelpRowsUseNarrowColumnLayout(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	rows := stripANSI(strings.Join(model.helpRows(80), "\n"))
+	if got := maxLineWidth(rows); got > 76 {
+		t.Fatalf("narrow help rows width = %d, want <= 76:\n%s", got, rows)
+	}
+}
+
 func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
@@ -911,6 +919,32 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	}
 	if got := maxLineWidth(compact); got > 46 {
 		t.Fatalf("compact task header width = %d:\n%s", got, compact)
+	}
+}
+
+func TestTargetRowsAlignStatusColumn(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Status["api"] = core.StatusRunning
+	width := 60
+	header := stripANSI(model.taskHeader(width))
+	row := stripANSI(model.renderTargetRow(0, model.Targets[0], width))
+	headerIndex := strings.Index(header, "STATUS")
+	statusIndex := strings.Index(row, "● running")
+	if headerIndex < 0 || statusIndex < 0 || headerIndex != statusIndex {
+		t.Fatalf("status column header=%d row=%d\n%s\n%s", headerIndex, statusIndex, header, row)
+	}
+}
+
+func TestTargetTreeShowsDeepContinuationGuide(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Children: []string{"api/cmd", "api/pkg"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Children: []string{"api/cmd/foo"}},
+		{ID: "api/cmd/foo", RelPath: "api/cmd/foo", ParentID: "api/cmd", Depth: 3},
+		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2},
+	}})
+	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
+	if !strings.Contains(view, "│ └─ ▸ api/cmd/foo") {
+		t.Fatalf("deep tree should keep a continuation guide:\n%s", view)
 	}
 }
 
