@@ -987,28 +987,11 @@ func (m Model) renderOverlay(width int, height int) string {
 }
 
 func (m Model) renderHeader(width int) string {
-	command := m.Command
-	if command == "" {
-		command = "<enter command>"
-	}
-	selected := 0
-	running := 0
-	failed := 0
-	for _, target := range m.Targets {
-		if target.Selected {
-			selected++
-		}
-		switch m.Status[target.ID] {
-		case core.StatusRunning:
-			running++
-		case core.StatusFailed:
-			failed++
-		}
-	}
-	left := " " + runnyBadgeStyle.Render("runny") + "  " + commandDisplayStyle.Render(" "+command+" ")
-	right := fmt.Sprintf("%d/%d selected  running %d  failed %d", selected, len(m.Targets), running, failed)
-	line := visibleJoin(left, right, width)
-	return headerStyle.Render(line)
+	state := m.executionState()
+	left := runnyBadgeStyle.Render("runny") + " " + subtleStyle.Render("dashboard")
+	right := fmt.Sprintf("%s  %d/%d selected  workers %s  %s", state, m.selectedCount(), len(m.Targets), m.workersLabel(), m.mode())
+	line := " " + visibleJoin(left, right, width-1)
+	return headerStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
 
 func (m Model) renderDashboard(width int) string {
@@ -1022,20 +1005,27 @@ func (m Model) renderDashboard(width int) string {
 		stateLabel = fmt.Sprintf("running %d/%d", done, max(done+active, m.PendingRuns))
 	}
 	chips := []string{
-		metricRunningStyle.Render(fmt.Sprintf(" active %d ", active)),
-		metricQueuedStyle.Render(fmt.Sprintf(" queue %d ", stats[core.StatusQueued])),
-		metricSuccessStyle.Render(fmt.Sprintf(" ok %d ", stats[core.StatusSucceeded])),
-		metricFailedStyle.Render(fmt.Sprintf(" failed %d ", stats[core.StatusFailed])),
-		metricIdleStyle.Render(fmt.Sprintf(" idle %d ", stats[core.StatusIdle])),
-		subtleStyle.Render(fmt.Sprintf(" %s %d/%d %s ", progress, done, len(m.Targets), m.progressPercent(done, len(m.Targets)))),
-		subtleStyle.Render(" workers " + workers + " "),
-		subtleStyle.Render(" " + string(m.mode()) + " "),
+		m.dashboardWidget("active", fmt.Sprintf("%d", active), metricRunningStyle),
+		m.dashboardWidget("queue", fmt.Sprintf("%d", stats[core.StatusQueued]), metricQueuedStyle),
+		m.dashboardWidget("ok", fmt.Sprintf("%d", stats[core.StatusSucceeded]), metricSuccessStyle),
+		m.dashboardWidget("failed", fmt.Sprintf("%d", stats[core.StatusFailed]), metricFailedStyle),
+		m.dashboardWidget("progress", fmt.Sprintf("%s %d/%d %s", progress, done, len(m.Targets), m.progressPercent(done, len(m.Targets))), subtleStyle),
 	}
-	if m.Running || width >= 110 {
-		chips = append([]string{subtleStyle.Render(" " + stateLabel + " ")}, chips...)
+	if width >= 120 {
+		chips = append(chips, m.dashboardWidget("idle", fmt.Sprintf("%d", stats[core.StatusIdle]), metricIdleStyle))
+		chips = append(chips, m.dashboardWidget("workers", workers, subtleStyle))
+		chips = append(chips, m.dashboardWidget("mode", string(m.mode()), subtleStyle))
 	}
-	line := strings.Join(chips, subtleStyle.Render("│"))
-	return padRightVisible(truncateVisible(" "+line, width), width)
+	if m.Running || width >= 100 {
+		chips = append([]string{m.dashboardWidget("state", stateLabel, subtleStyle)}, chips...)
+	}
+	line := strings.Join(chips, subtleStyle.Render(" "))
+	return padRightVisible(truncateVisible(line, width), width)
+}
+
+func (m Model) dashboardWidget(label string, value string, valueStyle lipgloss.Style) string {
+	text := " " + subtleStyle.Render(label+" ") + valueStyle.Render(value) + " "
+	return dashboardWidgetStyle.Render(text)
 }
 
 func (m Model) renderSubHeader(width int) string {
@@ -1083,8 +1073,8 @@ func (m Model) renderSubHeader(width int) string {
 			metadata = append(metadata, path)
 		}
 	}
-	line := " " + commandPromptStyle.Render(" "+prompt+" ") + " " + subtleStyle.Render(strings.Join(metadata, "  "))
-	return padRightVisible(truncateVisible(line, width), width)
+	promptLine := " " + commandPromptStyle.Render(prompt) + " " + subtleStyle.Render(strings.Join(metadata, "  "))
+	return commandBarStyle.Width(width).Render(padRightVisible(truncateVisible(promptLine, width), width))
 }
 
 func (m Model) focusedPathLabel() string {
@@ -1165,11 +1155,11 @@ func (m Model) filterModeLabel() string {
 }
 
 func (m Model) taskHeader(width int) string {
-	left := "SEL RUN FOLD  DIR/TASK"
+	left := "SEL RUN FOLD  DIRECTORY"
 	if width <= 46 {
-		left = "SEL RUN  DIR/TASK"
+		left = "SEL RUN  DIRECTORY"
 	}
-	return visibleJoin(left, "STATUS", width)
+	return visibleJoin(left, statusHeaderStyle.Render("STATUS"), width)
 }
 
 func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
@@ -1212,17 +1202,13 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 		fold = "−"
 	}
 	status := m.Status[target.ID]
-	namePrefix := strings.Repeat("  ", max(0, target.Depth-1))
-	if target.Depth > 1 {
-		namePrefix += "└ "
-	}
-	name := namePrefix + m.highlightMatch(target.RelPath)
-	nameWidth := max(10, width-24)
-	statusText := padRightVisible(m.statusLabel(status), 11)
+	name := m.renderTargetName(target)
+	statusText := padRightVisible(m.statusLabel(status), 12)
 	if style, ok := statusStyles[status]; ok {
 		statusText = style.Render(statusText)
 	}
-	row := "  " + selected + " " + activity + " " + fold + "  " + padRightVisible(truncateVisible(name, nameWidth), nameWidth) + " " + statusText
+	left := "  " + selected + " " + activity + " " + fold + "  " + name
+	row := visibleJoin(left, statusText, width)
 	if index == m.Cursor {
 		return rowActiveStyle.Render(padRightVisible(row, width))
 	}
@@ -1230,6 +1216,19 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 		return rowRunningStyle.Render(padRightVisible(row, width))
 	}
 	return row
+}
+
+func (m Model) renderTargetName(target core.Target) string {
+	guide := ""
+	if target.Depth > 1 {
+		guide = strings.Repeat("  ", max(0, target.Depth-2)) + treeGuideStyle.Render("└─ ")
+	}
+	icon := folderIconStyle.Render("▰")
+	name := target.RelPath
+	if target.Name != "" {
+		name = target.Name
+	}
+	return guide + icon + " " + m.highlightMatch(name)
 }
 
 func (m Model) renderLogPanel(width int, height int) []string {
@@ -1504,16 +1503,7 @@ func (m Model) renderFooter(width int) string {
 	if !m.hasActiveRuns() {
 		keys = append(keys, "q quit")
 	}
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		label, desc, ok := strings.Cut(key, " ")
-		if !ok {
-			parts = append(parts, key)
-			continue
-		}
-		parts = append(parts, footerKeyStyle.Render(label)+" "+desc)
-	}
-	text := " " + strings.Join(parts, "  ")
+	text := " " + strings.Join(keys, "  ")
 	return footerStyle.Render(padRightVisible(truncateVisible(text, width), width))
 }
 
@@ -1665,55 +1655,66 @@ func (m Model) helpRows() []string {
 		{
 			id:    "global",
 			title: "Global",
-			rows: []string{
-				"  ? keymap   / filter   : palette   H history   tab toggle tasks/preview   z zoom/split",
-				"  esc close mode   q quit when idle   ctrl+c cancel active work + quit cleanly",
+			bindings: []helpBinding{
+				{"?", "keymap"}, {"/", "filter"}, {":", "palette"}, {"H", "history"},
+				{"tab", "tasks/preview"}, {"z", "zoom/split"}, {"esc", "close mode"}, {"q", "quit idle"},
+				{"ctrl+c", "cancel + quit"},
 			},
 		},
 		{
 			id:    "input",
 			title: "Input and filter",
-			rows: []string{
-				"  c edit command   type/backspace edit   up/down history   ctrl+w word back   ctrl+u clear",
-				"  / fuzzy filter   ' prefix exact filter   n/N next/previous match",
+			bindings: []helpBinding{
+				{"c", "edit command"}, {"type", "insert text"}, {"backspace", "edit"},
+				{"up/down", "command history"}, {"ctrl+w", "word back"}, {"ctrl+u", "clear"},
+				{"/", "fuzzy filter"}, {"'", "exact filter"}, {"n/N", "next/prev match"},
 			},
 		},
 		{
 			id:    "tasks",
 			title: "Tasks",
-			rows: []string{
-				"  up/down j/k move   g/G first/last   space toggle   a/A select/deselect visible or matching filter",
-				"  left/h fold   right/l unfold   enter run selected   del/x cancel selected active",
+			bindings: []helpBinding{
+				{"up/down", "move"}, {"j/k", "move"}, {"g/G", "first/last"},
+				{"space", "toggle select"}, {"a/A", "select visible/matches"},
+				{"left/h", "fold"}, {"right/l", "unfold"}, {"enter", "run selected"},
+				{"del/x", "cancel selected"},
 			},
 		},
 		{
 			id:    "runs",
 			title: "Runs and status",
-			rows: []string{
-				"  R rerun failed confirm   ▶ running   … queued   ✓ ok   ! failed   × cancelled",
+			bindings: []helpBinding{
+				{"R", "rerun failed"}, {"▶", "running"}, {"…", "queued"}, {"✓", "ok"},
+				{"!", "failed"}, {"×", "cancelled"},
 			},
 		},
 		{
 			id:    "palette",
 			title: "Palette",
-			rows: []string{
-				"  :run   :workers N|auto   :serial   :parallel   :failed   :rerun-failed   :cancel   :cancel-all   :history",
-				"  type fuzzy   ' prefix exact match   enter run selected command   esc close",
+			bindings: []helpBinding{
+				{":run", "run"}, {":workers N|auto", "workers"}, {":serial", "serial"},
+				{":parallel", "parallel"}, {":failed", "select failed"},
+				{":rerun-failed", "rerun failed"}, {":cancel", "cancel target"},
+				{":cancel-all", "cancel active"}, {":history", "history"},
+				{"type", "fuzzy"}, {"'", "exact"}, {"enter", "choose"}, {"esc", "close"},
 			},
 		},
 		{
 			id:    "history",
 			title: "History",
-			rows: []string{
-				"  H open history   / search commands and project runs   ' prefix exact match",
-				"  up/down choose   enter reuse selected command   ctrl+u clear   esc close",
+			bindings: []helpBinding{
+				{"H", "open history"}, {"/", "search runs"}, {"'", "exact match"},
+				{"up/down", "choose"}, {"enter", "reuse command"}, {"ctrl+u", "clear"},
+				{"esc", "close"},
 			},
 		},
 		{
 			id:    "preview",
 			title: "Preview",
-			rows: []string{
-				"  pageup/ctrl+b up   pagedown/ctrl+f down   ctrl+u up   ctrl+d down   L follow",
+			bindings: []helpBinding{
+				{"pageup", "scroll up"}, {"ctrl+b", "scroll up"},
+				{"pagedown", "scroll down"}, {"ctrl+f", "scroll down"},
+				{"ctrl+u", "half up"}, {"ctrl+d", "half down"}, {"L", "follow"},
 			},
 		},
 	}
@@ -1736,15 +1737,38 @@ func (m Model) helpRows() []string {
 			rows = append(rows, "")
 		}
 		rows = append(rows, sectionStyle.Render(section.title))
-		rows = append(rows, section.rows...)
+		rows = append(rows, formatHelpBindings(section.bindings, 3)...)
+	}
+	return rows
+}
+
+func formatHelpBindings(bindings []helpBinding, columns int) []string {
+	if columns < 1 {
+		columns = 1
+	}
+	rows := make([]string, 0, (len(bindings)+columns-1)/columns)
+	cellWidth := 28
+	for i := 0; i < len(bindings); i += columns {
+		cells := make([]string, 0, columns)
+		for j := 0; j < columns && i+j < len(bindings); j++ {
+			binding := bindings[i+j]
+			cell := helpKeyStyle.Render(binding.key) + " " + helpDescStyle.Render(binding.description)
+			cells = append(cells, padRightVisible(cell, cellWidth))
+		}
+		rows = append(rows, "  "+strings.Join(cells, " "))
 	}
 	return rows
 }
 
 type helpSection struct {
-	id    string
-	title string
-	rows  []string
+	id       string
+	title    string
+	bindings []helpBinding
+}
+
+type helpBinding struct {
+	key         string
+	description string
 }
 
 func (m Model) activeHelpSectionID() string {

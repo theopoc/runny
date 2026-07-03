@@ -261,7 +261,7 @@ func TestHelpMentionsPaletteCommands(t *testing.T) {
 func TestHelpMentionsHistoryKeys(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	help := stripANSI(strings.Join(model.helpRows(), "\n"))
-	for _, want := range []string{"H open history", "/ search commands and project runs", "' prefix exact match", "enter reuse selected command"} {
+	for _, want := range []string{"H open history", "/ search runs", "' exact match", "enter reuse command"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help should mention history key %q:\n%s", want, help)
 		}
@@ -897,14 +897,14 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	wide := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
-	for _, want := range []string{"SEL RUN FOLD  DIR/TASK", "STATUS"} {
+	for _, want := range []string{"SEL RUN FOLD  DIRECTORY", "STATUS"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide task header should contain %q:\n%s", want, wide)
 		}
 	}
 
 	compact := stripANSI(model.taskHeader(46))
-	for _, want := range []string{"SEL RUN  DIR/TASK", "STATUS"} {
+	for _, want := range []string{"SEL RUN  DIRECTORY", "STATUS"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact task header should contain %q:\n%s", want, compact)
 		}
@@ -1248,14 +1248,15 @@ func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 	if !view.AltScreen {
 		t.Fatal("view should use alt screen")
 	}
+	plain := stripANSI(view.Content)
 	for _, want := range []string{"Keymap", ": palette", "H history", "del/x cancel selected"} {
-		if !strings.Contains(view.Content, want) {
-			t.Fatalf("view content should contain %q:\n%s", want, view.Content)
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view content should contain %q:\n%s", want, plain)
 		}
 	}
 	for _, want := range []string{"Runs and status", "▶ running", "… queued", "! failed", "× cancelled"} {
-		if !strings.Contains(view.Content, want) {
-			t.Fatalf("help should contain status legend %q:\n%s", want, view.Content)
+		if !strings.Contains(plain, want) {
+			t.Fatalf("help should contain status legend %q:\n%s", want, plain)
 		}
 	}
 }
