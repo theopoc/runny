@@ -30,9 +30,9 @@ type tuiTheme struct {
 }
 
 const (
-	footerLabelHex      = "#94A3B8"
-	footerBackgroundHex = "#2E2D2C"
-	footerShortcutHex   = "#DE8B37"
+	footerLabelHex      = "#e0e0e0"
+	footerBackgroundHex = "#242f38"
+	footerShortcutHex   = "#ffa62c"
 )
 
 var runnyTheme = tuiTheme{

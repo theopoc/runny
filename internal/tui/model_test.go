@@ -223,9 +223,10 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 	footer := model.renderFooter(80)
 
 	for _, want := range []string{
-		"\x1b[48;2;46;45;44m",
-		"\x1b[38;2;222;139;55m",
-		"\x1b[1menter\x1b[22m\x1b[48;2;46;45;44m",
+		"\x1b[48;2;36;47;56m",
+		"\x1b[38;2;224;224;224m",
+		"\x1b[38;2;255;166;44m",
+		"\x1b[1menter\x1b[22m\x1b[48;2;36;47;56m",
 	} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer should contain ANSI sequence %q:\n%q", want, footer)

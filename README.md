@@ -52,6 +52,9 @@ docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
 docker run --rm -it -v "$PWD:/workspace" -w /workspace runny --depth 2 -- pnpm test
 ```
 
+The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags.
+
+
 Commands run inside the container. Tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
 
 ## Flags
