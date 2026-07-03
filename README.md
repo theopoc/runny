@@ -1,5 +1,9 @@
 # runny
 
+[![ci](https://github.com/theopoc/runny/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/theopoc/runny/actions/workflows/ci.yml)
+[![release](https://github.com/theopoc/runny/actions/workflows/release.yml/badge.svg)](https://github.com/theopoc/runny/actions/workflows/release.yml)
+[![Go](https://img.shields.io/badge/Go-1.26.x-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+
 `runny` runs one shell command across selected child directories from a terminal UI.
 
 ## Install
