@@ -4,12 +4,12 @@
  > pnpm test
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ╔═ Tasks ═════════════════════════════════════════════════╗  ╭─ Preview ───────────────────────────╮
-║ SEL RUN FOLD  DIRECTORY                   STATUS       ║  │ Command to run                     │
+║ RUN FOLD  DIRECTORY                       STATUS       ║  │ Command to run                     │
 ║ showing 1-4 of 4 •                                     ║  │  --:--:--  pnpm test               │
-║   ● ▶ −  📂 api                           ● running    ║  │                                    │
-║   ● …    └─ 📁 api/cmd                    ◌ queued     ║  │ Output (empty)                     │
-║   ○      📁 web                           ○ skipped    ║  │ Running. Output appears here when~ │
-║   ● !    📁 worker                        ✕ failed     ║  │ Press L to toggle follow, del/x t~ │
+║   ▶ −  📂 api                             ● running    ║  │                                    │
+║   …    └─ 📁 api/cmd                      ◌ queued     ║  │ Output (empty)                     │
+║        📁 web                             ○ skipped    ║  │ Running. Output appears here when~ │
+║   !    📁 worker                          ✕ failed     ║  │ Press L to toggle follow, del/x t~ │
 ║                                                        ║  │                                    │
 ║                                                        ║  │                                    │
 ║                                                        ║  │                                    │

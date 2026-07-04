@@ -69,7 +69,7 @@ func walk(root, dir, parentID string, depth int, opts Options, targets *[]Target
 				Name:     name,
 				Depth:    nextDepth,
 				ParentID: parentID,
-				Selected: true,
+				Selected: false,
 				Folded:   false,
 				Hidden:   hidden,
 			}
