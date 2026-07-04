@@ -1,7 +1,7 @@
  runny  mode parallel   workers auto   targets 4
  state failed   active 2   queue 1   ok 0   failed 1   progress ███░░░░░░░░░░░ 1/4 25%
 ────────────────────────────────────────────────────────────────────────────────────────────────────
- > pnpm test  focus tasks  visible 4/4  selected 3
+ > pnpm test
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ╭─ Tasks ─────────────────────────────────────────────────╮  ╭─ Preview ───────────────────────────╮
 │ SEL RUN FOLD  DIRECTORY                   STATUS       │  │ Command to run                     │

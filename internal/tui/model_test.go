@@ -481,9 +481,6 @@ func TestZoomTogglesFocusedPanel(t *testing.T) {
 	if strings.Contains(tasksZoom, "╭─ Preview") {
 		t.Fatalf("tasks zoom should hide preview:\n%s", tasksZoom)
 	}
-	if !strings.Contains(tasksZoom, "view zoom") {
-		t.Fatalf("subheader should show zoom:\n%s", tasksZoom)
-	}
 
 	model.Focus = FocusLogs
 	logsZoom := stripANSI(model.View().Content)
@@ -503,9 +500,6 @@ func TestCompactModeUsesSingleFocusedPanel(t *testing.T) {
 	}})
 	model, _ = updateWindowSize(model, 80, 24)
 	tasks := stripANSI(model.View().Content)
-	if !strings.Contains(tasks, "view compact") {
-		t.Fatalf("compact subheader missing:\n%s", tasks)
-	}
 	if strings.Contains(tasks, "╭─ Preview") {
 		t.Fatalf("compact tasks should hide preview:\n%s", tasks)
 	}
@@ -588,16 +582,22 @@ func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
 	}
 }
 
-func TestSubHeaderShowsFocusedPathBreadcrumb(t *testing.T) {
+func TestSubHeaderShowsOnlyCommandPrompt(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
 		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
 	}})
 	model.Cursor = 1
+	model.Filter = "api"
 
-	wide := stripANSI(model.renderSubHeader(140))
-	if !strings.Contains(wide, "path api › cmd") {
-		t.Fatalf("wide subheader should show focused path breadcrumb:\n%s", wide)
+	subheader := stripANSI(model.renderSubHeader(140))
+	if !strings.Contains(subheader, "> test") {
+		t.Fatalf("subheader should show command prompt:\n%s", subheader)
+	}
+	for _, hidden := range []string{"focus", "visible", "selected", "match", "filter", "path"} {
+		if strings.Contains(subheader, hidden) {
+			t.Fatalf("subheader should hide %q metadata:\n%s", hidden, subheader)
+		}
 	}
 	compact := stripANSI(model.renderSubHeader(80))
 	if strings.Contains(compact, "path api") {
@@ -720,8 +720,8 @@ func TestModelFilterKeepsParentContext(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want direct matching child", model.Cursor)
 	}
-	if subheader := stripANSI(model.renderSubHeader(120)); !strings.Contains(subheader, "match 1/1") {
-		t.Fatalf("subheader should show direct match position:\n%s", subheader)
+	if panel := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n")); !strings.Contains(panel, "showing 1-2 of 2") {
+		t.Fatalf("directory panel should show filtered visible range:\n%s", panel)
 	}
 }
 
@@ -742,8 +742,8 @@ func TestFilterMatchNavigationSkipsContextParents(t *testing.T) {
 	if model.Cursor != 2 {
 		t.Fatalf("cursor = %d, want next direct match, skipping parent context", model.Cursor)
 	}
-	if subheader := stripANSI(model.renderSubHeader(120)); !strings.Contains(subheader, "match 2/2") {
-		t.Fatalf("subheader should show second match:\n%s", subheader)
+	if panel := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n")); !strings.Contains(panel, "showing 1-3 of 3") {
+		t.Fatalf("directory panel should show filtered visible range:\n%s", panel)
 	}
 }
 
@@ -758,9 +758,6 @@ func TestFilterSupportsFuzzyAndExactModes(t *testing.T) {
 
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want fuzzy child match", model.Cursor)
-	}
-	if subheader := stripANSI(model.renderSubHeader(120)); !strings.Contains(subheader, "match 1/1") {
-		t.Fatalf("subheader should count fuzzy match:\n%s", subheader)
 	}
 	view := strings.Join(model.renderDirectoryPanel(80, 12), "\n")
 	if !strings.Contains(stripANSI(view), "api/cmd") {
@@ -840,8 +837,8 @@ func TestFilterRevealsMatchesInsideFoldedParents(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want folded child match", model.Cursor)
 	}
-	if subheader := stripANSI(model.renderSubHeader(120)); !strings.Contains(subheader, "match 1/1") {
-		t.Fatalf("subheader should include folded child match:\n%s", subheader)
+	if panel := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n")); !strings.Contains(panel, "showing 1-2 of 2") {
+		t.Fatalf("directory panel should include folded child match:\n%s", panel)
 	}
 }
 
@@ -855,9 +852,6 @@ func TestDirectoryPanelShowsFilterEmptyState(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("empty filter state should contain %q:\n%s", want, view)
 		}
-	}
-	if subheader := stripANSI(model.renderSubHeader(120)); !strings.Contains(subheader, "match 0/0") {
-		t.Fatalf("subheader should show no matches:\n%s", subheader)
 	}
 
 	model.Filter = "'web"

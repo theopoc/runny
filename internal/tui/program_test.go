@@ -76,7 +76,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		t.Fatal("program did not quit")
 	}
 	rendered := stripANSI(out.String())
-	for _, want := range []string{"runny", "Tasks", "Preview", "filter w", "workers 1", "succeeded"} {
+	for _, want := range []string{"runny", "Tasks", "Preview", "workers 1", "succeeded"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered output should contain %q:\n%s", want, rendered)
 		}

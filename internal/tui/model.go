@@ -1035,31 +1035,8 @@ func (m Model) dashboardWidget(label string, value string, valueStyle lipgloss.S
 }
 
 func (m Model) renderSubHeader(width int) string {
-	focusText := m.focusName()
 	prompt := m.commandBarPrompt()
-	viewText := ""
-	if m.Zoom {
-		viewText = "  view zoom"
-	} else if m.compactMode(width) {
-		viewText = "  view compact"
-	}
-	metadata := []string{
-		fmt.Sprintf("focus %s%s", focusText, viewText),
-		fmt.Sprintf("visible %d/%d", len(m.visibleTargetIndexes()), len(m.Targets)),
-		fmt.Sprintf("selected %d", m.selectedCount()),
-	}
-	if strings.TrimSpace(m.Filter) != "" {
-		metadata = append(metadata, m.filterMatchLabel(), "filter "+m.Filter)
-	}
-	if width >= 140 {
-		if path := m.focusedPathLabel(); path != "" {
-			metadata = append(metadata, path)
-		}
-	}
 	promptLine := commandPromptStyle.Render(" " + prompt + " ")
-	if len(metadata) > 0 {
-		promptLine += subtleStyle.Background(runnyTheme.bgCommand).Render(" " + strings.Join(metadata, "  "))
-	}
 	return commandBarStyle.Width(width).Render(padRightVisible(truncateVisible(promptLine, width), width))
 }
 
