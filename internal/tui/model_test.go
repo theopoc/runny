@@ -243,6 +243,21 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 	}
 }
 
+func TestNoticeBarUsesPurpleBackgroundAndWhiteText(t *testing.T) {
+	if noticeForegroundHex != "#FFFFFF" {
+		t.Fatalf("notice foreground = %q, want white", noticeForegroundHex)
+	}
+	if primaryAccentHex != "#A78BFA" {
+		t.Fatalf("notice background = %q, want purple", primaryAccentHex)
+	}
+}
+
+func TestRunningRowsUseWhiteTextOnNaturalBackground(t *testing.T) {
+	if noticeForegroundHex != "#FFFFFF" {
+		t.Fatalf("running foreground = %q, want white", noticeForegroundHex)
+	}
+}
+
 func TestRerunFailedShortcutFeedback(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model, _ = updateKey(model, "R")
