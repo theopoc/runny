@@ -34,7 +34,7 @@ type tuiTheme struct {
 const (
 	footerLabelHex      = "#e0e0e0"
 	footerBackgroundHex = "#242f38"
-	footerShortcutHex   = "#ffa62c"
+	footerShortcutHex   = "#C4B5FD"
 )
 
 var runnyTheme = tuiTheme{
@@ -64,8 +64,8 @@ var (
 	headerStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSurface)
 	subtleStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	panelStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
-	panelActiveStyle    = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary)
-	panelTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentPrimary)
+	panelActiveStyle    = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand)
+	panelTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
 	panelInactiveTitle  = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.fgMuted)
 	selectedStyle       = lipgloss.NewStyle().Foreground(runnyTheme.success)
 	unselectedStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
@@ -77,12 +77,12 @@ var (
 	metricRunningStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
 	metricSuccessStyle  = lipgloss.NewStyle().Foreground(runnyTheme.success).Bold(true)
 	metricFailedStyle   = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	commandPromptStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Background(runnyTheme.bgCommand).Bold(true)
-	commandDisplayStyle = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
-	commandBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Background(runnyTheme.bgCommand).BorderForeground(runnyTheme.accentPrimary).Border(lipgloss.NormalBorder(), true, false, true, false)
+	commandPromptStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Background(runnyTheme.bgCommand).Bold(true)
+	commandDisplayStyle = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
+	commandBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Background(runnyTheme.bgCommand).BorderForeground(runnyTheme.accentCommand).Border(lipgloss.NormalBorder(), true, false, true, false)
 	matchStyle          = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.warning).Bold(true)
 	overlayTitleStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSelection).Bold(true)
-	sectionStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
+	sectionStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 	helpKeyStyle        = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Bold(true)
 	helpDescStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	paletteActiveStyle  = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSelection).Bold(true)
