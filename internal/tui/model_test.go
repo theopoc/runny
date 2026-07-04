@@ -484,7 +484,7 @@ func TestZoomTogglesFocusedPanel(t *testing.T) {
 
 	model.Focus = FocusLogs
 	logsZoom := stripANSI(model.View().Content)
-	if !strings.Contains(logsZoom, "╭─ Preview") || strings.Contains(logsZoom, "╭─ Tasks") {
+	if !strings.Contains(logsZoom, "╔═ Preview") || strings.Contains(logsZoom, "╭─ Tasks") || strings.Contains(logsZoom, "╔═ Tasks") {
 		t.Fatalf("logs zoom should show only preview:\n%s", logsZoom)
 	}
 	model, _ = updateKey(model, "z")
@@ -505,7 +505,7 @@ func TestCompactModeUsesSingleFocusedPanel(t *testing.T) {
 	}
 	model.Focus = FocusLogs
 	preview := stripANSI(model.View().Content)
-	if !strings.Contains(preview, "╭─ Preview") || strings.Contains(preview, "╭─ Tasks") {
+	if !strings.Contains(preview, "╔═ Preview") || strings.Contains(preview, "╭─ Tasks") || strings.Contains(preview, "╔═ Tasks") {
 		t.Fatalf("compact logs should show only preview:\n%s", preview)
 	}
 }
