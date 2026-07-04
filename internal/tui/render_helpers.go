@@ -64,17 +64,48 @@ func boxLines(width int, height int, title string, rows []string, active bool) [
 	if active {
 		borderStyle = panelActiveStyle
 	}
-	lines = append(lines, borderStyle.Render("╭─")+titleText+borderStyle.Render(strings.Repeat("─", topFill)+"╮"))
+	border := panelBorder(active)
+	lines = append(lines, borderStyle.Render(border.topLeft+border.horizontal)+titleText+borderStyle.Render(strings.Repeat(border.horizontal, topFill)+border.topRight))
 	contentWidth := width - 4
 	for i := 0; i < height-2; i++ {
 		row := ""
 		if i < len(rows) {
 			row = rows[i]
 		}
-		lines = append(lines, borderStyle.Render("│")+" "+padRightVisible(truncateVisible(row, contentWidth), contentWidth)+" "+borderStyle.Render("│"))
+		lines = append(lines, borderStyle.Render(border.vertical)+" "+padRightVisible(truncateVisible(row, contentWidth), contentWidth)+" "+borderStyle.Render(border.vertical))
 	}
-	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	lines = append(lines, borderStyle.Render(border.bottomLeft+strings.Repeat(border.horizontal, width-2)+border.bottomRight))
 	return lines
+}
+
+type panelBorderGlyphs struct {
+	topLeft     string
+	topRight    string
+	bottomLeft  string
+	bottomRight string
+	horizontal  string
+	vertical    string
+}
+
+func panelBorder(active bool) panelBorderGlyphs {
+	if active {
+		return panelBorderGlyphs{
+			topLeft:     "╔",
+			topRight:    "╗",
+			bottomLeft:  "╚",
+			bottomRight: "╝",
+			horizontal:  "═",
+			vertical:    "║",
+		}
+	}
+	return panelBorderGlyphs{
+		topLeft:     "╭",
+		topRight:    "╮",
+		bottomLeft:  "╰",
+		bottomRight: "╯",
+		horizontal:  "─",
+		vertical:    "│",
+	}
 }
 
 func clipOverlayRows(rows []string, boxHeight int) []string {
