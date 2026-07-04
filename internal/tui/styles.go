@@ -70,7 +70,7 @@ var (
 	selectedStyle       = lipgloss.NewStyle().Foreground(runnyTheme.success)
 	unselectedStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	rowActiveStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true)
-	rowSelectedStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSurface)
+	rowSelectedStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	rowRunningStyle     = lipgloss.NewStyle().Background(runnyTheme.bgRunning)
 	metricIdleStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	metricQueuedStyle   = lipgloss.NewStyle().Foreground(runnyTheme.info)

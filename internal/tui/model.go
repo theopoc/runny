@@ -1167,22 +1167,25 @@ func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
 
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
 	active := index == m.Cursor
-	selected := unselectedStyle.Render("○")
+	status := m.Status[target.ID]
+	selectedMarkerStyle := targetRowInlineStyle(unselectedStyle, status)
+	selected := selectedMarkerStyle.Render("○")
 	if target.Selected {
-		selected = selectedStyle.Render("●")
+		selectedMarkerStyle = targetRowInlineStyle(selectedStyle, status)
+		selected = selectedMarkerStyle.Render("●")
 	}
 	activity := " "
-	switch m.Status[target.ID] {
+	switch status {
 	case core.StatusQueued:
-		activity = subtleStyle.Render("…")
+		activity = targetRowInlineStyle(subtleStyle, status).Render("…")
 	case core.StatusRunning:
-		activity = metricRunningStyle.Render("▶")
+		activity = targetRowInlineStyle(metricRunningStyle, status).Render("▶")
 	case core.StatusCancelled:
-		activity = subtleStyle.Render("×")
+		activity = targetRowInlineStyle(subtleStyle, status).Render("×")
 	case core.StatusSucceeded:
-		activity = metricSuccessStyle.Render("✓")
+		activity = targetRowInlineStyle(metricSuccessStyle, status).Render("✓")
 	case core.StatusFailed:
-		activity = metricFailedStyle.Render("!")
+		activity = targetRowInlineStyle(metricFailedStyle, status).Render("!")
 	}
 	fold := " "
 	if target.Folded && m.Filter == "" {
@@ -1190,7 +1193,6 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	} else if len(target.Children) > 0 {
 		fold = "−"
 	}
-	status := m.Status[target.ID]
 	name := m.renderTargetName(target)
 	statusText := m.renderRowStatus(status, active)
 	if active {
@@ -1215,6 +1217,13 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 		return rowSelectedStyle.Render(padRightVisible(row, width))
 	}
 	return row
+}
+
+func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
+	if status == core.StatusRunning {
+		return style.Background(runnyTheme.bgRunning)
+	}
+	return style
 }
 
 func (m Model) activitySymbol(status core.Status) string {
@@ -1250,6 +1259,7 @@ func (m Model) renderRowStatus(status core.Status, active bool) string {
 		return lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true).Render(label)
 	}
 	if style, ok := statusStyles[status]; ok {
+		style = targetRowInlineStyle(style, status)
 		return style.Render(label)
 	}
 	return label
