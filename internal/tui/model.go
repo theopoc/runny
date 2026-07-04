@@ -94,17 +94,13 @@ func NewModel(opts Options) Model {
 		status[target.ID] = core.StatusIdle
 		logs[target.ID] = ""
 	}
-	focus := FocusTargets
-	if opts.Command == "" {
-		focus = FocusCommand
-	}
 	model := Model{
 		Command:            opts.Command,
 		Targets:            opts.Targets,
 		Status:             status,
 		Logs:               logs,
 		TargetStarted:      started,
-		Focus:              focus,
+		Focus:              FocusTargets,
 		Mode:               opts.Mode,
 		Workers:            opts.Workers,
 		FailFast:           opts.FailFast,

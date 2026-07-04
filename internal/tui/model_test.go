@@ -33,6 +33,14 @@ func TestModelToggleSelectAllAndFilter(t *testing.T) {
 	}
 }
 
+func TestModelStartsWithTasksFocusWhenCommandIsEmpty(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+
+	if model.Focus != FocusTargets {
+		t.Fatalf("focus = %v, want tasks", model.Focus)
+	}
+}
+
 func TestModelMovesCursorWithArrowKeys(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
@@ -194,6 +202,7 @@ func TestFooterIsContextual(t *testing.T) {
 	}
 
 	commandModel := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	commandModel.Focus = FocusCommand
 	commandFooter := stripANSI(commandModel.renderFooter(80))
 	for _, want := range []string{"enter Run", "esc Tasks", "↑↓ Hist", "ctrl+u Clear"} {
 		if !strings.Contains(commandFooter, want) {
@@ -601,6 +610,7 @@ func TestSubHeaderShowsFocusedPathBreadcrumb(t *testing.T) {
 
 func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusCommand
 	model, _ = updateKey(model, ".")
 	model, _ = updateKey(model, "/")
 	model, _ = updateKey(model, "s")
@@ -638,6 +648,7 @@ func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
 
 func TestCommandFocusNavigatesHistory(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusCommand
 	model.History = []string{"go test ./...", "pnpm test"}
 	model = typeText(model, "draft")
 
@@ -667,6 +678,7 @@ func TestCommandFocusNavigatesHistory(t *testing.T) {
 
 func TestCommandHistoryNavigationResetsOnRunStart(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusCommand
 	model.History = []string{"go test ./..."}
 	model = typeText(model, "draft")
 	model, _ = updateSpecialKey(model, tea.KeyUp)
