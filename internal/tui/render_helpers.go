@@ -94,6 +94,17 @@ func visibleJoin(left string, right string, width int) string {
 	return truncateVisible(left+strings.Repeat(" ", space)+right, width)
 }
 
+func fixedStatusJoin(left string, status string, width int) string {
+	statusWidth := 12
+	gap := 2
+	if width < statusWidth+gap+8 {
+		return truncateVisible(left, width)
+	}
+	leftWidth := width - statusWidth - gap
+	left = truncateVisible(left, leftWidth)
+	return padRightVisible(left, leftWidth) + strings.Repeat(" ", gap) + truncateVisible(status, statusWidth)
+}
+
 func truncateVisible(value string, width int) string {
 	if lipgloss.Width(value) <= width {
 		return value

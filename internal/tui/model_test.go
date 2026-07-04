@@ -947,7 +947,7 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], width))
 	headerIndex := strings.Index(header, "STATUS")
 	statusIndex := strings.Index(row, "● running")
-	if headerIndex < 0 || statusIndex < 0 || headerIndex != statusIndex {
+	if headerIndex < 0 || statusIndex < 0 || lipgloss.Width(header[:headerIndex]) != lipgloss.Width(row[:statusIndex]) {
 		t.Fatalf("status column header=%d row=%d\n%s\n%s", headerIndex, statusIndex, header, row)
 	}
 }
@@ -960,7 +960,7 @@ func TestTargetTreeShowsDeepContinuationGuide(t *testing.T) {
 		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2},
 	}})
 	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
-	if !strings.Contains(view, "│ └─ ▸ api/cmd/foo") {
+	if !strings.Contains(view, "│ └─ 📁 api/cmd/foo") {
 		t.Fatalf("deep tree should keep a continuation guide:\n%s", view)
 	}
 }

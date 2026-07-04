@@ -987,14 +987,21 @@ func (m Model) renderOverlay(width int, height int) string {
 }
 
 func (m Model) renderHeader(width int) string {
-	left := runnyBadgeStyle.Render("runny") + " " + subtleStyle.Render("dashboard")
-	line := " " + padRightVisible(left, width-1)
+	segments := []string{
+		runnyBadgeStyle.Render("runny"),
+		m.dashboardWidget("mode", string(m.mode()), subtleStyle),
+		m.dashboardWidget("workers", m.workersLabel(), subtleStyle),
+		m.dashboardWidget("targets", fmt.Sprintf("%d", len(m.Targets)), subtleStyle),
+	}
+	if path := m.focusedPathLabel(); path != "" && width >= 118 {
+		segments = append(segments, m.dashboardWidget("path", strings.TrimPrefix(path, "path "), subtleStyle))
+	}
+	line := " " + strings.Join(segments, subtleStyle.Render(" "))
 	return headerStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
 
 func (m Model) renderDashboard(width int) string {
 	stats := m.statusCounts()
-	workers := m.workersLabel()
 	active := stats[core.StatusRunning] + stats[core.StatusQueued]
 	done := stats[core.StatusSucceeded] + stats[core.StatusFailed] + stats[core.StatusCancelled]
 	progressWidth := 14
@@ -1017,8 +1024,6 @@ func (m Model) renderDashboard(width int) string {
 	}
 	if width >= 120 {
 		chips = append(chips, m.dashboardWidget("idle", fmt.Sprintf("%d", stats[core.StatusIdle]), metricIdleStyle))
-		chips = append(chips, m.dashboardWidget("workers", workers, subtleStyle))
-		chips = append(chips, m.dashboardWidget("mode", string(m.mode()), subtleStyle))
 	}
 	if m.Running || width >= 100 {
 		chips = append([]string{m.dashboardWidget("state", stateLabel, subtleStyle)}, chips...)
@@ -1055,9 +1060,9 @@ func (m Model) renderSubHeader(width int) string {
 			metadata = append(metadata, path)
 		}
 	}
-	promptLine := " " + commandPromptStyle.Render(prompt)
+	promptLine := commandPromptStyle.Render(" " + prompt + " ")
 	if len(metadata) > 0 {
-		promptLine += subtleStyle.Render(" │ " + strings.Join(metadata, "  "))
+		promptLine += subtleStyle.Background(runnyTheme.bgCommand).Render(" " + strings.Join(metadata, "  "))
 	}
 	return commandBarStyle.Width(width).Render(padRightVisible(truncateVisible(promptLine, width), width))
 }
@@ -1169,7 +1174,7 @@ func (m Model) taskHeader(width int) string {
 	if width <= 46 {
 		left = "SEL RUN  DIRECTORY"
 	}
-	return visibleJoin(left, statusHeaderStyle.Render("STATUS"), width)
+	return fixedStatusJoin(left, statusHeaderStyle.Render("STATUS"), width)
 }
 
 func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
@@ -1188,6 +1193,7 @@ func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
 }
 
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
+	active := index == m.Cursor
 	selected := unselectedStyle.Render("○")
 	if target.Selected {
 		selected = selectedStyle.Render("●")
@@ -1213,13 +1219,20 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	}
 	status := m.Status[target.ID]
 	name := m.renderTargetName(target)
-	statusText := padRightVisible(m.statusLabel(status), 12)
-	if style, ok := statusStyles[status]; ok {
-		statusText = style.Render(statusText)
+	statusText := m.renderRowStatus(status, active)
+	if active {
+		selected = "●"
+		if !target.Selected {
+			selected = "○"
+		}
+		activity = m.activitySymbol(status)
+		fold = m.foldSymbol(target)
+		name = m.renderTargetNamePlain(target)
+		statusText = padRightVisible(m.statusLabel(status), 12)
 	}
 	left := "  " + selected + " " + activity + " " + fold + "  " + name
-	row := visibleJoin(left, statusText, width)
-	if index == m.Cursor {
+	row := fixedStatusJoin(left, statusText, width)
+	if active {
 		return rowActiveStyle.Render(padRightVisible(row, width))
 	}
 	if status == core.StatusRunning {
@@ -1231,12 +1244,47 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	return row
 }
 
+func (m Model) activitySymbol(status core.Status) string {
+	switch status {
+	case core.StatusQueued:
+		return "…"
+	case core.StatusRunning:
+		return "▶"
+	case core.StatusCancelled:
+		return "×"
+	case core.StatusSucceeded:
+		return "✓"
+	case core.StatusFailed:
+		return "!"
+	default:
+		return " "
+	}
+}
+
+func (m Model) foldSymbol(target core.Target) string {
+	if target.Folded && m.Filter == "" {
+		return "+"
+	}
+	if len(target.Children) > 0 {
+		return "−"
+	}
+	return " "
+}
+
+func (m Model) renderRowStatus(status core.Status, active bool) string {
+	label := padRightVisible(m.statusLabel(status), 12)
+	if active {
+		return lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true).Render(label)
+	}
+	if style, ok := statusStyles[status]; ok {
+		return style.Render(label)
+	}
+	return label
+}
+
 func (m Model) renderTargetName(target core.Target) string {
 	guide := m.treeGuide(target)
-	icon := "▸"
-	if len(target.Children) > 0 && !target.Folded {
-		icon = "▾"
-	}
+	icon := m.folderIcon(target)
 	name := targetName(target)
 	if target.Name != "" {
 		name = target.Name
@@ -1244,7 +1292,29 @@ func (m Model) renderTargetName(target core.Target) string {
 	return guide + folderIconStyle.Render(icon) + " " + m.renderTargetDisplayName(name)
 }
 
+func (m Model) renderTargetNamePlain(target core.Target) string {
+	name := targetName(target)
+	if target.Name != "" {
+		name = target.Name
+	}
+	return m.treeGuidePlain(target) + m.folderIcon(target) + " " + name
+}
+
+func (m Model) folderIcon(target core.Target) string {
+	if len(target.Children) > 0 {
+		if target.Folded && m.Filter == "" {
+			return "📁"
+		}
+		return "📂"
+	}
+	return "📁"
+}
+
 func (m Model) treeGuide(target core.Target) string {
+	return treeGuideStyle.Render(m.treeGuidePlain(target))
+}
+
+func (m Model) treeGuidePlain(target core.Target) string {
 	if target.Depth <= 1 || target.ParentID == "" {
 		return ""
 	}
@@ -1252,16 +1322,16 @@ func (m Model) treeGuide(target core.Target) string {
 	var b strings.Builder
 	for _, ancestor := range ancestors[min(1, len(ancestors)):] {
 		if m.isLastChild(ancestor) {
-			b.WriteString(treeGuideStyle.Render("  "))
+			b.WriteString("  ")
 		} else {
-			b.WriteString(treeGuideStyle.Render("│ "))
+			b.WriteString("│ ")
 		}
 	}
 	branch := "└─ "
 	if !m.isLastChild(target) {
 		branch = "├─ "
 	}
-	b.WriteString(treeGuideStyle.Render(branch))
+	b.WriteString(branch)
 	return b.String()
 }
 

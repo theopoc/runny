@@ -13,7 +13,9 @@ type tuiTheme struct {
 	fgDefault      color.Color
 	fgMuted        color.Color
 	fgEmphasis     color.Color
+	fgInverse      color.Color
 	bgBase         color.Color
+	bgCommand      color.Color
 	bgSurface      color.Color
 	bgElevated     color.Color
 	bgHelper       color.Color
@@ -39,7 +41,9 @@ var runnyTheme = tuiTheme{
 	fgDefault:      tuiColor("#CBD5E1"),
 	fgMuted:        tuiColor(footerLabelHex),
 	fgEmphasis:     tuiColor("#F8FAFC"),
+	fgInverse:      tuiColor("#111827"),
 	bgBase:         tuiColor("#10131F"),
+	bgCommand:      tuiColor("#05070D"),
 	bgSurface:      tuiColor("#191D2B"),
 	bgElevated:     tuiColor("#252A3A"),
 	bgHelper:       tuiColor(footerBackgroundHex),
@@ -65,7 +69,7 @@ var (
 	panelInactiveTitle  = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.fgMuted)
 	selectedStyle       = lipgloss.NewStyle().Foreground(runnyTheme.success)
 	unselectedStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	rowActiveStyle      = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.bgSelection).Bold(true)
+	rowActiveStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true)
 	rowSelectedStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSurface)
 	rowRunningStyle     = lipgloss.NewStyle().Background(runnyTheme.bgRunning)
 	metricIdleStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
@@ -73,9 +77,9 @@ var (
 	metricRunningStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
 	metricSuccessStyle  = lipgloss.NewStyle().Foreground(runnyTheme.success).Bold(true)
 	metricFailedStyle   = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	commandPromptStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
+	commandPromptStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Background(runnyTheme.bgCommand).Bold(true)
 	commandDisplayStyle = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
-	commandBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).BorderForeground(runnyTheme.accentPrimary).Border(lipgloss.NormalBorder(), true, false, true, false)
+	commandBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Background(runnyTheme.bgCommand).BorderForeground(runnyTheme.accentPrimary).Border(lipgloss.NormalBorder(), true, false, true, false)
 	matchStyle          = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.warning).Bold(true)
 	overlayTitleStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSelection).Bold(true)
 	sectionStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
