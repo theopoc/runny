@@ -24,6 +24,21 @@ func TestDiscoverSkipsHiddenAndSymlinkDirsByDefault(t *testing.T) {
 	}
 }
 
+func TestDiscoverStartsTargetsUnselected(t *testing.T) {
+	root := t.TempDir()
+	mkdir(t, filepath.Join(root, "api", "cmd"))
+
+	targets, err := Discover(root, Options{Depth: 2, Recursive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		if target.Selected {
+			t.Fatalf("target %s should start unselected", target.RelPath)
+		}
+	}
+}
+
 func TestDiscoverDepthAndTreeChildren(t *testing.T) {
 	root := t.TempDir()
 	mkdir(t, filepath.Join(root, "api", "cmd"))

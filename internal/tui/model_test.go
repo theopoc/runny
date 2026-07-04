@@ -14,7 +14,7 @@ import (
 	"github.com/theopoc/runny/internal/history"
 )
 
-func TestModelToggleSelectAllAndFilter(t *testing.T) {
+func TestModelToggleAllWithLowercaseAAndFilter(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
@@ -25,11 +25,81 @@ func TestModelToggleSelectAllAndFilter(t *testing.T) {
 	}
 	model, _ = updateKey(model, "a")
 	if !model.Targets[0].Selected || !model.Targets[1].Selected {
-		t.Fatal("all targets should be selected")
+		t.Fatal("a should select all visible targets when one is unselected")
+	}
+	model, _ = updateKey(model, "a")
+	if model.Targets[0].Selected || model.Targets[1].Selected {
+		t.Fatal("a should deselect all visible targets when all are selected")
+	}
+	model, _ = updateKey(model, "A")
+	if model.Targets[0].Selected || model.Targets[1].Selected {
+		t.Fatal("uppercase A should not toggle bulk selection")
+	}
+
+	model.Filter = "api"
+	model, _ = updateKey(model, "a")
+	if !model.Targets[0].Selected {
+		t.Fatal("a should select matching targets when filtered")
+	}
+	if model.Targets[1].Selected {
+		t.Fatal("a should leave non-matching targets unchanged")
 	}
 	model, _ = updateKey(model, "/")
 	if model.Focus != FocusFilter {
 		t.Fatal("filter should be focused")
+	}
+}
+
+func TestModelToggleSelectsTargetSubtree(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Children: []string{"api/cmd", "api/pkg"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Children: []string{"api/cmd/foo"}, Folded: true},
+		{ID: "api/cmd/foo", RelPath: "api/cmd/foo", ParentID: "api/cmd", Depth: 3},
+		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2},
+		{ID: "web", RelPath: "web"},
+	}})
+
+	model, _ = updateKey(model, " ")
+	for _, target := range model.Targets[:4] {
+		if !target.Selected {
+			t.Fatalf("%s should be selected with subtree: %#v", target.ID, model.Targets)
+		}
+	}
+	if model.Targets[4].Selected {
+		t.Fatalf("sibling target should not be selected: %#v", model.Targets)
+	}
+
+	model.Targets[1].Selected = false
+	model.Targets[2].Selected = false
+	model, _ = updateKey(model, " ")
+	for _, target := range model.Targets[:4] {
+		if target.Selected {
+			t.Fatalf("%s should be deselected with subtree: %#v", target.ID, model.Targets)
+		}
+	}
+}
+
+func TestModelTogglePartiallySelectedFolderSelectsEntireSubtree(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Children: []string{"api/cmd", "api/pkg"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
+		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2},
+	}})
+
+	model, _ = updateKey(model, " ")
+	for _, target := range model.Targets {
+		if !target.Selected {
+			t.Fatalf("%s should be selected from partial subtree: %#v", target.ID, model.Targets)
+		}
+	}
+}
+
+func TestModelToggleAcceptsNamedSpaceKey(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+
+	model, _ = updateNamedKey(model, "space")
+	if !model.Targets[0].Selected {
+		t.Fatalf("named space key should toggle selection: %#v", model.Targets)
 	}
 }
 
@@ -185,7 +255,7 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel.Focus = FocusTargets
 	filterModel.Filter = "api"
 	filteredTasksFooter := stripANSI(filterModel.renderFooter(120))
-	if !strings.Contains(filteredTasksFooter, "a/A Matches") {
+	if !strings.Contains(filteredTasksFooter, "a Matches") {
 		t.Fatalf("filtered task footer should show match-scoped bulk selection:\n%s", filteredTasksFooter)
 	}
 
@@ -819,7 +889,7 @@ func TestFilteredBulkSelectionTargetsMatchesOnly(t *testing.T) {
 	}
 
 	model.Targets[0].Selected = true
-	model, _ = updateKey(model, "A")
+	model, _ = updateKey(model, "a")
 	if !model.Targets[0].Selected {
 		t.Fatal("context parent should stay selected when deselecting filtered matches")
 	}
@@ -943,17 +1013,23 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	wide := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
-	for _, want := range []string{"SEL RUN FOLD  DIRECTORY", "STATUS"} {
+	for _, want := range []string{"RUN FOLD  DIRECTORY", "STATUS"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide task header should contain %q:\n%s", want, wide)
 		}
 	}
+	if strings.Contains(wide, "SEL") {
+		t.Fatalf("wide task header should not contain selection marker column:\n%s", wide)
+	}
 
 	compact := stripANSI(model.taskHeader(46))
-	for _, want := range []string{"SEL RUN  DIRECTORY", "STATUS"} {
+	for _, want := range []string{"RUN  DIRECTORY", "STATUS"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact task header should contain %q:\n%s", want, compact)
 		}
+	}
+	if strings.Contains(compact, "SEL") {
+		t.Fatalf("compact task header should not contain selection marker column:\n%s", compact)
 	}
 	if got := maxLineWidth(compact); got > 46 {
 		t.Fatalf("compact task header width = %d:\n%s", got, compact)
@@ -971,6 +1047,9 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	if headerIndex < 0 || statusIndex < 0 || lipgloss.Width(header[:headerIndex]) != lipgloss.Width(row[:statusIndex]) {
 		t.Fatalf("status column header=%d row=%d\n%s\n%s", headerIndex, statusIndex, header, row)
 	}
+	if strings.Contains(row[:statusIndex], "●") || strings.Contains(row[:statusIndex], "○") {
+		t.Fatalf("target row should not include selection marker before status:\n%s", row)
+	}
 }
 
 func TestTargetTreeShowsDeepContinuationGuide(t *testing.T) {
@@ -983,6 +1062,93 @@ func TestTargetTreeShowsDeepContinuationGuide(t *testing.T) {
 	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
 	if !strings.Contains(view, "│ └─ 📁 api/cmd/foo") {
 		t.Fatalf("deep tree should keep a continuation guide:\n%s", view)
+	}
+}
+
+func TestTargetRowsHighlightSelectedAndPartialSubtrees(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Children: []string{"api/cmd", "api/pkg"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
+		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+
+	partial := model.renderTargetRow(0, model.Targets[0], 70)
+	selected := model.renderTargetRow(3, model.Targets[3], 70)
+	if partial == stripANSI(partial) {
+		t.Fatalf("partial subtree parent should be styled:\n%s", partial)
+	}
+	if selected == stripANSI(selected) {
+		t.Fatalf("selected target row should be styled:\n%s", selected)
+	}
+}
+
+func TestTargetRowsKeepSelectionHighlightUnderFocus(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+
+	model.Cursor = 0
+	focusedSelected := model.renderTargetRow(0, model.Targets[0], 70)
+	model.Cursor = 1
+	unfocusedSelected := model.renderTargetRow(0, model.Targets[0], 70)
+	if focusedSelected == stripANSI(focusedSelected) {
+		t.Fatalf("focused selected target should remain styled:\n%s", focusedSelected)
+	}
+	if !strings.Contains(focusedSelected, "\x1b[1;") && !strings.Contains(focusedSelected, "\x1b[1m") {
+		t.Fatalf("focused selected target should keep selected emphasis:\n%q", focusedSelected)
+	}
+	if !strings.Contains(unfocusedSelected, "\x1b[1;") && !strings.Contains(unfocusedSelected, "\x1b[1m") {
+		t.Fatalf("unfocused selected target should keep selected emphasis:\n%q", unfocusedSelected)
+	}
+}
+
+func TestSelectionHighlightMatchesNavigationHighlight(t *testing.T) {
+	selectedModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	focusedModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})
+
+	selected := selectedModel.renderTargetRow(0, selectedModel.Targets[0], 70)
+	focused := focusedModel.renderTargetRow(0, focusedModel.Targets[0], 70)
+	if selected != focused {
+		t.Fatalf("selected highlight should match navigation highlight:\nselected %q\nfocused  %q", selected, focused)
+	}
+	if strings.Contains(selected, "\x1b[4m") || strings.Contains(selected, ";4m") {
+		t.Fatalf("selected highlight should not use underline:\n%q", selected)
+	}
+}
+
+func TestFoldKeysDoNotAddMarkerToLeafTarget(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+
+	model, _ = updateSpecialKey(model, tea.KeyLeft)
+	if model.Targets[0].Folded {
+		t.Fatalf("leaf target should not become folded: %#v", model.Targets[0])
+	}
+	row := stripANSI(model.renderTargetRow(0, model.Targets[0], 70))
+	if strings.Contains(row, "+") {
+		t.Fatalf("leaf target should not show fold marker:\n%s", row)
+	}
+}
+
+func TestSelectedTargetRowsDoNotRenderSelectionMarkers(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: false},
+	}})
+	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
+
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "📁 api") || strings.Contains(line, "📁 web") {
+			statusIndex := strings.LastIndex(line, "○ idle")
+			if statusIndex < 0 {
+				t.Fatalf("target row should keep status text:\n%s", line)
+			}
+			beforeStatus := line[:statusIndex]
+			if strings.Contains(beforeStatus, "●") || strings.Contains(beforeStatus, "○") {
+				t.Fatalf("target row should not render selection marker:\n%s", line)
+			}
+		}
 	}
 }
 
@@ -1718,14 +1884,14 @@ func TestModelRunErrorsGuideNextAction(t *testing.T) {
 
 	model = NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
-	if model.RunError != "no selected targets; press a to select visible" {
+	if model.RunError != "no selected targets; press a to toggle visible" {
 		t.Fatalf("run error = %q", model.RunError)
 	}
 
 	model = NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})
 	model.Filter = "api"
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
-	if model.RunError != "no selected targets; press a to select matching" {
+	if model.RunError != "no selected targets; press a to toggle matching" {
 		t.Fatalf("run error = %q", model.RunError)
 	}
 
@@ -2287,6 +2453,11 @@ func updateKey(model Model, key string) (Model, tea.Cmd) {
 		msg = tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete})
 	}
 	updated, cmd := model.Update(msg)
+	return updated.(Model), cmd
+}
+
+func updateNamedKey(model Model, key string) (Model, tea.Cmd) {
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: key}))
 	return updated.(Model), cmd
 }
 

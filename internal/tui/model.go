@@ -245,12 +245,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Notice = "split view enabled"
 		}
-	case " ":
+	case " ", "space":
 		m.toggleFocused()
 	case "a":
-		m.setVisibleSelected(true)
-	case "A":
-		m.setVisibleSelected(false)
+		m.toggleVisibleSelected()
 	case "right", "l":
 		m.setFolded(false)
 	case "left", "h":
@@ -624,9 +622,9 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		if len(m.Targets) == 0 {
 			m.RunError = "no target directories found"
 		} else if m.Filter != "" {
-			m.RunError = "no selected targets; press a to select matching"
+			m.RunError = "no selected targets; press a to toggle matching"
 		} else {
-			m.RunError = "no selected targets; press a to select visible"
+			m.RunError = "no selected targets; press a to toggle visible"
 		}
 		m.Notice = ""
 		return m, nil
@@ -1143,9 +1141,9 @@ func (m Model) filterModeLabel() string {
 }
 
 func (m Model) taskHeader(width int) string {
-	left := "SEL RUN FOLD  DIRECTORY"
+	left := "RUN FOLD  DIRECTORY"
 	if width <= 46 {
-		left = "SEL RUN  DIRECTORY"
+		left = "RUN  DIRECTORY"
 	}
 	return fixedStatusJoin(left, statusHeaderStyle.Render("STATUS"), width)
 }
@@ -1168,12 +1166,7 @@ func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
 	active := index == m.Cursor
 	status := m.Status[target.ID]
-	selectedMarkerStyle := targetRowInlineStyle(unselectedStyle, status)
-	selected := selectedMarkerStyle.Render("○")
-	if target.Selected {
-		selectedMarkerStyle = targetSelectionStyle(selectedStyle, status)
-		selected = selectedMarkerStyle.Render("●")
-	}
+	partial := !target.Selected && m.targetHasSelectedDescendant(target)
 	activity := " "
 	switch status {
 	case core.StatusQueued:
@@ -1186,45 +1179,40 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 		activity = targetRowInlineStyle(metricFailedStyle, status).Render("!")
 	}
 	fold := " "
-	if target.Folded && m.Filter == "" {
+	if len(target.Children) > 0 && target.Folded && m.Filter == "" {
 		fold = "+"
 	} else if len(target.Children) > 0 {
 		fold = "−"
 	}
 	name := m.renderTargetName(target)
 	statusText := m.renderRowStatus(status, active)
-	if active {
-		selected = "●"
-		if !target.Selected {
-			selected = "○"
-		}
+	if active || target.Selected || partial {
 		activity = m.activitySymbol(status)
 		fold = m.foldSymbol(target)
 		name = m.renderTargetNamePlain(target)
 		statusText = padRightVisible(m.statusLabel(status), 12)
 	}
-	left := "  " + selected + " " + activity + " " + fold + "  " + name
+	left := "  " + activity + " " + fold + "  " + name
 	row := fixedStatusJoin(left, statusText, width)
 	if active {
+		if target.Selected || partial {
+			return rowActiveSelectedStyle.Render(padRightVisible(row, width))
+		}
 		return rowActiveStyle.Render(padRightVisible(row, width))
-	}
-	if status == core.StatusRunning {
-		return rowRunningStyle.Render(padRightVisible(row, width))
 	}
 	if target.Selected {
 		return rowSelectedStyle.Render(padRightVisible(row, width))
+	}
+	if partial {
+		return rowPartialStyle.Render(padRightVisible(row, width))
+	}
+	if status == core.StatusRunning {
+		return rowRunningStyle.Render(padRightVisible(row, width))
 	}
 	return row
 }
 
 func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
-	return style
-}
-
-func targetSelectionStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
-	if status == core.StatusRunning {
-		return style.Foreground(tuiColor(noticeForegroundHex))
-	}
 	return style
 }
 
@@ -1244,7 +1232,7 @@ func (m Model) activitySymbol(status core.Status) string {
 }
 
 func (m Model) foldSymbol(target core.Target) string {
-	if target.Folded && m.Filter == "" {
+	if len(target.Children) > 0 && target.Folded && m.Filter == "" {
 		return "+"
 	}
 	if len(target.Children) > 0 {
@@ -1345,6 +1333,54 @@ func (m Model) targetByID(id string) (core.Target, bool) {
 		}
 	}
 	return core.Target{}, false
+}
+
+func (m Model) targetIndexByID(id string) (int, bool) {
+	for i, target := range m.Targets {
+		if target.ID == id {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (m Model) targetSubtreeIndexes(index int) []int {
+	if index < 0 || index >= len(m.Targets) {
+		return nil
+	}
+	indexes := []int{index}
+	seen := map[string]bool{m.Targets[index].ID: true}
+	var walk func(core.Target)
+	walk = func(target core.Target) {
+		for _, childID := range target.Children {
+			if seen[childID] {
+				continue
+			}
+			childIndex, ok := m.targetIndexByID(childID)
+			if !ok {
+				continue
+			}
+			seen[childID] = true
+			indexes = append(indexes, childIndex)
+			walk(m.Targets[childIndex])
+		}
+	}
+	walk(m.Targets[index])
+	return indexes
+}
+
+func (m Model) targetHasSelectedDescendant(target core.Target) bool {
+	for _, childID := range target.Children {
+		childIndex, ok := m.targetIndexByID(childID)
+		if !ok {
+			continue
+		}
+		child := m.Targets[childIndex]
+		if child.Selected || m.targetHasSelectedDescendant(child) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) renderTargetDisplayName(name string) string {
@@ -1642,9 +1678,9 @@ func (m Model) renderFooter(width int) string {
 		default:
 			keys = append(keys, "space select")
 			if width >= 110 {
-				bulkAction := "a/A all"
+				bulkAction := "a toggle"
 				if m.Filter != "" {
-					bulkAction = "a/A matches"
+					bulkAction = "a matches"
 				}
 				keys = append(keys, "c command", bulkAction, "h/l fold")
 			} else {
@@ -1904,7 +1940,7 @@ func (m Model) helpRows(width ...int) []string {
 			title: "Tasks",
 			bindings: []helpBinding{
 				{"up/down", "move"}, {"j/k", "move"}, {"g/G", "first/last"},
-				{"space", "toggle select"}, {"a/A", "select visible/matches"},
+				{"space", "toggle select tree"}, {"a", "toggle visible/matches"},
 				{"left/h", "fold"}, {"right/l", "unfold"}, {"enter", "run selected"},
 				{"del/x", "cancel selected"},
 			},
@@ -2318,9 +2354,13 @@ func (m *Model) toggleFocused() {
 		return
 	}
 	m.ensureCursorVisible()
-	m.Targets[m.Cursor].Selected = !m.Targets[m.Cursor].Selected
+	indexes := m.targetSubtreeIndexes(m.Cursor)
+	selected := !m.Targets[m.Cursor].Selected
+	for _, index := range indexes {
+		m.Targets[index].Selected = selected
+	}
 	state := "deselected"
-	if m.Targets[m.Cursor].Selected {
+	if selected {
 		state = "selected"
 	}
 	m.Notice = state + " " + m.Targets[m.Cursor].RelPath
@@ -2338,13 +2378,24 @@ func (m *Model) cycleFocus(_ int) {
 	}
 }
 
-func (m *Model) setVisibleSelected(selected bool) {
+func (m *Model) toggleVisibleSelected() {
 	indexes := m.visibleTargetIndexes()
 	scope := "visible"
 	if m.Filter != "" {
 		indexes = m.matchingTargetIndexes()
 		scope = "matching"
 	}
+	selected := false
+	for _, i := range indexes {
+		if !m.Targets[i].Selected {
+			selected = true
+			break
+		}
+	}
+	m.setTargetIndexesSelected(indexes, scope, selected)
+}
+
+func (m *Model) setTargetIndexesSelected(indexes []int, scope string, selected bool) {
 	count := 0
 	for _, i := range indexes {
 		m.Targets[i].Selected = selected
@@ -2360,9 +2411,9 @@ func (m *Model) setVisibleSelected(selected bool) {
 
 func (m Model) bulkSelectionLabel() string {
 	if m.Filter != "" {
-		return "select matches"
+		return "toggle matches"
 	}
-	return "select visible"
+	return "toggle visible"
 }
 
 func (m *Model) selectFailedTargets() {
@@ -2387,6 +2438,10 @@ func (m *Model) setFolded(folded bool) {
 		return
 	}
 	m.ensureCursorVisible()
+	if len(m.Targets[m.Cursor].Children) == 0 {
+		m.RunError = ""
+		return
+	}
 	m.Targets[m.Cursor].Folded = folded
 	action := "unfolded"
 	if folded {
