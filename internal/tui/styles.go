@@ -32,6 +32,8 @@ type tuiTheme struct {
 }
 
 const (
+	noticeForegroundHex = "#FFFFFF"
+	primaryAccentHex    = "#A78BFA"
 	footerLabelHex      = "#e0e0e0"
 	footerBackgroundHex = "#242f38"
 	footerShortcutHex   = "#C4B5FD"
@@ -49,7 +51,7 @@ var runnyTheme = tuiTheme{
 	bgHelper:       tuiColor(footerBackgroundHex),
 	bgSelection:    tuiColor("#A78BFA"),
 	bgRunning:      tuiColor("#1E3144"),
-	accentPrimary:  tuiColor("#7DD3FC"),
+	accentPrimary:  tuiColor(primaryAccentHex),
 	accentShortcut: tuiColor(footerShortcutHex),
 	accentWarm:     tuiColor("#FBBF24"),
 	accentCommand:  tuiColor("#C4B5FD"),
@@ -71,7 +73,7 @@ var (
 	unselectedStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	rowActiveStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true)
 	rowSelectedStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
-	rowRunningStyle     = lipgloss.NewStyle().Background(runnyTheme.bgRunning)
+	rowRunningStyle     = lipgloss.NewStyle()
 	metricIdleStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	metricQueuedStyle   = lipgloss.NewStyle().Foreground(runnyTheme.info)
 	metricRunningStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
@@ -92,7 +94,7 @@ var (
 	noticeStyle         = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary)
 	errorBarStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.error).Bold(true)
 	warningBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.warning).Bold(true)
-	noticeBarStyle      = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.accentPrimary).Bold(true)
+	noticeBarStyle      = lipgloss.NewStyle().Foreground(tuiColor(noticeForegroundHex)).Background(runnyTheme.accentPrimary).Bold(true)
 	statusStyles        = map[core.Status]lipgloss.Style{
 		core.StatusIdle:      lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 		core.StatusQueued:    lipgloss.NewStyle().Foreground(runnyTheme.info),

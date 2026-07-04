@@ -1171,7 +1171,7 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	selectedMarkerStyle := targetRowInlineStyle(unselectedStyle, status)
 	selected := selectedMarkerStyle.Render("○")
 	if target.Selected {
-		selectedMarkerStyle = targetRowInlineStyle(selectedStyle, status)
+		selectedMarkerStyle = targetSelectionStyle(selectedStyle, status)
 		selected = selectedMarkerStyle.Render("●")
 	}
 	activity := " "
@@ -1218,8 +1218,12 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 }
 
 func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
+	return style
+}
+
+func targetSelectionStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
 	if status == core.StatusRunning {
-		return style.Background(runnyTheme.bgRunning)
+		return style.Foreground(tuiColor(noticeForegroundHex))
 	}
 	return style
 }
