@@ -1182,8 +1182,6 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 		activity = targetRowInlineStyle(metricRunningStyle, status).Render("▶")
 	case core.StatusCancelled:
 		activity = targetRowInlineStyle(subtleStyle, status).Render("×")
-	case core.StatusSucceeded:
-		activity = targetRowInlineStyle(metricSuccessStyle, status).Render("✓")
 	case core.StatusFailed:
 		activity = targetRowInlineStyle(metricFailedStyle, status).Render("!")
 	}
@@ -1234,8 +1232,6 @@ func (m Model) activitySymbol(status core.Status) string {
 		return "▶"
 	case core.StatusCancelled:
 		return "×"
-	case core.StatusSucceeded:
-		return "✓"
 	case core.StatusFailed:
 		return "!"
 	default:
