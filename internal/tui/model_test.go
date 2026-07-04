@@ -234,7 +234,7 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 	for _, want := range []string{
 		"\x1b[48;2;36;47;56m",
 		"\x1b[38;2;224;224;224m",
-		"\x1b[38;2;255;166;44m",
+		"\x1b[38;2;196;181;253m",
 		"\x1b[1menter\x1b[22m\x1b[48;2;36;47;56m",
 	} {
 		if !strings.Contains(footer, want) {
