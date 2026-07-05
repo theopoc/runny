@@ -1005,9 +1005,6 @@ func (m Model) renderHeader(width int) string {
 		m.dashboardWidget("workers", m.workersLabel(), subtleStyle),
 		m.dashboardWidget("targets", fmt.Sprintf("%d", len(m.Targets)), subtleStyle),
 	}
-	if path := m.focusedPathLabel(); path != "" && width >= 118 {
-		segments = append(segments, m.dashboardWidget("path", strings.TrimPrefix(path, "path "), subtleStyle))
-	}
 	line := " " + strings.Join(segments, subtleStyle.Render(" "))
 	return headerStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
@@ -1179,10 +1176,7 @@ func (m Model) filterModeLabel() string {
 }
 
 func (m Model) taskHeader(width int) string {
-	left := "RUN FOLD  DIRECTORY"
-	if width <= 46 {
-		left = "RUN  DIRECTORY"
-	}
+	left := "DIRECTORY"
 	return fixedStatusJoin(left, statusHeaderStyle.Render("STATUS"), width)
 }
 
