@@ -20,4 +20,6 @@
 ║                                                        ║  │                                    │
 ║                                                        ║  │                                    │
 ╚════════════════════════════════════════════════════════╝  ╰────────────────────────────────────╯
- ? Help  H Hist  ctrl+c All+quit  space Select  tab Preview  c Cmd  enter Run  del/x Cancel
+ ?      Help      tab    Preview   del/x  Cancel
+ H      Hist      :      Cmd       ctrl+c All+quit
+ space  Select    enter  Run

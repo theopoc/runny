@@ -1647,106 +1647,137 @@ func (m Model) renderFooter(width int) string {
 	if m.Zoom {
 		zoomLabel = "z split"
 	}
-	keys := []string{"? help", "/ search", ": cmd", "H hist", zoomLabel}
+	globalKeys := []string{"? help", "/ search", ": cmd", "H hist", zoomLabel}
+	contextKeys := []string{}
+	statusKeys := []string{}
 	if width < 110 && m.hasActiveRuns() {
-		keys = []string{"? help", "/ search", ": cmd", "H hist"}
+		globalKeys = []string{"? help", "/ search", ": cmd", "H hist"}
 	}
 	if width >= 110 {
-		keys = []string{"? keymap", "/ search", ": command", "H history", "tab panels", zoomLabel}
+		globalKeys = []string{"? keymap", "/ search", ": command", "H history", "tab panels", zoomLabel}
 	}
 	if m.ShowHelp {
-		keys = []string{"? close", "q close", "esc close", "H history"}
+		globalKeys = []string{"? close", "q close", "esc close", "H history"}
 	} else if m.ShowHistory {
-		keys = []string{"/ search", "enter reuse", "up/down choose", "ctrl+u clear", "esc close", "? keymap"}
+		globalKeys = []string{"/ search", "? keymap"}
+		contextKeys = []string{"enter reuse", "up/down choose", "ctrl+u clear", "esc close"}
 		if m.selectableHistoryLen() == 0 {
-			keys = []string{"/ search", "no reuse", "ctrl+u clear", "esc close", "? keymap"}
+			contextKeys = []string{"no reuse", "ctrl+u clear", "esc close"}
 		}
 	} else if m.ShowPalette {
-		keys = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close"}
+		globalKeys = []string{": command", "? keymap"}
+		contextKeys = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close"}
 	} else if m.ConfirmRun {
-		keys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+		globalKeys = []string{"? keymap"}
+		contextKeys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
 	} else if m.ConfirmCancelAll {
-		keys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+		globalKeys = []string{"? keymap"}
+		contextKeys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
 	}
 	if m.hasActiveRuns() {
-		keys = append(keys, activeStopHint)
+		statusKeys = append(statusKeys, activeStopHint)
 	}
 	if !m.ShowHelp && !m.ShowHistory && !m.ShowPalette && !m.ConfirmRun && !m.ConfirmCancelAll {
 		switch m.Focus {
 		case FocusCommand:
 			if width >= 110 {
-				keys = append(keys, "enter run", "esc tasks", "up/down hist", "backspace edit")
+				contextKeys = []string{"enter run", "esc tasks", "up/down hist", "backspace edit"}
 			} else {
-				keys = []string{"? help", "H hist"}
-				if m.hasActiveRuns() {
-					keys = append(keys, activeStopHint)
-				}
-				keys = append(keys, "enter run", "esc tasks", "↑↓ hist", "ctrl+u clear")
+				globalKeys = []string{"? help", "H hist"}
+				contextKeys = []string{"enter run", "esc tasks", "↑↓ hist", "ctrl+u clear"}
 			}
 		case FocusFilter:
 			if width >= 110 {
-				keys = []string{"? keymap", "H history"}
+				globalKeys = []string{"? keymap", "H history"}
 				if m.hasActiveRuns() {
-					keys = append(keys, activeStopHint)
+					statusKeys = append(statusKeys, activeStopHint)
 				}
-				keys = append(keys, "type fuzzy", "' exact", "↑↓/nN matches", "ctrl+u clear", "enter/esc tasks")
+				contextKeys = []string{"type fuzzy", "' exact", "↑↓/nN matches", "ctrl+u clear", "enter/esc tasks"}
 			} else {
-				keys = []string{"? help", "H hist"}
-				if m.hasActiveRuns() {
-					keys = append(keys, activeStopHint)
-				}
-				keys = append(keys, "type fuzzy", "' exact", "↑↓/nN", "ctrl+u clear", "enter/esc")
+				globalKeys = []string{"? help", "H hist"}
+				contextKeys = []string{"type fuzzy", "' exact", "↑↓/nN", "ctrl+u clear", "enter/esc"}
 			}
 		case FocusLogs:
 			if width >= 110 {
-				keys = append(keys, "pgup/pgdn scroll", "L follow", "tab tasks")
+				contextKeys = []string{"pgup/pgdn scroll", "L follow", "tab tasks"}
 			} else {
-				keys = []string{"? help", "H hist"}
-				if m.hasActiveRuns() {
-					keys = append(keys, activeStopHint)
-				}
-				keys = append(keys, "pgup/pgdn scroll", "L follow", "tab tasks")
+				globalKeys = []string{"? help", "H hist"}
+				contextKeys = []string{"pgup/pgdn scroll", "L follow", "tab tasks"}
 			}
 		default:
-			keys = append(keys, "space select")
 			if width >= 110 {
-				bulkAction := "a toggle"
-				if m.Filter != "" {
-					bulkAction = "a matches"
-				}
-				keys = append(keys, "c command", bulkAction, "h/l fold")
+				contextKeys = []string{"space select", "a Select All", "←/→ fold", "enter run", "del/x cancel"}
 			} else {
-				keys = []string{"? help", "H hist"}
-				if m.hasActiveRuns() {
-					keys = append(keys, activeStopHint)
-				}
-				keys = append(keys, "space select", "tab preview", "c cmd")
+				globalKeys = []string{"? help", "H hist"}
+				contextKeys = []string{"space select", "tab preview", ": cmd", "enter run", "del/x cancel"}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
-				keys = append(keys, "R failed")
+				statusKeys = append(statusKeys, "R failed")
 			}
-			keys = append(keys, "enter run", "del/x cancel")
 		}
 	}
 	if !m.hasActiveRuns() {
-		keys = append(keys, "q quit")
+		statusKeys = append(statusKeys, "q quit")
 	}
-	for i, key := range keys {
-		keys[i] = formatFooterHint(key)
-	}
-	text := " " + strings.Join(keys, "  ")
-	return styleFooterHints(padRightVisible(truncateVisible(text, width), width))
+	hints := make([]string, 0, len(globalKeys)+len(contextKeys)+len(statusKeys))
+	hints = append(hints, globalKeys...)
+	hints = append(hints, contextKeys...)
+	hints = append(hints, statusKeys...)
+	return renderFooterHintGrid(hints, width, 3)
 }
 
-func formatFooterHint(hint string) string {
+type footerHint struct {
+	key   string
+	label string
+}
+
+func renderFooterHintGrid(rawHints []string, width int, rows int) string {
+	if rows <= 0 {
+		rows = 1
+	}
+	hints := make([]footerHint, 0, len(rawHints))
+	for _, hint := range rawHints {
+		hints = append(hints, parseFooterHint(hint))
+	}
+	if len(hints) == 0 {
+		return strings.Repeat(" ", width)
+	}
+	keyWidth := 0
+	labelWidth := 0
+	for _, hint := range hints {
+		keyWidth = max(keyWidth, lipgloss.Width(hint.key))
+		labelWidth = max(labelWidth, lipgloss.Width(hint.label))
+	}
+	columns := (len(hints) + rows - 1) / rows
+	cellWidth := keyWidth + 1 + labelWidth
+	totalWidth := 1 + columns*cellWidth + max(0, columns-1)*2
+	if totalWidth > width && columns > 1 {
+		cellWidth = max(1, (width-1-max(0, columns-1)*2)/columns)
+	}
+	lines := make([]string, 0, rows)
+	for row := 0; row < rows; row++ {
+		cells := make([]footerHint, 0, columns)
+		for column := 0; column < columns; column++ {
+			index := column*rows + row
+			if index >= len(hints) {
+				continue
+			}
+			cells = append(cells, hints[index])
+		}
+		lines = append(lines, styleFooterHintCells(cells, width, keyWidth, labelWidth, cellWidth))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseFooterHint(hint string) footerHint {
 	key, label, ok := strings.Cut(hint, " ")
 	if !ok {
-		return hint
+		return footerHint{key: hint}
 	}
 	if key == "no" || key == "type" {
-		return titleFooterLabel(hint)
+		return footerHint{label: titleFooterLabel(hint)}
 	}
-	return key + " " + titleFooterLabel(label)
+	return footerHint{key: key, label: titleFooterLabel(label)}
 }
 
 func titleFooterLabel(label string) string {
@@ -1756,47 +1787,78 @@ func titleFooterLabel(label string) string {
 	return strings.ToUpper(label[:1]) + label[1:]
 }
 
-func styleFooterHints(line string) string {
-	if strings.TrimSpace(line) == "" || noColorEnabled() {
-		return line
+func styleFooterHintCells(cells []footerHint, width int, keyWidth int, labelWidth int, cellWidth int) string {
+	if len(cells) == 0 {
+		return strings.Repeat(" ", width)
 	}
-	segments := strings.Split(line, "  ")
+	if noColorEnabled() {
+		return plainFooterHintCells(cells, width, keyWidth, labelWidth, cellWidth)
+	}
+	labelCellWidth := max(0, cellWidth-keyWidth-1)
 	var b strings.Builder
 	background := ansiBackgroundHex(footerBackgroundHex)
 	labelStyle := ansiForegroundHex(footerLabelHex)
 	shortcutStyle := ansiForegroundHex(footerShortcutHex)
-	for i, segment := range segments {
+	b.WriteString(background)
+	b.WriteString(labelStyle)
+	b.WriteByte(' ')
+	for i, cell := range cells {
 		if i > 0 {
-			b.WriteString(background)
-			b.WriteString(labelStyle)
 			b.WriteString("  ")
 		}
-		prefixLength := len(segment) - len(strings.TrimLeft(segment, " "))
-		prefix := segment[:prefixLength]
-		hint := segment[prefixLength:]
-		if hint == "" {
-			b.WriteString(background)
-			b.WriteString(labelStyle)
-			b.WriteString(segment)
-			continue
+		if cell.key != "" {
+			b.WriteString(shortcutStyle)
+			b.WriteString("\x1b[1m")
+			b.WriteString(padRightVisible(cell.key, keyWidth))
+			b.WriteString("\x1b[22m")
+		} else {
+			b.WriteString(strings.Repeat(" ", keyWidth))
 		}
-		key, label, ok := strings.Cut(hint, " ")
-		b.WriteString(background)
-		b.WriteString(labelStyle)
-		b.WriteString(prefix)
-		b.WriteString(shortcutStyle)
-		b.WriteString("\x1b[1m")
-		b.WriteString(key)
-		b.WriteString("\x1b[22m")
-		if !ok {
-			continue
-		}
-		b.WriteString(background)
 		b.WriteString(labelStyle)
 		b.WriteByte(' ')
-		b.WriteString(label)
+		label := truncateVisible(cell.label, labelCellWidth)
+		b.WriteString(padRightVisible(label, labelCellWidth))
+	}
+	missing := width - lipgloss.Width(stripANSIForWidth(b.String()))
+	if missing > 0 {
+		b.WriteString(strings.Repeat(" ", missing))
 	}
 	b.WriteString("\x1b[0m")
+	return b.String()
+}
+
+func plainFooterHintCells(cells []footerHint, width int, keyWidth int, labelWidth int, cellWidth int) string {
+	labelCellWidth := max(0, cellWidth-keyWidth-1)
+	var b strings.Builder
+	b.WriteByte(' ')
+	for i, cell := range cells {
+		if i > 0 {
+			b.WriteString("  ")
+		}
+		label := truncateVisible(cell.label, labelCellWidth)
+		text := padRightVisible(cell.key, keyWidth) + " " + padRightVisible(label, labelCellWidth)
+		b.WriteString(truncateVisible(text, cellWidth))
+	}
+	return padRightVisible(truncateVisible(b.String(), width), width)
+}
+
+func stripANSIForWidth(value string) string {
+	var b strings.Builder
+	inEscape := false
+	for i := 0; i < len(value); i++ {
+		char := value[i]
+		if inEscape {
+			if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		if char == '\x1b' {
+			inEscape = true
+			continue
+		}
+		b.WriteByte(char)
+	}
 	return b.String()
 }
 
