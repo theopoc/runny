@@ -9,10 +9,10 @@
 - `rtk go test ./...`: run full test suite.
 - `rtk go test ./internal/tui`: run TUI-focused tests.
 - `rtk go build ./cmd/runny`: build binary.
-- `rtk go run ./cmd/runny -- pnpm test`: launch TUI with an initial command.
+- `go run ./cmd/runny -- pnpm test`: launch TUI with an initial command.
 - `rtk docker build -t runny .`: build container image for terminal runs.
 
-Prefix commands with `rtk`.
+Prefix commands with `rtk`, except `go run` during testing.
 
 ## Coding Style & Naming Conventions
 
@@ -24,7 +24,7 @@ Use Go `testing` package. Name tests `Test<Behavior>` and keep them beside targe
 
 ## UI Testing Strategy
 
-For visible TUI work, combine automated tests with real terminal inspection. Use the `ghostty-terminal-automation` skill to launch `runny`, send keys, wait for stable screens, and capture screenshots. Loop: run `rtk go run ./cmd/runny`, resize terminal, navigate changed flow, screenshot, inspect, adjust code, repeat. Keep a final screenshot for PR evidence. Use cell inspection for color, bold, border, and truncation behavior.
+For visible TUI work, combine automated tests with real terminal inspection. Use the `ghostty-terminal-automation` skill to launch `runny`, send keys, wait for stable screens, and capture screenshots. Loop: run `go run ./cmd/runny`, resize terminal, navigate changed flow, screenshot, inspect, adjust code, repeat. Keep a final screenshot for PR evidence. Use cell inspection for color, bold, border, and truncation behavior.
 
 ## Commit & Pull Request Guidelines
 
