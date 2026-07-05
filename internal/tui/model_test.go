@@ -1515,8 +1515,15 @@ func TestOverlaysAreCenteredAndStyled(t *testing.T) {
 	if !strings.Contains(view, "\x1b[") {
 		t.Fatal("overlay should include ANSI styling")
 	}
-	if !strings.Contains(plain, "    ╭─ Keymap") {
-		t.Fatalf("help overlay should be centered, got:\n%s", plain)
+	keymapOffset := -1
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, "╭─ Keymap") {
+			keymapOffset = strings.Index(line, "╭─ Keymap")
+			break
+		}
+	}
+	if keymapOffset <= 0 || keymapOffset > 40 {
+		t.Fatalf("help overlay should be inset and centered, got offset %d:\n%s", keymapOffset, plain)
 	}
 	if got := maxLineWidth(view); got > 120 {
 		t.Fatalf("help overlay width = %d, want <= 120\n%s", got, plain)
@@ -1573,7 +1580,7 @@ func TestPaletteRowsShowMatchCountAndNoMatchGuidance(t *testing.T) {
 	}
 }
 
-func TestOverlayReplacesMainPanels(t *testing.T) {
+func TestOverlayPreservesMainPanelsBehindPopup(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.ShowHelp = true
 	model, _ = updateWindowSize(model, 100, 24)
@@ -1582,8 +1589,10 @@ func TestOverlayReplacesMainPanels(t *testing.T) {
 	if !strings.Contains(view, "Keymap") {
 		t.Fatalf("help overlay should render:\n%s", view)
 	}
-	if strings.Contains(view, "path      api") {
-		t.Fatalf("overlay should replace preview/list panel content, not append below it:\n%s", view)
+	for _, want := range []string{"Tasks", "showing"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("overlay should preserve background content %q:\n%s", want, view)
+		}
 	}
 	if lines := strings.Count(view, "\n") + 1; lines > 24 {
 		t.Fatalf("overlay should keep screen bounded, lines = %d:\n%s", lines, view)

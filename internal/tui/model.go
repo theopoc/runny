@@ -886,19 +886,11 @@ func (m Model) render() string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderSubHeader(width))
 	b.WriteByte('\n')
+	panels := m.renderPanelArea(width, panelHeight, leftWidth, rightWidth)
 	if overlay := m.renderOverlay(width, panelHeight); overlay != "" {
-		b.WriteString(overlay)
+		b.WriteString(placeOverlay(panels, overlay, width))
 	} else {
-		compact := m.compactMode(width)
-		if (m.Zoom || compact) && m.Focus == FocusLogs {
-			b.WriteString(strings.Join(m.renderLogPanel(m.singlePanelWidth(width), panelHeight), "\n"))
-		} else if m.Zoom || compact {
-			b.WriteString(strings.Join(m.renderDirectoryPanel(m.singlePanelWidth(width), panelHeight), "\n"))
-		} else {
-			left := m.renderDirectoryPanel(leftWidth, panelHeight)
-			right := m.renderLogPanel(rightWidth, panelHeight)
-			b.WriteString(joinPanels(left, right))
-		}
+		b.WriteString(panels)
 	}
 	if m.RunError != "" {
 		b.WriteString("\n")
@@ -916,6 +908,19 @@ func (m Model) render() string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderFooter(width))
 	return b.String()
+}
+
+func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightWidth int) string {
+	compact := m.compactMode(width)
+	if (m.Zoom || compact) && m.Focus == FocusLogs {
+		return strings.Join(m.renderLogPanel(m.singlePanelWidth(width), panelHeight), "\n")
+	}
+	if m.Zoom || compact {
+		return strings.Join(m.renderDirectoryPanel(m.singlePanelWidth(width), panelHeight), "\n")
+	}
+	left := m.renderDirectoryPanel(leftWidth, panelHeight)
+	right := m.renderLogPanel(rightWidth, panelHeight)
+	return joinPanels(left, right)
 }
 
 func (m Model) renderMessageBar(width int, label string, message string, style lipgloss.Style) string {
@@ -953,31 +958,44 @@ func (m Model) renderTooSmall(width int, height int) string {
 }
 
 func (m Model) renderOverlay(width int, height int) string {
+	title := ""
+	var rows []string
 	switch {
 	case m.ShowHelp:
-		return renderBox(width, "Keymap", clipOverlayRows(m.helpRows(width), height))
+		title = "Keymap"
+		rows = m.helpRows(width)
 	case m.ShowHistory:
-		return renderBox(width, "History", clipOverlayRows(m.historyRows(), height))
+		title = "History"
+		rows = m.historyRows()
 	case m.ShowPalette:
-		return renderBox(width, "Command palette", clipOverlayRows(m.paletteRows(), height))
+		title = "Command palette"
+		rows = m.paletteRows()
 	case m.ConfirmRun:
-		return renderBox(width, "Rerun failed", []string{
+		title = "Rerun failed"
+		rows = []string{
 			fmt.Sprintf("%d failed target(s) will run again.", m.failedCount()),
 			"command: " + truncateVisible(m.previewCommandText(), 64),
 			"targets: " + m.statusTargetSummary(core.StatusFailed, 64),
 			"y/enter confirm   n/esc cancel",
-		})
+		}
 	case m.ConfirmCancelAll:
-		return renderBox(width, "Cancel all", []string{
+		title = "Cancel all"
+		rows = []string{
 			fmt.Sprintf("%d active target(s) will be cancelled.", m.activeCount()),
 			fmt.Sprintf("breakdown: %d running, %d queued", m.statusCount(core.StatusRunning), m.statusCount(core.StatusQueued)),
 			"scope: running and queued targets only",
 			"targets: " + m.activeTargetSummary(64),
 			"y/enter confirm   n/esc cancel",
-		})
+		}
 	default:
 		return ""
 	}
+	maxBoxHeight := height
+	if len(rows)+2 <= height-4 {
+		maxBoxHeight = height - 4
+	}
+	boxHeight := max(3, min(maxBoxHeight, len(rows)+2))
+	return renderFloatingBox(width, title, clipOverlayRows(rows, boxHeight))
 }
 
 func (m Model) renderHeader(width int) string {

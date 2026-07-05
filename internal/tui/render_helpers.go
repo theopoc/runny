@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func joinPanels(left []string, right []string) string {
@@ -45,6 +46,48 @@ func renderBox(width int, title string, rows []string) string {
 		lines[i] = padding + lines[i]
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderFloatingBox(width int, title string, rows []string) string {
+	boxWidth := width * 80 / 100
+	if boxWidth > 92 {
+		boxWidth = 92
+	}
+	if boxWidth < 52 {
+		boxWidth = min(width, 52)
+	}
+	return strings.Join(boxLines(boxWidth, len(rows)+2, title, rows, false), "\n")
+}
+
+func placeOverlay(background string, overlay string, width int) string {
+	backgroundLines := strings.Split(background, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	overlayWidth := 0
+	for _, line := range overlayLines {
+		overlayWidth = max(overlayWidth, ansi.StringWidth(line))
+	}
+	if overlayWidth <= 0 || len(overlayLines) == 0 {
+		return background
+	}
+	left := max(0, (width-overlayWidth)/2)
+	top := max(0, (len(backgroundLines)-len(overlayLines))/2)
+	for i, overlayLine := range overlayLines {
+		row := top + i
+		if row >= len(backgroundLines) {
+			break
+		}
+		line := padRightANSI(backgroundLines[row], width)
+		backgroundLines[row] = ansi.Cut(line, 0, left) + overlayLine + ansi.Cut(line, left+overlayWidth, width)
+	}
+	return strings.Join(backgroundLines, "\n")
+}
+
+func padRightANSI(value string, width int) string {
+	current := ansi.StringWidth(value)
+	if current >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-current)
 }
 
 func boxLines(width int, height int, title string, rows []string, active bool) []string {
