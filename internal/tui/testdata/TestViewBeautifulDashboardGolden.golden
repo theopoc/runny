@@ -3,13 +3,13 @@
 ┌ Command ─────────────────────────────────────────────────────────────────────────────────────────┐
 │ pnpm test                                                                                        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-╔═ Tasks ═════════════════════════════════════════════════╗  ╭─ Preview ───────────────────────────╮
-║ DIRECTORY                                 STATUS       ║  │ Command to run                     │
-║ showing 1-4 of 4 •                                     ║  │  --:--:--  pnpm test               │
+╔═ Tasks ═════════════════════════════════════════════════╗  ╭─ Output ────────────────────────────╮
+║ DIRECTORY                                 STATUS       ║  │                                    │
+║ showing 1-4 of 4 •                                     ║  │                                    │
 ║   ▶ −  📂 api                             ● running    ║  │                                    │
-║   …    └─ 📁 api/cmd                      ◌ queued     ║  │ Output (empty)                     │
-║        📁 web                             ○ skipped    ║  │ Running. Output appears here when~ │
-║   !    📁 worker                          ✕ failed     ║  │ Press L to toggle follow, del/x t~ │
+║   …    └─ 📁 api/cmd                      ◌ queued     ║  │                                    │
+║        📁 web                             ○ skipped    ║  │                                    │
+║   !    📁 worker                          ✕ failed     ║  │                                    │
 ║                                                        ║  │                                    │
 ║                                                        ║  │                                    │
 ║                                                        ║  │                                    │
@@ -20,6 +20,6 @@
 ║                                                        ║  │                                    │
 ║                                                        ║  │                                    │
 ╚════════════════════════════════════════════════════════╝  ╰────────────────────────────────────╯
- ?      Help      tab    Preview   del/x  Cancel
+ ?      Help      tab    Output    del/x  Cancel
  H      Hist      :      Cmd       ctrl+c All+quit
  space  Select    enter  Run

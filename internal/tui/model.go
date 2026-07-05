@@ -154,7 +154,7 @@ var paletteCommands = []paletteCommand{
 	{Name: "workers N|auto", Description: "set max parallel target runs or auto"},
 	{Name: "serial", Description: "switch to serial mode"},
 	{Name: "parallel", Description: "switch to parallel mode"},
-	{Name: "logs", Description: "focus preview and logs"},
+	{Name: "logs", Description: "focus output"},
 	{Name: "history", Description: "open command and run history"},
 	{Name: "clear-filter", Description: "clear current filter"},
 }
@@ -481,7 +481,7 @@ func (m Model) executePaletteCommand(command string) (tea.Model, tea.Cmd) {
 		m.RunError = ""
 	case "logs":
 		m.Focus = FocusLogs
-		m.Notice = "focused preview"
+		m.Notice = "focused output"
 	case "history":
 		m.ShowHistory = true
 		m.HistoryPos = 0
@@ -1463,18 +1463,9 @@ func (m Model) renderLogPanel(width int, height int) []string {
 	lines := []string{}
 	if len(m.Targets) > 0 && m.Cursor >= 0 && m.Cursor < len(m.Targets) {
 		target := m.Targets[m.Cursor]
-		status := m.Status[target.ID]
-		lines = append(lines, panelTitleStyle.Render("Command to run"))
-		lines = append(lines, truncateVisible(m.previewCommandLine(target), width-4))
-		lines = append(lines, "")
-		lines = append(lines, panelTitleStyle.Render("Output "+m.outputRangeLabel(target.ID, height)))
-		lines = append(lines, m.renderOutputLines(target.ID, status, height)...)
-	} else {
-		lines = append(lines, panelTitleStyle.Render("Command to run"))
-		lines = append(lines, commandDisplayStyle.Render(" "+m.previewCommandText()+" "))
-		lines = append(lines, "", panelTitleStyle.Render("Output"), "No output yet.")
+		lines = append(lines, m.renderOutputLines(target.ID, height)...)
 	}
-	return boxLines(width, height, "Preview", lines, m.Focus == FocusLogs)
+	return boxLines(width, height, "Output", lines, m.Focus == FocusLogs)
 }
 
 func (m Model) previewCommandText() string {
@@ -1541,33 +1532,19 @@ func (m Model) outputRangeLabel(targetID string, height int) string {
 	return fmt.Sprintf("(%d-%d/%d %s %s)", offset+1, end, len(output), mode, markers)
 }
 
-func (m Model) renderOutputLines(targetID string, status core.Status, height int) []string {
+func (m Model) renderOutputLines(targetID string, height int) []string {
 	output := strings.Split(strings.TrimRight(m.Logs[targetID], "\n"), "\n")
 	if len(output) == 1 && output[0] == "" {
-		switch status {
-		case core.StatusQueued:
-			return []string{
-				logInfoStyle.Render("Waiting for worker slot."),
-				subtleStyle.Render("Use :workers N to raise parallelism, or del/x to cancel."),
-			}
-		case core.StatusRunning:
-			return []string{
-				logInfoStyle.Render("Running. Output appears here when command writes."),
-				subtleStyle.Render("Press L to toggle follow, del/x to cancel this target."),
-			}
-		default:
-			return []string{subtleStyle.Render("No output yet.")}
-		}
+		return nil
 	}
-	visible := max(1, height-14)
+	visible := max(1, height-2)
 	offset := m.previewOutputOffset(len(output), visible)
 	rows := make([]string, 0, visible)
 	for i, line := range output[offset:] {
 		if i >= visible {
 			break
 		}
-		number := logNumberStyle.Render(fmt.Sprintf("%4d │ ", offset+i+1))
-		rows = append(rows, number+m.styleLogLine(line))
+		rows = append(rows, m.styleLogLine(line))
 	}
 	return rows
 }
@@ -1709,7 +1686,7 @@ func (m Model) renderFooter(width int) string {
 				contextKeys = []string{"space select", "a Select All", "←/→ fold", "enter run", "del/x cancel"}
 			} else {
 				globalKeys = []string{"? help", "H hist"}
-				contextKeys = []string{"space select", "tab preview", ": cmd", "enter run", "del/x cancel"}
+				contextKeys = []string{"space select", "tab output", ": cmd", "enter run", "del/x cancel"}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
 				statusKeys = append(statusKeys, "R failed")
@@ -1921,7 +1898,7 @@ func (m Model) focusName() string {
 	case FocusFilter:
 		return "filter"
 	case FocusLogs:
-		return "preview"
+		return "output"
 	default:
 		return "tasks"
 	}
@@ -2016,7 +1993,7 @@ func (m Model) helpRows(width ...int) []string {
 			title: "Global",
 			bindings: []helpBinding{
 				{"?", "keymap"}, {"/", "filter"}, {":", "palette"}, {"H", "history"},
-				{"tab", "tasks/preview"}, {"z", "zoom/split"}, {"esc", "close mode"}, {"q", "quit idle"},
+				{"tab", "tasks/output"}, {"z", "zoom/split"}, {"esc", "close mode"}, {"q", "quit idle"},
 				{"ctrl+c", "cancel + quit"},
 			},
 		},
@@ -2069,7 +2046,7 @@ func (m Model) helpRows(width ...int) []string {
 		},
 		{
 			id:    "preview",
-			title: "Preview",
+			title: "Output",
 			bindings: []helpBinding{
 				{"pageup", "scroll up"}, {"ctrl+b", "scroll up"},
 				{"pagedown", "scroll down"}, {"ctrl+f", "scroll down"},

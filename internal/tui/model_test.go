@@ -219,7 +219,7 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(compactTasksFooter, "\n")); got != 3 {
 		t.Fatalf("compact tasks footer lines = %d, want 3:\n%s", got, compactTasksFooter)
 	}
-	for _, want := range []string{"tab Preview", ": Cmd", "enter Run"} {
+	for _, want := range []string{"tab Output", ": Cmd", "enter Run"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactTasksFooter), " "), want) {
 			t.Fatalf("compact tasks footer should contain %q:\n%s", want, compactTasksFooter)
 		}
@@ -465,7 +465,7 @@ func TestHelpRowsPutActiveContextFirst(t *testing.T) {
 		{name: "tasks", want: "Tasks"},
 		{name: "filter", setup: func(m *Model) { m.Focus = FocusFilter }, want: "Input and filter"},
 		{name: "command", setup: func(m *Model) { m.Focus = FocusCommand }, want: "Input and filter"},
-		{name: "preview", setup: func(m *Model) { m.Focus = FocusLogs }, want: "Preview"},
+		{name: "output", setup: func(m *Model) { m.Focus = FocusLogs }, want: "Output"},
 		{name: "palette", setup: func(m *Model) { m.ShowPalette = true }, want: "Palette"},
 		{name: "history", setup: func(m *Model) { m.ShowHistory = true }, want: "History"},
 		{name: "run", setup: func(m *Model) { m.Status["api"] = core.StatusRunning }, want: "Runs and status"},
@@ -643,14 +643,14 @@ func TestZoomTogglesFocusedPanel(t *testing.T) {
 		t.Fatalf("zoom/notice = %v/%q", model.Zoom, model.Notice)
 	}
 	tasksZoom := stripANSI(model.View().Content)
-	if strings.Contains(tasksZoom, "╭─ Preview") {
-		t.Fatalf("tasks zoom should hide preview:\n%s", tasksZoom)
+	if strings.Contains(tasksZoom, "╭─ Output") {
+		t.Fatalf("tasks zoom should hide output:\n%s", tasksZoom)
 	}
 
 	model.Focus = FocusLogs
 	logsZoom := stripANSI(model.View().Content)
-	if !strings.Contains(logsZoom, "╔═ Preview") || strings.Contains(logsZoom, "╭─ Tasks") || strings.Contains(logsZoom, "╔═ Tasks") {
-		t.Fatalf("logs zoom should show only preview:\n%s", logsZoom)
+	if !strings.Contains(logsZoom, "╔═ Output") || strings.Contains(logsZoom, "╭─ Tasks") || strings.Contains(logsZoom, "╔═ Tasks") {
+		t.Fatalf("logs zoom should show only output:\n%s", logsZoom)
 	}
 	model, _ = updateKey(model, "z")
 	if model.Zoom {
@@ -665,13 +665,13 @@ func TestCompactModeUsesSingleFocusedPanel(t *testing.T) {
 	}})
 	model, _ = updateWindowSize(model, 80, 24)
 	tasks := stripANSI(model.View().Content)
-	if strings.Contains(tasks, "╭─ Preview") {
-		t.Fatalf("compact tasks should hide preview:\n%s", tasks)
+	if strings.Contains(tasks, "╭─ Output") {
+		t.Fatalf("compact tasks should hide output:\n%s", tasks)
 	}
 	model.Focus = FocusLogs
-	preview := stripANSI(model.View().Content)
-	if !strings.Contains(preview, "╔═ Preview") || strings.Contains(preview, "╭─ Tasks") || strings.Contains(preview, "╔═ Tasks") {
-		t.Fatalf("compact logs should show only preview:\n%s", preview)
+	output := stripANSI(model.View().Content)
+	if !strings.Contains(output, "╔═ Output") || strings.Contains(output, "╭─ Tasks") || strings.Contains(output, "╔═ Tasks") {
+		t.Fatalf("compact logs should show only output:\n%s", output)
 	}
 }
 
@@ -1853,7 +1853,7 @@ func TestViewResponsiveWidths(t *testing.T) {
 	}
 }
 
-func TestPreviewShowsNumberedAndStyledLogs(t *testing.T) {
+func TestOutputPanelShowsOnlyCommandOutput(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusFailed
 	model.Logs["api"] = "ok line\nexit status 1\n"
@@ -1862,60 +1862,71 @@ func TestPreviewShowsNumberedAndStyledLogs(t *testing.T) {
 	view := model.renderLogPanel(40, 16)
 	rendered := strings.Join(view, "\n")
 	plain := stripANSI(rendered)
-	for _, want := range []string{"Command to run", "14:05:06  go test", "Output (1-2/2 follow •)", "1 │ ok line", "2 │ exit status 1"} {
+	for _, want := range []string{"Output", "ok line", "exit status 1"} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("preview should contain %q:\n%s", want, plain)
+			t.Fatalf("output panel should contain %q:\n%s", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"Command to run", "14:05:06", "go test", "1 │", "2 │", "Output ("} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("output panel should not contain %q:\n%s", unwanted, plain)
 		}
 	}
 	if !strings.Contains(rendered, "\x1b[") {
-		t.Fatalf("preview should style logs:\n%s", rendered)
+		t.Fatalf("output panel should style logs:\n%s", rendered)
 	}
 }
 
-func TestPreviewShowsUnsetCommandPlaceholder(t *testing.T) {
+func TestOutputPanelIsEmptyBeforeCommandWritesOutput(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	view := strings.Join(model.renderLogPanel(72, 18), "\n")
 	plain := stripANSI(view)
-	for _, want := range []string{"Command to run", "--:--:--  (not set)", "Output (empty)"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("preview should contain %q:\n%s", want, plain)
+	for _, unwanted := range []string{"Command to run", "--:--:--", "(not set)", "Output (empty)", "No output yet."} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("empty output panel should not contain %q:\n%s", unwanted, plain)
 		}
-	}
-	if !strings.Contains(view, "\x1b[") {
-		t.Fatalf("placeholder should be styled:\n%s", view)
 	}
 }
 
-func TestPreviewEmptyOutputShowsActionableStatusHints(t *testing.T) {
+func TestOutputPanelStaysEmptyForRunningCommandUntilOutputArrives(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	model.Status["api"] = core.StatusQueued
 	view := stripANSI(strings.Join(model.renderLogPanel(72, 18), "\n"))
-	for _, want := range []string{"Waiting for worker slot.", "Use :workers N to raise parallelism", "del/x to cancel"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("queued preview should contain %q:\n%s", want, view)
+	for _, unwanted := range []string{"Waiting for worker slot.", "Use :workers N", "del/x to cancel", "go test"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("queued output panel should not contain %q:\n%s", unwanted, view)
 		}
 	}
 
 	model.Status["api"] = core.StatusRunning
 	view = stripANSI(strings.Join(model.renderLogPanel(72, 18), "\n"))
-	for _, want := range []string{"Running. Output appears here", "Press L to toggle follow", "del/x to cancel this target"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("running preview should contain %q:\n%s", want, view)
+	for _, unwanted := range []string{"Running. Output appears here", "Press L to toggle follow", "del/x to cancel this target", "go test"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("running output panel should not contain %q:\n%s", unwanted, view)
 		}
 	}
 }
 
 func TestPreviewOutputRangeShowsManualScroll(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	model.Logs["api"] = strings.Join([]string{"one", "two", "three", "four", "five", "six"}, "\n")
+	model.Logs["api"] = strings.Join([]string{
+		"line-01", "line-02", "line-03", "line-04", "line-05", "line-06", "line-07", "line-08",
+		"line-09", "line-10", "line-11", "line-12", "line-13", "line-14", "line-15",
+		"line-16", "line-17", "line-18", "line-19", "line-20",
+	}, "\n")
 	model.LogFollow = false
 	model.PreviewOffset = 2
 
 	view := stripANSI(strings.Join(model.renderLogPanel(52, 18), "\n"))
-	for _, want := range []string{"Output (3-6/6 manual ↑)", "3 │ three", "6 │ six"} {
+	for _, want := range []string{"line-03", "line-18"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("preview range should contain %q:\n%s", want, view)
+			t.Fatalf("output panel should contain %q:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"Output (", "1 │", "3 │", "18 │", "line-01", "line-19"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("output panel should not contain %q:\n%s", unwanted, view)
 		}
 	}
 }
@@ -1923,17 +1934,23 @@ func TestPreviewOutputRangeShowsManualScroll(t *testing.T) {
 func TestPreviewFollowShowsTailForCompletedLongLogs(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusFailed
-	model.Logs["api"] = strings.Join([]string{"one", "two", "three", "four", "five", "six"}, "\n")
+	model.Logs["api"] = strings.Join([]string{
+		"line-01", "line-02", "line-03", "line-04", "line-05", "line-06", "line-07", "line-08",
+		"line-09", "line-10", "line-11", "line-12", "line-13", "line-14", "line-15",
+		"line-16", "line-17", "line-18", "line-19", "line-20",
+	}, "\n")
 	model.LogFollow = true
 
 	view := stripANSI(strings.Join(model.renderLogPanel(52, 18), "\n"))
-	for _, want := range []string{"Output (3-6/6 follow ↑)", "3 │ three", "6 │ six"} {
+	for _, want := range []string{"line-05", "line-20"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("completed preview follow should show tail %q:\n%s", want, view)
+			t.Fatalf("completed output follow should show tail %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "1 │ one") {
-		t.Fatalf("completed preview follow should not stay at top:\n%s", view)
+	for _, unwanted := range []string{"Output (", "5 │ line-05", "line-01", "line-04"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("completed output follow should not contain %q:\n%s", unwanted, view)
+		}
 	}
 }
 

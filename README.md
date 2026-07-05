@@ -121,8 +121,8 @@ exclude:
 | `?` | Show shortcuts |
 | `del`, `x` | Cancel selected running or queued runs, or focused run |
 | `R` | Rerun all failed with confirmation |
-| `pageup`, `pagedown` | Scroll preview |
-| `L` | Toggle preview follow mode |
+| `pageup`, `pagedown` | Scroll output |
+| `L` | Toggle output follow mode |
 | `ctrl+c` | Cancel active runs and quit cleanly |
 
 Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
