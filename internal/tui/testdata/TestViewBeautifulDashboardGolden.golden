@@ -4,7 +4,7 @@
 │ pnpm test                                                                                        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ╔═ Tasks ═════════════════════════════════════════════════╗  ╭─ Preview ───────────────────────────╮
-║ RUN FOLD  DIRECTORY                       STATUS       ║  │ Command to run                     │
+║ DIRECTORY                                 STATUS       ║  │ Command to run                     │
 ║ showing 1-4 of 4 •                                     ║  │  --:--:--  pnpm test               │
 ║   ▶ −  📂 api                             ● running    ║  │                                    │
 ║   …    └─ 📁 api/cmd                      ◌ queued     ║  │ Output (empty)                     │

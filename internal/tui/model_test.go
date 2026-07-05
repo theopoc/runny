@@ -715,6 +715,24 @@ func TestCommandInputStartsEmptyWithoutCursor(t *testing.T) {
 	}
 }
 
+func TestHeaderDoesNotShowFocusedPath(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
+	}})
+	model.Cursor = 1
+
+	header := stripANSI(model.renderHeader(140))
+	if strings.Contains(header, "path") || strings.Contains(header, "api/cmd") {
+		t.Fatalf("header should not show focused path:\n%s", header)
+	}
+	for _, want := range []string{"runny", "mode", "workers", "targets"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("header should keep %q:\n%s", want, header)
+		}
+	}
+}
+
 func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Focus = FocusCommand
@@ -1035,23 +1053,27 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	wide := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
-	for _, want := range []string{"RUN FOLD  DIRECTORY", "STATUS"} {
+	for _, want := range []string{"DIRECTORY", "STATUS"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide task header should contain %q:\n%s", want, wide)
 		}
 	}
-	if strings.Contains(wide, "SEL") {
-		t.Fatalf("wide task header should not contain selection marker column:\n%s", wide)
+	for _, unwanted := range []string{"RUN", "FOLD", "SEL"} {
+		if strings.Contains(wide, unwanted) {
+			t.Fatalf("wide task header should not contain %q:\n%s", unwanted, wide)
+		}
 	}
 
 	compact := stripANSI(model.taskHeader(46))
-	for _, want := range []string{"RUN  DIRECTORY", "STATUS"} {
+	for _, want := range []string{"DIRECTORY", "STATUS"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact task header should contain %q:\n%s", want, compact)
 		}
 	}
-	if strings.Contains(compact, "SEL") {
-		t.Fatalf("compact task header should not contain selection marker column:\n%s", compact)
+	for _, unwanted := range []string{"RUN", "FOLD", "SEL"} {
+		if strings.Contains(compact, unwanted) {
+			t.Fatalf("compact task header should not contain %q:\n%s", unwanted, compact)
+		}
 	}
 	if got := maxLineWidth(compact); got > 46 {
 		t.Fatalf("compact task header width = %d:\n%s", got, compact)
