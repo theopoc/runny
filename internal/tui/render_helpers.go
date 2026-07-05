@@ -98,7 +98,7 @@ func boxLines(width int, height int, title string, rows []string, active bool) [
 	if active {
 		titleStyle = panelTitleStyle
 	}
-	if !active && title != "Tasks" && title != "Preview" {
+	if !active && title != "Tasks" && title != "Output" {
 		titleStyle = overlayTitleStyle
 	}
 	titleText := " " + titleStyle.Render(title) + " "
