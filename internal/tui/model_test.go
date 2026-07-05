@@ -676,8 +676,10 @@ func TestSubHeaderShowsOnlyCommandPrompt(t *testing.T) {
 	model.Filter = "api"
 
 	subheader := stripANSI(model.renderSubHeader(140))
-	if !strings.Contains(subheader, "> test") {
-		t.Fatalf("subheader should show command prompt:\n%s", subheader)
+	for _, want := range []string{"Command", "test"} {
+		if !strings.Contains(subheader, want) {
+			t.Fatalf("subheader should show %q:\n%s", want, subheader)
+		}
 	}
 	for _, hidden := range []string{"focus", "visible", "selected", "match", "filter", "path"} {
 		if strings.Contains(subheader, hidden) {
@@ -690,6 +692,26 @@ func TestSubHeaderShowsOnlyCommandPrompt(t *testing.T) {
 	}
 	if got := maxLineWidth(model.renderSubHeader(80)); got > 80 {
 		t.Fatalf("compact subheader width = %d:\n%s", got, compact)
+	}
+}
+
+func TestCommandInputStartsEmptyWithoutCursor(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+
+	rendered := model.renderSubHeader(80)
+	plain := stripANSI(rendered)
+	for _, want := range []string{"Command", "┌", "│", "└"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("command input should show %q:\n%s", want, plain)
+		}
+	}
+	for _, hidden := range []string{"▌", "<type command", ">"} {
+		if strings.Contains(plain, hidden) {
+			t.Fatalf("empty unfocused command input should hide %q:\n%s", hidden, plain)
+		}
+	}
+	if !strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("command input should include styling:\n%s", rendered)
 	}
 }
 
@@ -716,10 +738,10 @@ func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
 	if model.Focus != FocusCommand {
 		t.Fatalf("focus = %v, want command", model.Focus)
 	}
-	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "> ./sh -c") {
-		t.Fatalf("command focus should show command prompt:\n%s", view)
+	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "./sh -c") {
+		t.Fatalf("command focus should show command input:\n%s", view)
 	}
-	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "> ./sh -c▌") {
+	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "./sh -c▌") {
 		t.Fatalf("command focus should show cursor:\n%s", view)
 	}
 	model, _ = updateKey(model, "ctrl+u")
@@ -1887,7 +1909,7 @@ func TestModelRunErrorsGuideNextAction(t *testing.T) {
 	if model.Focus != FocusCommand {
 		t.Fatalf("focus = %v, want command input after empty run", model.Focus)
 	}
-	if subheader := stripANSI(model.renderSubHeader(100)); !strings.Contains(subheader, "> <type command, enter to run>▌") {
+	if subheader := stripANSI(model.renderSubHeader(100)); !strings.Contains(subheader, "Command") || !strings.Contains(subheader, "▌") || strings.Contains(subheader, "<type command") {
 		t.Fatalf("empty run should show command cursor:\n%s", subheader)
 	}
 
