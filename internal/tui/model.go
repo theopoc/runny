@@ -1051,12 +1051,35 @@ func (m Model) dashboardWidget(label string, value string, valueStyle lipgloss.S
 }
 
 func (m Model) renderSubHeader(width int) string {
-	prompt := m.commandBarPrompt()
-	promptLine := commandPromptStyle.Render(" " + prompt + " ")
-	return commandBarStyle.Width(width).Render(padRightVisible(truncateVisible(promptLine, width), width))
+	return strings.Join(m.commandInputBoxLines(width), "\n")
 }
 
-func (m Model) commandBarPrompt() string {
+func (m Model) commandInputBoxLines(width int) []string {
+	title := " " + commandInputTitleStyle.Render(m.commandInputTitle()) + " "
+	width = max(width, lipgloss.Width(title)+2)
+	contentWidth := max(0, width-4)
+	topFill := max(0, width-lipgloss.Width(title)-2)
+	value := commandInputStyle.Render(m.commandInputValue())
+	value = padRightVisible(truncateVisible(value, contentWidth), contentWidth)
+
+	return []string{
+		commandInputBorderStyle.Render("┌") + title + commandInputBorderStyle.Render(strings.Repeat("─", topFill)+"┐"),
+		commandInputBorderStyle.Render("│") + " " + value + " " + commandInputBorderStyle.Render("│"),
+		commandInputBorderStyle.Render("└" + strings.Repeat("─", max(0, width-2)) + "┘"),
+	}
+}
+
+func (m Model) commandInputTitle() string {
+	if m.ShowPalette {
+		return "Palette"
+	}
+	if m.Focus == FocusFilter {
+		return "Filter"
+	}
+	return "Command"
+}
+
+func (m Model) commandInputValue() string {
 	if m.ShowPalette {
 		palette := strings.TrimSpace(m.Palette)
 		if palette == "" {
@@ -1072,13 +1095,10 @@ func (m Model) commandBarPrompt() string {
 		return "/ " + filterText + "▌"
 	}
 	command := strings.TrimSpace(m.Command)
-	if command == "" {
-		command = "<type command, enter to run>"
-	}
 	if m.Focus == FocusCommand {
-		return "> " + command + "▌"
+		return command + "▌"
 	}
-	return "> " + command
+	return command
 }
 
 func (m Model) focusedPathLabel() string {
