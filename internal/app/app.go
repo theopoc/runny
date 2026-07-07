@@ -144,7 +144,7 @@ func helpText() string {
 Flags:
   -c, --config FILE       config file
   -r, --recursive         discover recursively
-  -d, --depth N           discovery depth, 0 unlimited
+  -d, --depth N           discovery depth, 0 unlimited, default 3
   -H, --include-hidden    include hidden directories
   -i, --include PATTERN   include directories
   -e, --exclude PATTERN   exclude directories
