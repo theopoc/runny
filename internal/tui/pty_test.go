@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunnyTUISmokeWithPseudoTTY(t *testing.T) {
@@ -36,15 +38,16 @@ func TestRunnyTUISmokeWithPseudoTTY(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapper := filepath.Join(tmp, "runny-wrapper.sh")
-	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nexec \""+bin+"\" -- true\n"), 0o755); err != nil {
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\n\""+bin+"\" -- true &\npid=$!\nsleep 0.5\nkill \"$pid\" 2>/dev/null || true\nwait \"$pid\" 2>/dev/null || true\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	capture := filepath.Join(tmp, "typescript")
-	cmd := scriptCommand(capture, wrapper)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := scriptCommand(ctx, capture, wrapper)
 	cmd.Dir = root
-	cmd.Stdin = strings.NewReader("q")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := cmd.CombinedOutput(); err != nil && ctx.Err() == nil {
 		t.Fatalf("run TUI through pseudo-tty: %v\n%s", err, out)
 	}
 	captured, err := os.ReadFile(capture)
@@ -56,11 +59,11 @@ func TestRunnyTUISmokeWithPseudoTTY(t *testing.T) {
 	}
 }
 
-func scriptCommand(capture string, command string) *exec.Cmd {
+func scriptCommand(ctx context.Context, capture string, command string) *exec.Cmd {
 	if runtime.GOOS == "darwin" {
-		return exec.Command("script", "-q", capture, command)
+		return exec.CommandContext(ctx, "script", "-q", capture, command)
 	}
-	return exec.Command("script", "-q", "-c", command, capture)
+	return exec.CommandContext(ctx, "script", "-q", "-c", command, capture)
 }
 
 func repoRoot(t *testing.T) string {

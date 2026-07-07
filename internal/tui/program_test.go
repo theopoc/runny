@@ -58,7 +58,8 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'a'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	time.Sleep(100 * time.Millisecond)
-	program.Send(tea.KeyPressMsg(tea.Key{Code: 'q'}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	program.Send(tea.KeyPressMsg(tea.Key{Text: "y"}))
 	select {
 	case result := <-done:
 		if result.err != nil {
