@@ -875,6 +875,18 @@ func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
 	}
 }
 
+func TestCommandFocusShowsTrailingSpaceImmediately(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusCommand
+	model = typeText(model, "echo")
+	model, _ = updateSpecialKey(model, tea.KeySpace)
+
+	view := stripANSI(model.renderSubHeader(100))
+	if !strings.Contains(view, "echo ▌") {
+		t.Fatalf("command focus should show trailing space before cursor:\n%s", view)
+	}
+}
+
 func TestCommandFocusNavigatesHistory(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Focus = FocusCommand
