@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1977,6 +1978,26 @@ func TestRunningDashboardAndTaskActivityIndicators(t *testing.T) {
 		if !strings.Contains(rows, want) {
 			t.Fatalf("task rows should contain activity marker %q:\n%s", want, rows)
 		}
+	}
+}
+
+func TestDashboardProgressUsesSelectedTargetsOnly(t *testing.T) {
+	targets := make([]core.Target, 0, 24)
+	for i := 0; i < 24; i++ {
+		id := "target-" + strconv.Itoa(i)
+		targets = append(targets, core.Target{ID: id, RelPath: id, Selected: i < 9})
+	}
+	model := NewModel(Options{Command: "go test", Targets: targets})
+	for _, target := range model.Targets[:9] {
+		model.Status[target.ID] = core.StatusSucceeded
+	}
+
+	dashboard := stripANSI(model.renderDashboard(120))
+	if !strings.Contains(dashboard, "9/9 100%") {
+		t.Fatalf("dashboard progress should use selected targets only:\n%s", dashboard)
+	}
+	if strings.Contains(dashboard, "9/24 37%") {
+		t.Fatalf("dashboard progress should not use total discovered targets:\n%s", dashboard)
 	}
 }
 

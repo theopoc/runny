@@ -1012,24 +1012,24 @@ func (m Model) renderHeader(width int) string {
 func (m Model) renderDashboard(width int) string {
 	stats := m.statusCounts()
 	active := stats[core.StatusRunning] + stats[core.StatusQueued]
-	done := stats[core.StatusSucceeded] + stats[core.StatusFailed] + stats[core.StatusCancelled]
+	done, total := m.progressCounts()
 	progressWidth := 14
 	if width >= 140 {
 		progressWidth = 18
 	} else if width < 96 {
 		progressWidth = 10
 	}
-	progress := m.progressBar(done, len(m.Targets), progressWidth)
+	progress := m.progressBar(done, total, progressWidth)
 	stateLabel := m.executionState()
 	if m.Running {
-		stateLabel = fmt.Sprintf("running %d/%d", done, max(done+active, m.PendingRuns))
+		stateLabel = fmt.Sprintf("running %d/%d", done, total)
 	}
 	chips := []string{
 		m.dashboardWidget("active", fmt.Sprintf("%d", active), metricRunningStyle),
 		m.dashboardWidget("queue", fmt.Sprintf("%d", stats[core.StatusQueued]), metricQueuedStyle),
 		m.dashboardWidget("ok", fmt.Sprintf("%d", stats[core.StatusSucceeded]), metricSuccessStyle),
 		m.dashboardWidget("failed", fmt.Sprintf("%d", stats[core.StatusFailed]), metricFailedStyle),
-		m.dashboardWidget("progress", fmt.Sprintf("%s %d/%d %s", progress, done, len(m.Targets), m.progressPercent(done, len(m.Targets))), subtleStyle),
+		m.dashboardWidget("progress", fmt.Sprintf("%s %d/%d %s", progress, done, total, m.progressPercent(done, total)), subtleStyle),
 	}
 	if width >= 120 {
 		chips = append(chips, m.dashboardWidget("idle", fmt.Sprintf("%d", stats[core.StatusIdle]), metricIdleStyle))
@@ -1039,6 +1039,52 @@ func (m Model) renderDashboard(width int) string {
 	}
 	line := strings.Join(chips, subtleStyle.Render(" "))
 	return padRightVisible(truncateVisible(line, width), width)
+}
+
+func (m Model) progressCounts() (int, int) {
+	doneStatuses := map[core.Status]bool{
+		core.StatusSucceeded: true,
+		core.StatusFailed:    true,
+		core.StatusCancelled: true,
+	}
+	if m.Running || len(m.completedResults) > 0 {
+		completed := map[string]bool{}
+		for _, result := range m.completedResults {
+			if doneStatuses[result.Status] {
+				completed[result.Target.ID] = true
+			}
+		}
+		if len(completed) == 0 {
+			for _, target := range m.Targets {
+				if target.Selected && doneStatuses[m.Status[target.ID]] {
+					completed[target.ID] = true
+				}
+			}
+		}
+		active := 0
+		for _, status := range m.Status {
+			if status == core.StatusRunning || status == core.StatusQueued {
+				active++
+			}
+		}
+		total := len(completed) + active
+		if total > 0 {
+			return len(completed), total
+		}
+	}
+
+	done := 0
+	total := 0
+	for _, target := range m.Targets {
+		if !target.Selected {
+			continue
+		}
+		total++
+		if doneStatuses[m.Status[target.ID]] {
+			done++
+		}
+	}
+	return done, total
 }
 
 func (m Model) dashboardWidget(label string, value string, valueStyle lipgloss.Style) string {
