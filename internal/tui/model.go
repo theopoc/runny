@@ -1276,7 +1276,7 @@ func (m Model) foldSymbol(target core.Target) string {
 func (m Model) renderRowStatus(status core.Status, active bool) string {
 	label := padRightVisible(m.statusLabel(status), 12)
 	if active {
-		return lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true).Render(label)
+		return lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgFocus).Bold(true).Render(label)
 	}
 	if style, ok := statusStyles[status]; ok {
 		style = targetRowInlineStyle(style, status)

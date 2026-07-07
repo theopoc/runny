@@ -1251,14 +1251,18 @@ func TestTargetRowsKeepSelectionHighlightUnderFocus(t *testing.T) {
 	}
 }
 
-func TestSelectionHighlightMatchesNavigationHighlight(t *testing.T) {
+func TestNavigationHighlightDiffersFromSelectionHighlight(t *testing.T) {
 	selectedModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	focusedModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})
 
 	selected := selectedModel.renderTargetRow(0, selectedModel.Targets[0], 70)
-	focused := focusedModel.renderTargetRow(0, focusedModel.Targets[0], 70)
-	if selected != focused {
-		t.Fatalf("selected highlight should match navigation highlight:\nselected %q\nfocused  %q", selected, focused)
+	if rowSelectedStyle.GetBackground() != runnyTheme.bgSelection {
+		t.Fatalf("selected highlight should keep purple background")
+	}
+	if rowActiveStyle.GetBackground() != runnyTheme.bgFocus {
+		t.Fatalf("navigation highlight should use blue background")
+	}
+	if rowActiveSelectedStyle.GetBackground() != runnyTheme.bgFocus {
+		t.Fatalf("focused selected target should use navigation highlight")
 	}
 	if strings.Contains(selected, "\x1b[4m") || strings.Contains(selected, ";4m") {
 		t.Fatalf("selected highlight should not use underline:\n%q", selected)
