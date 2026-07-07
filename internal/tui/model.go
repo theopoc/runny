@@ -271,7 +271,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scrollPreview(-3)
 	case "ctrl+d":
 		m.scrollPreview(3)
-	case "L":
+	case "f":
 		m.LogFollow = !m.LogFollow
 	}
 	return m, nil
@@ -1575,7 +1575,7 @@ func (m Model) outputRangeLabel(targetID string, height int) string {
 	}
 	mode := "manual"
 	if m.LogFollow {
-		mode = "follow"
+		mode = "tail"
 	}
 	return fmt.Sprintf("(%d-%d/%d %s %s)", offset+1, end, len(output), mode, markers)
 }
@@ -1618,7 +1618,7 @@ func (m Model) previewScrollLabel(targetID string, height int) string {
 	}
 	if len(output) == 0 {
 		if m.LogFollow {
-			return "follow"
+			return "tail"
 		}
 		return "manual"
 	}
@@ -1631,7 +1631,7 @@ func (m Model) previewScrollLabel(targetID string, height int) string {
 	if offset > maxOffset {
 		offset = maxOffset
 	}
-	return fmt.Sprintf("%d/%d %s", offset+1, maxOffset+1, ternary(m.LogFollow, "follow", "manual"))
+	return fmt.Sprintf("%d/%d %s", offset+1, maxOffset+1, ternary(m.LogFollow, "tail", "manual"))
 }
 
 func (m Model) styleLogLine(line string) string {
@@ -1724,10 +1724,10 @@ func (m Model) renderFooter(width int) string {
 			}
 		case FocusLogs:
 			if width >= 110 {
-				contextKeys = []string{"pgup/pgdn scroll", "L follow", "tab tasks"}
+				contextKeys = []string{"pgup/pgdn scroll", "f tail", "tab tasks"}
 			} else {
 				globalKeys = []string{"? help", "H hist"}
-				contextKeys = []string{"pgup/pgdn scroll", "L follow", "tab tasks"}
+				contextKeys = []string{"pgup/pgdn scroll", "f tail", "tab tasks"}
 			}
 		default:
 			if width >= 110 {
@@ -2098,7 +2098,7 @@ func (m Model) helpRows(width ...int) []string {
 			bindings: []helpBinding{
 				{"pageup", "scroll up"}, {"ctrl+b", "scroll up"},
 				{"pagedown", "scroll down"}, {"ctrl+f", "scroll down"},
-				{"ctrl+u", "half up"}, {"ctrl+d", "half down"}, {"L", "follow"},
+				{"ctrl+u", "half up"}, {"ctrl+d", "half down"}, {"f", "tail"},
 			},
 		},
 	}
