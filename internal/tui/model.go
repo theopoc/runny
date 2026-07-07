@@ -1668,7 +1668,7 @@ func (m Model) renderFooter(width int) string {
 	if width >= 110 {
 		activeStopHint = "ctrl+c cancel+quit"
 	}
-	zoomLabel := "z zoom"
+	zoomLabel := "z maximize"
 	if m.Zoom {
 		zoomLabel = "z split"
 	}
@@ -1679,6 +1679,9 @@ func (m Model) renderFooter(width int) string {
 		globalKeys = []string{"? help", "/ search", ": cmd", "H hist"}
 	}
 	if width >= 110 {
+		if !m.Zoom {
+			zoomLabel = "z maximize panel"
+		}
 		globalKeys = []string{"? keymap", "/ search", ": command", "H history", "tab panels", zoomLabel}
 	}
 	if m.ShowHelp {
@@ -2041,7 +2044,7 @@ func (m Model) helpRows(width ...int) []string {
 			title: "Global",
 			bindings: []helpBinding{
 				{"?", "keymap"}, {"/", "filter"}, {":", "palette"}, {"H", "history"},
-				{"tab", "tasks/output"}, {"z", "zoom/split"}, {"esc", "close mode"}, {"q", "quit idle"},
+				{"tab", "tasks/output"}, {"z", "maximize panel / split"}, {"esc", "close mode"}, {"q", "quit idle"},
 				{"ctrl+c", "cancel + quit"},
 			},
 		},
