@@ -304,6 +304,9 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "ctrl+w":
 		m.Command = trimLastWord(m.Command)
 		m.resetCommandHistoryNavigation()
+	case " ", "space":
+		m.Command += " "
+		m.resetCommandHistoryNavigation()
 	default:
 		if key.Key().Text != "" {
 			m.Command += key.Key().Text
@@ -1137,11 +1140,10 @@ func (m Model) commandInputValue() string {
 		}
 		return "/ " + filterText + "▌"
 	}
-	command := strings.TrimSpace(m.Command)
 	if m.Focus == FocusCommand {
-		return command + "▌"
+		return m.Command + "▌"
 	}
-	return command
+	return strings.TrimSpace(m.Command)
 }
 
 func (m Model) focusedPathLabel() string {
