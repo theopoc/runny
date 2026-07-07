@@ -19,6 +19,7 @@ type tuiTheme struct {
 	bgSurface      color.Color
 	bgElevated     color.Color
 	bgHelper       color.Color
+	bgFocus        color.Color
 	bgSelection    color.Color
 	bgRunning      color.Color
 	accentPrimary  color.Color
@@ -49,6 +50,7 @@ var runnyTheme = tuiTheme{
 	bgSurface:      tuiColor("#191D2B"),
 	bgElevated:     tuiColor("#252A3A"),
 	bgHelper:       tuiColor(footerBackgroundHex),
+	bgFocus:        tuiColor("#60A5FA"),
 	bgSelection:    tuiColor("#A78BFA"),
 	bgRunning:      tuiColor("#1E3144"),
 	accentPrimary:  tuiColor(primaryAccentHex),
@@ -71,8 +73,8 @@ var (
 	panelInactiveTitle      = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.fgMuted)
 	selectedStyle           = lipgloss.NewStyle().Foreground(runnyTheme.success)
 	unselectedStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	rowActiveStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true)
-	rowSelectedStyle        = rowActiveStyle
+	rowActiveStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgFocus).Bold(true)
+	rowSelectedStyle        = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true)
 	rowActiveSelectedStyle  = rowActiveStyle
 	rowPartialStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgElevated).Bold(true)
 	rowRunningStyle         = lipgloss.NewStyle()
