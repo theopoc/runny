@@ -205,7 +205,7 @@ func TestFooterIsContextual(t *testing.T) {
 		t.Fatalf("tasks footer lines = %d, want 3:\n%s", got, tasksFooter)
 	}
 	normalizedTasksFooter := strings.Join(strings.Fields(tasksFooter), " ")
-	for _, want := range []string{"H History", "tab Panels", "z Zoom", "space Select", "a Select All", "←/→ Fold", "enter Run"} {
+	for _, want := range []string{"H History", "tab Panels", "z Maximize panel", "space Select", "a Select All", "←/→ Fold", "enter Run"} {
 		if !strings.Contains(normalizedTasksFooter, want) {
 			t.Fatalf("tasks footer should contain %q:\n%s", want, tasksFooter)
 		}
@@ -319,7 +319,7 @@ func assertFooterColumnsAligned(t *testing.T, footer string) {
 	}
 	for _, group := range [][]string{
 		{"Keymap", "Search", "Command"},
-		{"History", "Panels", "Zoom"},
+		{"History", "Panels", "Maximize"},
 		{"Select", "Select All", "Fold"},
 	} {
 		column := footerTextColumn(lines[0], group[0])
@@ -332,35 +332,36 @@ func assertFooterColumnsAligned(t *testing.T, footer string) {
 			}
 		}
 	}
-	for _, fieldIndex := range []int{0, 2, 4} {
-		column := footerFieldColumn(lines[0], fieldIndex)
+	for _, group := range [][]string{
+		{"?", "/", ":"},
+		{"H", "tab", "z"},
+		{"space", "a", "←/→"},
+	} {
+		column := footerTokenColumn(lines[0], group[0])
 		if column < 0 {
-			t.Fatalf("missing field %d in footer:\n%s", fieldIndex, footer)
+			t.Fatalf("missing %q in footer:\n%s", group[0], footer)
 		}
-		for i := 1; i < len(lines); i++ {
-			if got := footerFieldColumn(lines[i], fieldIndex); got != column {
-				t.Fatalf("footer field %d column on line %d = %d, want %d:\n%s", fieldIndex, i+1, got, column, footer)
+		for i := 1; i < len(group); i++ {
+			if got := footerTokenColumn(lines[i], group[i]); got != column {
+				t.Fatalf("footer key column for %q = %d, want %d:\n%s", group[i], got, column, footer)
 			}
 		}
 	}
 }
 
-func footerFieldColumn(line string, fieldIndex int) int {
+func footerTokenColumn(line string, token string) int {
 	fields := strings.Fields(line)
-	if fieldIndex < 0 || fieldIndex >= len(fields) {
-		return -1
-	}
 	offset := 0
-	for i := 0; i <= fieldIndex; i++ {
-		index := strings.Index(line[offset:], fields[i])
+	for _, field := range fields {
+		index := strings.Index(line[offset:], field)
 		if index < 0 {
 			return -1
 		}
 		offset += index
-		if i == fieldIndex {
+		if field == token {
 			return offset
 		}
-		offset += len(fields[i])
+		offset += len(field)
 	}
 	return -1
 }
