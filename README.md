@@ -35,7 +35,7 @@ runny -- pnpm test
 runny --depth 2 --workers 4 -- pnpm test
 ```
 
-`runny` always opens the TUI. Flags and config files only prepare the initial discovery, command, execution mode, and logging options. By default, `runny` discovers direct child directories, excludes hidden directories, skips symlinked directories, and runs in parallel.
+`runny` always opens the TUI. Flags and config files only prepare the initial discovery, command, execution mode, and logging options. By default, `runny` discovers directories up to depth 3, excludes hidden directories, skips symlinked directories, and runs in parallel.
 
 ## Docker
 
@@ -63,7 +63,7 @@ Commands run inside the container. Tools installed only on the host, such as `pn
 | --- | --- | --- |
 | `--config FILE` | `-c` | Explicit config file |
 | `--recursive` | `-r` | Discover recursively |
-| `--depth N` | `-d` | Discovery depth, `1` direct children, `0` unlimited |
+| `--depth N` | `-d` | Discovery depth, default `3`, `1` direct children, `0` unlimited |
 | `--include-hidden` | `-H` | Include hidden directories |
 | `--include PATTERN` | `-i` | Include matching directories, repeatable |
 | `--exclude PATTERN` | `-e` | Exclude matching directories, repeatable |

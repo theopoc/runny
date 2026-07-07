@@ -37,6 +37,13 @@ func TestLoadMergesHomeLocalExplicitAndFlags(t *testing.T) {
 	}
 }
 
+func TestDefaultsUseDepthThree(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Depth != 3 {
+		t.Fatalf("depth = %d, want 3", cfg.Depth)
+	}
+}
+
 func TestValidateRejectsMutuallyExclusiveOptions(t *testing.T) {
 	cfg := Defaults()
 	cfg.Include = []string{"api"}

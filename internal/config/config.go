@@ -46,7 +46,7 @@ type LoadOptions struct {
 
 func Defaults() Config {
 	return Config{
-		Depth: 1,
+		Depth: 3,
 	}
 }
 
