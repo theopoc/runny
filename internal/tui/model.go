@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/history"
 	"github.com/theopoc/runny/internal/runner"
@@ -57,6 +58,8 @@ type Model struct {
 	ShowPalette        bool
 	ConfirmRun         bool
 	ConfirmCancelAll   bool
+	ConfirmQuit        bool
+	ConfirmQuitYes     bool
 	Zoom               bool
 	Palette            string
 	PalettePos         int
@@ -178,14 +181,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		keyName = key.Key().Text
 	}
 	if keyName == "ctrl+c" {
-		m.cancelAll()
-		return m, tea.Quit
+		m.ShowHelp = false
+		m.ShowHistory = false
+		m.ShowPalette = false
+		m.ConfirmRun = false
+		m.ConfirmCancelAll = false
+		m.ConfirmQuit = true
+		m.ConfirmQuitYes = false
+		return m, nil
 	}
 	if keyName == "?" {
 		m.ShowHelp = !m.ShowHelp
 		return m, nil
 	}
-	if m.ShowHelp || m.ShowHistory || m.ConfirmRun || m.ConfirmCancelAll {
+	if m.ShowHelp || m.ShowHistory || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit {
 		return m.handleOverlayKey(keyName, key)
 	}
 	if m.ShowPalette {
@@ -200,10 +209,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch keyName {
 	case "esc":
 		return m, nil
-	case "q":
-		if !m.hasActiveRuns() && m.Focus != FocusCommand && m.Focus != FocusFilter {
-			return m, tea.Quit
-		}
 	case ":":
 		m.ShowPalette = true
 		m.Palette = ""
@@ -519,10 +524,18 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "esc":
 		m.ConfirmRun = false
 		m.ConfirmCancelAll = false
+		m.ConfirmQuit = false
+		m.ConfirmQuitYes = false
 	case "n":
 		m.ConfirmRun = false
 		m.ConfirmCancelAll = false
+		m.ConfirmQuit = false
+		m.ConfirmQuitYes = false
 		m.Notice = "confirmation cancelled"
+	case "tab":
+		if m.ConfirmQuit {
+			m.ConfirmQuitYes = !m.ConfirmQuitYes
+		}
 	case "enter", "y":
 		if m.ConfirmRun {
 			m.ConfirmRun = false
@@ -532,6 +545,16 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 			m.ConfirmCancelAll = false
 			m.cancelAll()
 			return m, nil
+		}
+		if m.ConfirmQuit {
+			if keyName == "enter" && !m.ConfirmQuitYes {
+				m.ConfirmQuit = false
+				m.Notice = "confirmation cancelled"
+				return m, nil
+			}
+			m.ConfirmQuit = false
+			m.cancelAll()
+			return m, tea.Quit
 		}
 		m.ShowHelp = false
 	}
@@ -990,6 +1013,12 @@ func (m Model) renderOverlay(width int, height int) string {
 			"targets: " + m.activeTargetSummary(64),
 			"y/enter confirm   n/esc cancel",
 		}
+	case m.ConfirmQuit:
+		rows = []string{
+			centerANSI(dangerTitleStyle.Render("Quit runny?"), ansi.StringWidth(m.renderQuitChoices())),
+			m.renderQuitChoices(),
+		}
+		return renderDangerFittedFloatingBox(width, "", rows)
 	default:
 		return ""
 	}
@@ -999,6 +1028,19 @@ func (m Model) renderOverlay(width int, height int) string {
 	}
 	boxHeight := max(3, min(maxBoxHeight, len(rows)+2))
 	return renderFloatingBox(width, title, clipOverlayRows(rows, boxHeight))
+}
+
+func (m Model) renderQuitChoices() string {
+	yes := " Yes "
+	no := " No "
+	if m.ConfirmQuitYes {
+		yes = dangerChoiceStyle.Render(yes)
+		no = helpDescStyle.Render(no)
+	} else {
+		yes = helpDescStyle.Render(yes)
+		no = dangerChoiceStyle.Render(no)
+	}
+	return "[" + yes + "]  [" + no + "]"
 }
 
 func (m Model) renderHeader(width int) string {
@@ -1543,9 +1585,9 @@ func (m Model) previewNextAction(target core.Target, status core.Status, width i
 	switch status {
 	case core.StatusQueued, core.StatusRunning:
 		if width < 30 {
-			return "del/x target  ctrl+c all"
+			return "del/x target  ctrl+c quit"
 		}
-		return "del/x target   ctrl+c cancel+quit"
+		return "del/x target   ctrl+c confirm quit"
 	case core.StatusFailed:
 		return "R rerun failed   enter run selected"
 	}
@@ -1664,9 +1706,9 @@ func (m Model) hiddenByFold(target core.Target) bool {
 }
 
 func (m Model) renderFooter(width int) string {
-	activeStopHint := "ctrl+c all+quit"
+	activeStopHint := "ctrl+c quit"
 	if width >= 110 {
-		activeStopHint = "ctrl+c cancel+quit"
+		activeStopHint = "ctrl+c confirm quit"
 	}
 	zoomLabel := "z maximize"
 	if m.Zoom {
@@ -1701,11 +1743,14 @@ func (m Model) renderFooter(width int) string {
 	} else if m.ConfirmCancelAll {
 		globalKeys = []string{"? keymap"}
 		contextKeys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+	} else if m.ConfirmQuit {
+		globalKeys = []string{"? keymap"}
+		contextKeys = []string{"tab switch", "enter choose", "y yes", "n no", "esc cancel"}
 	}
 	if m.hasActiveRuns() {
 		statusKeys = append(statusKeys, activeStopHint)
 	}
-	if !m.ShowHelp && !m.ShowHistory && !m.ShowPalette && !m.ConfirmRun && !m.ConfirmCancelAll {
+	if !m.ShowHelp && !m.ShowHistory && !m.ShowPalette && !m.ConfirmRun && !m.ConfirmCancelAll && !m.ConfirmQuit {
 		switch m.Focus {
 		case FocusCommand:
 			if width >= 110 {
@@ -1745,7 +1790,7 @@ func (m Model) renderFooter(width int) string {
 		}
 	}
 	if !m.hasActiveRuns() {
-		statusKeys = append(statusKeys, "q quit")
+		statusKeys = append(statusKeys, "ctrl+c quit")
 	}
 	hints := make([]string, 0, len(globalKeys)+len(contextKeys)+len(statusKeys))
 	hints = append(hints, globalKeys...)
@@ -2044,8 +2089,8 @@ func (m Model) helpRows(width ...int) []string {
 			title: "Global",
 			bindings: []helpBinding{
 				{"?", "keymap"}, {"/", "filter"}, {":", "palette"}, {"H", "history"},
-				{"tab", "tasks/output"}, {"z", "maximize panel / split"}, {"esc", "close mode"}, {"q", "quit idle"},
-				{"ctrl+c", "cancel + quit"},
+				{"tab", "tasks/output"}, {"z", "maximize panel / split"}, {"esc", "close mode"},
+				{"ctrl+c", "confirm quit"},
 			},
 		},
 		{

@@ -242,10 +242,10 @@ func TestFooterIsContextual(t *testing.T) {
 	if strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "R Failed") {
 		t.Fatalf("active footer should hide rerun failed while work is active:\n%s", activeFooter)
 	}
-	if !strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "ctrl+c Cancel+quit") {
+	if !strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "ctrl+c Confirm quit") {
 		t.Fatalf("active footer should keep stop hint visible:\n%s", activeFooter)
 	}
-	if strings.Count(strings.Join(strings.Fields(activeFooter), " "), "ctrl+c Cancel+quit") != 1 {
+	if strings.Count(strings.Join(strings.Fields(activeFooter), " "), "ctrl+c Confirm quit") != 1 {
 		t.Fatalf("active footer should show one stop hint:\n%s", activeFooter)
 	}
 
@@ -383,7 +383,7 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 		"\x1b[48;2;36;47;56m",
 		"\x1b[38;2;224;224;224m",
 		"\x1b[38;2;196;181;253m",
-		"\x1b[1menter\x1b[22m",
+		"\x1b[1menter ",
 	} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer should contain ANSI sequence %q:\n%q", want, footer)
@@ -500,7 +500,7 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.ShowHelp = true
 	helpFooter := stripANSI(model.renderFooter(120))
 	normalizedHelpFooter := normalizeFooterText(helpFooter)
-	for _, want := range []string{"? Close", "q Close", "esc Close", "H History"} {
+	for _, want := range []string{"? Close", "esc Close", "H History"} {
 		if !strings.Contains(normalizedHelpFooter, want) {
 			t.Fatalf("help footer should contain %q:\n%s", want, helpFooter)
 		}
@@ -537,6 +537,16 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	for _, want := range []string{"y Confirm", "enter Confirm", "n Cancel", "esc Cancel"} {
 		if !strings.Contains(normalizedCancelFooter, want) {
 			t.Fatalf("cancel-all footer should contain %q:\n%s", want, cancelFooter)
+		}
+	}
+
+	model.ConfirmCancelAll = false
+	model.ConfirmQuit = true
+	quitFooter := stripANSI(model.renderFooter(120))
+	normalizedQuitFooter := normalizeFooterText(quitFooter)
+	for _, want := range []string{"tab Switch", "enter Choose", "y Yes", "n No", "esc Cancel"} {
+		if !strings.Contains(normalizedQuitFooter, want) {
+			t.Fatalf("quit footer should contain %q:\n%s", want, quitFooter)
 		}
 	}
 }
@@ -1615,7 +1625,7 @@ func TestModelNavigationAndPreviewScrolling(t *testing.T) {
 	}
 }
 
-func TestCtrlCCancelsAndQuitsFromOverlay(t *testing.T) {
+func TestCtrlCShowsQuitConfirmationFromOverlay(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	cancelled := false
 	model.Running = true
@@ -1625,17 +1635,102 @@ func TestCtrlCCancelsAndQuitsFromOverlay(t *testing.T) {
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	model = updated.(Model)
-	if cmd == nil {
-		t.Fatal("ctrl+c should quit even when overlay is open")
+	if cmd != nil {
+		t.Fatal("ctrl+c should wait for confirmation before quitting")
 	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("ctrl+c should return quit message")
+	if !model.ConfirmQuit {
+		t.Fatal("ctrl+c should show quit confirmation")
 	}
-	if !cancelled {
-		t.Fatal("ctrl+c should cancel active run")
+	if model.ConfirmQuitYes {
+		t.Fatal("quit confirmation should default to No")
 	}
-	if model.Status["api"] != core.StatusCancelled {
+	if model.ShowHelp {
+		t.Fatal("ctrl+c should replace current overlay with quit confirmation")
+	}
+	if cancelled {
+		t.Fatal("ctrl+c should not cancel before confirmation")
+	}
+	if model.Status["api"] != core.StatusRunning {
 		t.Fatalf("status = %s", model.Status["api"])
+	}
+
+	updatedModel, cmd := updateKey(model, "n")
+	model = updatedModel
+	if cmd != nil {
+		t.Fatal("n should close confirmation without quitting")
+	}
+	if model.ConfirmQuit {
+		t.Fatal("n should close quit confirmation")
+	}
+	if cancelled {
+		t.Fatal("n should not cancel active run")
+	}
+}
+
+func TestQuitConfirmationUsesTabSelectedButtons(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.ConfirmQuit = true
+
+	view := stripANSI(model.View().Content)
+	for _, want := range []string{"Quit runny?", "Yes", "No"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("quit confirmation should contain %q:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"Confirm before leaving", "active targets:", "confirm quit"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("quit confirmation should not contain %q:\n%s", unwanted, view)
+		}
+	}
+	overlay := model.renderOverlay(120, 24)
+	if got := maxLineWidth(stripANSI(overlay)); got > 24 {
+		t.Fatalf("quit confirmation should fit content width, got %d:\n%s", got, stripANSI(overlay))
+	}
+	if !strings.Contains(stripANSI(overlay), "│ [ Yes ]  [ No ] │") {
+		t.Fatalf("quit confirmation border should close around choices:\n%s", stripANSI(overlay))
+	}
+	if strings.Contains(stripANSI(overlay), "─ Quit runny? ") {
+		t.Fatalf("quit confirmation title should not interrupt border:\n%s", stripANSI(overlay))
+	}
+	if dangerBorderStyle.GetForeground() != runnyTheme.error {
+		t.Fatalf("quit confirmation border should use error color")
+	}
+	if dangerChoiceStyle.GetBackground() != runnyTheme.error {
+		t.Fatalf("quit confirmation selected choice should use error background")
+	}
+
+	updated, cmd := updateKey(model, "enter")
+	model = updated
+	if cmd != nil {
+		t.Fatal("enter on default No should not quit")
+	}
+	if model.ConfirmQuit {
+		t.Fatal("enter on default No should close confirmation")
+	}
+
+	model.ConfirmQuit = true
+	updated, cmd = updateKey(model, "tab")
+	model = updated
+	if cmd != nil {
+		t.Fatal("tab should not quit")
+	}
+	if !model.ConfirmQuitYes {
+		t.Fatal("tab should move selection to Yes")
+	}
+}
+
+func TestQDoesNotQuitFromMainScreen(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+
+	updated, cmd := updateKey(model, "q")
+	model = updated
+
+	if cmd != nil {
+		t.Fatal("q should not quit from main screen")
+	}
+	if model.ConfirmQuit {
+		t.Fatal("q should not open quit confirmation")
 	}
 }
 
@@ -2322,7 +2417,7 @@ func TestCancelAllClearsQueuedWork(t *testing.T) {
 	}
 }
 
-func TestCtrlCCancelsActiveWorkAndQuits(t *testing.T) {
+func TestCtrlCConfirmsBeforeCancellingActiveWorkAndQuitting(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok", Workers: 1, Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
@@ -2335,8 +2430,35 @@ func TestCtrlCCancelsActiveWorkAndQuits(t *testing.T) {
 	updated, cmd := updateKey(model, "ctrl+c")
 	model = updated
 
+	if cmd != nil {
+		t.Fatal("ctrl+c should wait for confirmation before quitting")
+	}
+	if !model.ConfirmQuit {
+		t.Fatal("ctrl+c should show quit confirmation")
+	}
+	if model.ConfirmQuitYes {
+		t.Fatal("quit confirmation should default to No")
+	}
+	if cancelled {
+		t.Fatal("ctrl+c should not cancel the root run context before confirmation")
+	}
+	if model.Status["api"] == core.StatusCancelled || model.Status["web"] == core.StatusCancelled {
+		t.Fatalf("statuses = %#v, want active work unchanged before confirmation", model.Status)
+	}
+
+	updated, cmd = updateKey(model, "tab")
+	model = updated
+	if cmd != nil {
+		t.Fatal("tab should not quit")
+	}
+	if !model.ConfirmQuitYes {
+		t.Fatal("tab should select Yes")
+	}
+
+	updated, cmd = updateKey(model, "enter")
+	model = updated
 	if !cancelled {
-		t.Fatal("ctrl+c should cancel the root run context")
+		t.Fatal("enter on Yes should cancel the root run context")
 	}
 	if model.Status["api"] != core.StatusCancelled || model.Status["web"] != core.StatusCancelled {
 		t.Fatalf("statuses = %#v, want all active work cancelled", model.Status)

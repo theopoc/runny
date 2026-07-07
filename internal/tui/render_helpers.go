@@ -59,6 +59,23 @@ func renderFloatingBox(width int, title string, rows []string) string {
 	return strings.Join(boxLines(boxWidth, len(rows)+2, title, rows, false), "\n")
 }
 
+func renderFittedFloatingBox(width int, title string, rows []string) string {
+	return renderFittedFloatingBoxWithStyle(width, title, rows, panelStyle)
+}
+
+func renderDangerFittedFloatingBox(width int, title string, rows []string) string {
+	return renderFittedFloatingBoxWithStyle(width, title, rows, dangerBorderStyle)
+}
+
+func renderFittedFloatingBoxWithStyle(width int, title string, rows []string, borderStyle lipgloss.Style) string {
+	boxWidth := lipgloss.Width(title) + 6
+	for _, row := range rows {
+		boxWidth = max(boxWidth, ansi.StringWidth(row)+4)
+	}
+	boxWidth = min(width, boxWidth)
+	return strings.Join(boxLinesWithTitle(boxWidth, len(rows)+2, title, rows, false, panelInactiveTitle, borderStyle), "\n")
+}
+
 func placeOverlay(background string, overlay string, width int) string {
 	backgroundLines := strings.Split(background, "\n")
 	overlayLines := strings.Split(overlay, "\n")
@@ -90,10 +107,17 @@ func padRightANSI(value string, width int) string {
 	return value + strings.Repeat(" ", width-current)
 }
 
+func centerANSI(value string, width int) string {
+	current := ansi.StringWidth(value)
+	if current >= width {
+		return value
+	}
+	left := (width - current) / 2
+	right := width - current - left
+	return strings.Repeat(" ", left) + value + strings.Repeat(" ", right)
+}
+
 func boxLines(width int, height int, title string, rows []string, active bool) []string {
-	width = max(width, len(title)+6)
-	height = max(height, 3)
-	lines := make([]string, 0, height)
 	titleStyle := panelInactiveTitle
 	if active {
 		titleStyle = panelTitleStyle
@@ -101,24 +125,42 @@ func boxLines(width int, height int, title string, rows []string, active bool) [
 	if !active && title != "Tasks" && title != "Output" {
 		titleStyle = overlayTitleStyle
 	}
-	titleText := " " + titleStyle.Render(title) + " "
-	topFill := max(0, width-lipgloss.Width(titleText)-2)
 	borderStyle := panelStyle
 	if active {
 		borderStyle = panelActiveStyle
 	}
+	return boxLinesWithTitle(width, height, title, rows, active, titleStyle, borderStyle)
+}
+
+func boxLinesWithTitle(width int, height int, title string, rows []string, active bool, titleStyle lipgloss.Style, borderStyle lipgloss.Style) []string {
+	width = max(width, len(title)+6)
+	height = max(height, 3)
+	lines := make([]string, 0, height)
 	border := panelBorder(active)
-	lines = append(lines, borderStyle.Render(border.topLeft+border.horizontal)+titleText+borderStyle.Render(strings.Repeat(border.horizontal, topFill)+border.topRight))
+	if title == "" {
+		lines = append(lines, borderStyle.Render(border.topLeft+strings.Repeat(border.horizontal, width-2)+border.topRight))
+	} else {
+		titleText := " " + titleStyle.Render(title) + " "
+		topFill := max(0, width-lipgloss.Width(titleText)-2)
+		lines = append(lines, borderStyle.Render(border.topLeft+border.horizontal)+titleText+borderStyle.Render(strings.Repeat(border.horizontal, topFill)+border.topRight))
+	}
 	contentWidth := width - 4
 	for i := 0; i < height-2; i++ {
 		row := ""
 		if i < len(rows) {
 			row = rows[i]
 		}
-		lines = append(lines, borderStyle.Render(border.vertical)+" "+padRightVisible(truncateVisible(row, contentWidth), contentWidth)+" "+borderStyle.Render(border.vertical))
+		lines = append(lines, borderStyle.Render(border.vertical)+" "+formatBoxRow(row, contentWidth)+" "+borderStyle.Render(border.vertical))
 	}
 	lines = append(lines, borderStyle.Render(border.bottomLeft+strings.Repeat(border.horizontal, width-2)+border.bottomRight))
 	return lines
+}
+
+func formatBoxRow(row string, width int) string {
+	if ansi.StringWidth(row) > width {
+		row = ansi.Cut(row, 0, max(0, width-1)) + "~"
+	}
+	return padRightANSI(row, width)
 }
 
 type panelBorderGlyphs struct {

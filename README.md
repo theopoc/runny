@@ -123,7 +123,7 @@ exclude:
 | `R` | Rerun all failed with confirmation |
 | `pageup`, `pagedown` | Scroll output |
 | `f` | Toggle output tail mode |
-| `ctrl+c` | Cancel active runs and quit cleanly |
+| `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
 Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
