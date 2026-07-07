@@ -204,7 +204,7 @@ Output/log keys:
 | `pagedown`, `ctrl+f` | Scroll focused target output down. |
 | `ctrl+u` | Half-page focused target output up. |
 | `ctrl+d` | Half-page focused target output down. |
-| `L` | Toggle log follow mode. |
+| `f` | Toggle output tail mode. |
 
 ## Filter/Search
 
@@ -299,7 +299,7 @@ Default:
 
 - Per-target log capture enabled.
 - Focused target log is visible.
-- Log follow mode enabled for running focused target unless user scrolls.
+- Output tail mode enabled for running focused target unless user scrolls.
 
 Persistence:
 

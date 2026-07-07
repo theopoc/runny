@@ -301,7 +301,7 @@ func TestFooterIsContextual(t *testing.T) {
 	logsModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	logsModel.Focus = FocusLogs
 	logsFooter := stripANSI(logsModel.renderFooter(80))
-	for _, want := range []string{"pgup/pgdn Scroll", "L Follow", "tab Tasks"} {
+	for _, want := range []string{"pgup/pgdn Scroll", "f Tail", "tab Tasks"} {
 		if !strings.Contains(strings.Join(strings.Fields(logsFooter), " "), want) {
 			t.Fatalf("compact logs footer should contain %q:\n%s", want, logsFooter)
 		}
@@ -1606,11 +1606,11 @@ func TestModelNavigationAndPreviewScrolling(t *testing.T) {
 		t.Fatalf("preview offset = %d, want 5", model.PreviewOffset)
 	}
 	if model.LogFollow {
-		t.Fatal("manual preview scroll should disable follow mode")
+		t.Fatal("manual preview scroll should disable tail mode")
 	}
-	model, _ = updateKey(model, "L")
+	model, _ = updateKey(model, "f")
 	if !model.LogFollow {
-		t.Fatal("L should re-enable follow mode")
+		t.Fatal("f should re-enable tail mode")
 	}
 }
 
@@ -1918,7 +1918,7 @@ func TestOutputPanelStaysEmptyForRunningCommandUntilOutputArrives(t *testing.T) 
 
 	model.Status["api"] = core.StatusRunning
 	view = stripANSI(strings.Join(model.renderLogPanel(72, 18), "\n"))
-	for _, unwanted := range []string{"Running. Output appears here", "Press L to toggle follow", "del/x to cancel this target", "go test"} {
+	for _, unwanted := range []string{"Running. Output appears here", "Press f to toggle tail", "del/x to cancel this target", "go test"} {
 		if strings.Contains(view, unwanted) {
 			t.Fatalf("running output panel should not contain %q:\n%s", unwanted, view)
 		}
@@ -1948,7 +1948,7 @@ func TestPreviewOutputRangeShowsManualScroll(t *testing.T) {
 	}
 }
 
-func TestPreviewFollowShowsTailForCompletedLongLogs(t *testing.T) {
+func TestPreviewTailShowsTailForCompletedLongLogs(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusFailed
 	model.Logs["api"] = strings.Join([]string{
@@ -1961,12 +1961,12 @@ func TestPreviewFollowShowsTailForCompletedLongLogs(t *testing.T) {
 	view := stripANSI(strings.Join(model.renderLogPanel(52, 18), "\n"))
 	for _, want := range []string{"line-05", "line-20"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("completed output follow should show tail %q:\n%s", want, view)
+			t.Fatalf("completed output tail should show tail %q:\n%s", want, view)
 		}
 	}
 	for _, unwanted := range []string{"Output (", "5 │ line-05", "line-01", "line-04"} {
 		if strings.Contains(view, unwanted) {
-			t.Fatalf("completed output follow should not contain %q:\n%s", unwanted, view)
+			t.Fatalf("completed output tail should not contain %q:\n%s", unwanted, view)
 		}
 	}
 }
