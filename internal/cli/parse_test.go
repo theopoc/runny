@@ -26,6 +26,37 @@ func TestParsePreservesCommandArgumentBoundaries(t *testing.T) {
 	}
 }
 
+func TestParseQuotesShellSensitiveArguments(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		want string
+	}{
+		{
+			name: "empty argument",
+			arg:  "",
+			want: "printf ''",
+		},
+		{
+			name: "single quote",
+			arg:  "it's safe",
+			want: `printf 'it'"'"'s safe'`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse([]string{"--", "printf", tt.arg})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opts.Command != tt.want {
+				t.Fatalf("command = %q, want %q", opts.Command, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseTracksExplicitFalseBooleanFlags(t *testing.T) {
 	tests := []struct {
 		name  string

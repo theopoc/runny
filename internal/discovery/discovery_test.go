@@ -89,6 +89,9 @@ func TestDiscoverPrunesExcludedDirectories(t *testing.T) {
 			t.Errorf("restore blocked directory permissions: %v", err)
 		}
 	})
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("cannot make directory unreadable with current privileges")
+	}
 
 	targets, err := Discover(root, Options{
 		Recursive: true,
