@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,26 @@ import (
 )
 
 const testMaxOutputBytes = 4 << 20
+
+type closeErrorStore struct {
+	err error
+}
+
+func (s closeErrorStore) Close() error {
+	return s.err
+}
+
+func TestCloseLogStoreReportsCloseError(t *testing.T) {
+	runErr := errors.New("run failed")
+	closeErr := errors.New("close failed")
+	err := closeLogStore(closeErrorStore{err: closeErr}, runErr)
+	if !errors.Is(err, runErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("closeLogStore() error = %v, want joined run and close errors", err)
+	}
+	if !strings.Contains(err.Error(), "closing log store:") {
+		t.Fatalf("closeLogStore() error = %q, want close context", err)
+	}
+}
 
 func TestRunnerRunsCommandInTargetDirectory(t *testing.T) {
 	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}

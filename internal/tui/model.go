@@ -41,6 +41,7 @@ type Options struct {
 	RunHistoryPath     string
 	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
 	runTracker         *runTracker
+	lifecycleCtx       context.Context
 	programOptions     []tea.ProgramOption
 }
 
@@ -95,6 +96,7 @@ type Model struct {
 	targetCancels      map[string]context.CancelFunc
 	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
 	runTracker         *runTracker
+	lifecycleCtx       context.Context
 }
 
 type runTracker struct {
@@ -150,6 +152,10 @@ func NewModel(opts Options) Model {
 	if runFunc == nil {
 		runFunc = runner.Run
 	}
+	lifecycleCtx := opts.lifecycleCtx
+	if lifecycleCtx == nil {
+		lifecycleCtx = context.Background()
+	}
 	model := Model{
 		Command:            opts.Command,
 		Targets:            opts.Targets,
@@ -169,6 +175,7 @@ func NewModel(opts Options) Model {
 		targetCancels:      map[string]context.CancelFunc{},
 		runFunc:            runFunc,
 		runTracker:         opts.runTracker,
+		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
 	}
 	if opts.CommandHistoryPath != "" {
@@ -714,7 +721,7 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	reqTargets := append([]core.Target(nil), targets...)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	if m.targetCancels == nil {
 		m.targetCancels = map[string]context.CancelFunc{}
 	}

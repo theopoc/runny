@@ -17,6 +17,9 @@ func Run(opts Options) error {
 }
 
 func runProgram(ctx context.Context, opts Options) error {
+	lifecycleCtx, cancelLifecycle := context.WithCancel(ctx)
+	defer cancelLifecycle()
+	opts.lifecycleCtx = lifecycleCtx
 	runTracker := newRunTracker()
 	opts.runTracker = runTracker
 	programOptions := []tea.ProgramOption{
@@ -37,6 +40,7 @@ func runProgram(ctx context.Context, opts Options) error {
 	}()
 
 	_, err := program.Run()
+	cancelLifecycle()
 	close(programDone)
 	<-shutdownDone
 	runTracker.CloseAndWait()

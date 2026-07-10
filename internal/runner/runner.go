@@ -17,7 +17,11 @@ import (
 
 const maxOutputBytes = 4 << 20
 
-func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+type logStoreCloser interface {
+	Close() error
+}
+
+func Run(ctx context.Context, req core.RunRequest) (results []core.RunResult, err error) {
 	if req.Command == "" {
 		return nil, errors.New("command is required")
 	}
@@ -25,11 +29,14 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 	if len(targets) == 0 {
 		return nil, errors.New("no selected targets")
 	}
-	results := make([]core.RunResult, len(targets))
+	results = make([]core.RunResult, len(targets))
 	logStore, err := logs.NewStore(logs.Options{Root: req.LogRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		err = closeLogStore(logStore, err)
+	}()
 	if ctx.Err() != nil {
 		for i, target := range targets {
 			results[i] = cancelledResult(target)
@@ -75,6 +82,14 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		}
 	}
 	return results, nil
+}
+
+func closeLogStore(store logStoreCloser, runErr error) error {
+	closeErr := store.Close()
+	if closeErr == nil {
+		return runErr
+	}
+	return errors.Join(runErr, fmt.Errorf("closing log store: %w", closeErr))
 }
 
 func runOne(

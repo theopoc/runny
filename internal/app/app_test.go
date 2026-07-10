@@ -70,3 +70,65 @@ func TestFlagOverridesPreservesExplicitFalse(t *testing.T) {
 		t.Fatal("serial = true, want explicit CLI false to override config file")
 	}
 }
+
+func TestResolveDiscoveryOptionsHonorsRecursiveDepthPrecedence(t *testing.T) {
+	tests := []struct {
+		name          string
+		configYAML    string
+		args          []string
+		wantRecursive bool
+		wantDepth     int
+	}{
+		{
+			name:          "explicit false forces direct children",
+			configYAML:    "recursive: true\ndepth: 3\n",
+			args:          []string{"--recursive=false"},
+			wantRecursive: false,
+			wantDepth:     1,
+		},
+		{
+			name:          "explicit true uses unlimited depth",
+			configYAML:    "recursive: false\ndepth: 3\n",
+			args:          []string{"--recursive=true"},
+			wantRecursive: true,
+			wantDepth:     0,
+		},
+		{
+			name:          "explicit depth wins over recursive false",
+			configYAML:    "recursive: true\ndepth: 3\n",
+			args:          []string{"--recursive=false", "--depth", "2"},
+			wantRecursive: true,
+			wantDepth:     2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			configPath := filepath.Join(dir, "config.yaml")
+			if err := os.WriteFile(configPath, []byte(tt.configYAML), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			parsed, err := cli.Parse(tt.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(config.LoadOptions{
+				HomeDir: dir,
+				WorkDir: dir,
+				Config:  configPath,
+				Flags:   flagOverrides(parsed),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got := resolveDiscoveryOptions(cfg, parsed)
+			if got.Recursive != tt.wantRecursive || got.Depth != tt.wantDepth {
+				t.Fatalf("discovery options = {Recursive:%t Depth:%d}, want {Recursive:%t Depth:%d}",
+					got.Recursive, got.Depth, tt.wantRecursive, tt.wantDepth)
+			}
+		})
+	}
+}

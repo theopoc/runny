@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -184,6 +185,64 @@ func TestRunProgramWaitsForSignalCleanup(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("runProgram did not wait for runner cleanup")
+	}
+}
+
+func TestRunProgramCancelsActiveRunWhenProgramExits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	reader, writer := io.Pipe()
+	opts := Options{
+		Command: "echo ok",
+		Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}},
+		runFunc: func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			return []core.RunResult{{Target: req.Targets[0], Status: core.StatusCancelled}}, nil
+		},
+		programOptions: []tea.ProgramOption{
+			tea.WithInput(reader),
+			tea.WithOutput(io.Discard),
+			tea.WithWindowSize(120, 26),
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runProgram(ctx, opts)
+	}()
+	if _, err := writer.Write([]byte{'\r'}); err != nil {
+		t.Fatalf("write enter: %v", err)
+	}
+	select {
+	case <-started:
+	case err := <-done:
+		t.Fatalf("runProgram returned before run started: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("run did not start")
+	}
+
+	if err := writer.CloseWithError(io.ErrUnexpectedEOF); err != nil {
+		t.Fatalf("close input: %v", err)
+	}
+	select {
+	case <-cancelled:
+	case err := <-done:
+		t.Fatalf("runProgram returned before runner observed cancellation: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("runner did not observe cancellation after program exit")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("runProgram error = %v, want unexpected EOF", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runProgram did not return after runner cancellation")
 	}
 }
 

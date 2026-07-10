@@ -8,10 +8,7 @@ import (
 
 func TestStoreCapturesMemoryAndPersistsWhenEnabled(t *testing.T) {
 	root := t.TempDir()
-	store, err := NewStore(Options{Root: root, Save: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newTestStore(t, Options{Root: root, Save: true})
 	if err := store.Append("api", "hello\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -28,10 +25,7 @@ func TestStoreCapturesMemoryAndPersistsWhenEnabled(t *testing.T) {
 }
 
 func TestStoreDisabledDropsLogs(t *testing.T) {
-	store, err := NewStore(Options{Disabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newTestStore(t, Options{Disabled: true})
 	if err := store.Append("api", "hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -42,10 +36,7 @@ func TestStoreDisabledDropsLogs(t *testing.T) {
 
 func TestStoreNestedTargetPaths(t *testing.T) {
 	root := t.TempDir()
-	store, err := NewStore(Options{Root: root, Save: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newTestStore(t, Options{Root: root, Save: true})
 	if err := store.Append("api/v1", "nested\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -72,10 +63,7 @@ func TestStoreRejectsUnsafeTargetIDs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			base := t.TempDir()
 			root := filepath.Join(base, "run")
-			store, err := NewStore(Options{Root: root, Save: true})
-			if err != nil {
-				t.Fatal(err)
-			}
+			store := newTestStore(t, Options{Root: root, Save: true})
 			if err := store.Append(tt.targetID, "unsafe\n"); err == nil {
 				t.Fatalf("Append(%q) error = nil", tt.targetID)
 			}
@@ -111,10 +99,7 @@ func TestStoreUsesPrivateModes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(Options{Root: root, Save: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newTestStore(t, Options{Root: root, Save: true})
 	if err := store.Append("team/service/api", "private\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -147,10 +132,7 @@ func TestStoreRejectsParentSymlinkEscape(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(Options{Root: root, Save: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newTestStore(t, Options{Root: root, Save: true})
 	if err := os.Symlink(outside, filepath.Join(root, "api")); err != nil {
 		t.Fatal(err)
 	}
@@ -173,10 +155,7 @@ func TestStoreRejectsFinalLogSymlinkEscape(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("original\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(Options{Root: root, Save: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newTestStore(t, Options{Root: root, Save: true})
 	if err := os.Symlink(outside, filepath.Join(root, "api.log")); err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +164,44 @@ func TestStoreRejectsFinalLogSymlinkEscape(t *testing.T) {
 		t.Fatal("Append() error = nil, want final symlink rejection")
 	}
 	assertFileContents(t, outside, "original\n")
+}
+
+func TestStoreRootReplacementCannotEscape(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "run")
+	originalRoot := filepath.Join(base, "original-run")
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, Options{Root: root, Save: true})
+	if err := os.Rename(root, originalRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, root); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Append("api", "safe\n"); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContents(t, filepath.Join(originalRoot, "api.log"), "safe\n")
+	if _, err := os.Stat(filepath.Join(outside, "api.log")); !os.IsNotExist(err) {
+		t.Fatalf("outside log exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestStoreCloseIsSafeAndIdempotent(t *testing.T) {
+	store := newTestStore(t, Options{Root: filepath.Join(t.TempDir(), "run"), Save: true})
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("second Close() error = %v", err)
+	}
+	if err := store.Append("api", "closed\n"); err == nil {
+		t.Fatal("Append() error = nil after Close()")
+	}
 }
 
 func assertFileContents(t *testing.T, path, want string) {
@@ -196,4 +213,18 @@ func assertFileContents(t *testing.T, path, want string) {
 	if got := string(data); got != want {
 		t.Fatalf("file %q = %q, want %q", path, got, want)
 	}
+}
+
+func newTestStore(t *testing.T, opts Options) *Store {
+	t.Helper()
+	store, err := NewStore(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+	return store
 }

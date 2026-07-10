@@ -17,7 +17,7 @@ type Options struct {
 }
 
 type Store struct {
-	root     string
+	root     *os.Root
 	save     bool
 	disabled bool
 	mu       sync.Mutex
@@ -25,19 +25,21 @@ type Store struct {
 }
 
 func NewStore(opts Options) (*Store, error) {
+	var root *os.Root
 	if opts.Save && !opts.Disabled {
 		if err := os.MkdirAll(opts.Root, 0o700); err != nil {
 			return nil, err
 		}
-		root, err := os.OpenRoot(opts.Root)
+		var err error
+		root, err = os.OpenRoot(opts.Root)
 		if err != nil {
 			return nil, err
 		}
-		if err := errors.Join(root.Chmod(".", 0o700), root.Close()); err != nil {
-			return nil, err
+		if err := root.Chmod(".", 0o700); err != nil {
+			return nil, errors.Join(err, root.Close())
 		}
 	}
-	return &Store{root: opts.Root, save: opts.Save, disabled: opts.Disabled, bufs: map[string]*bytes.Buffer{}}, nil
+	return &Store{root: root, save: opts.Save, disabled: opts.Disabled, bufs: map[string]*bytes.Buffer{}}, nil
 }
 
 func (s *Store) Append(targetID, text string) error {
@@ -55,9 +57,23 @@ func (s *Store) Append(targetID, text string) error {
 	}
 	s.bufs[targetID].WriteString(text)
 	if s.save {
-		return appendRooted(s.root, path, text)
+		if s.root == nil {
+			return os.ErrClosed
+		}
+		return appendToRoot(s.root, path, text)
 	}
 	return nil
+}
+
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.root == nil {
+		return nil
+	}
+	root := s.root
+	s.root = nil
+	return root.Close()
 }
 
 func (s *Store) String(targetID string) string {
@@ -78,15 +94,6 @@ func targetLogPath(targetID string) (string, error) {
 		return "", fmt.Errorf("invalid target id %q", targetID)
 	}
 	return path + ".log", nil
-}
-
-func appendRooted(rootPath, path, text string) error {
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return err
-	}
-	appendErr := appendToRoot(root, path, text)
-	return errors.Join(appendErr, root.Close())
 }
 
 func appendToRoot(root *os.Root, path, text string) error {

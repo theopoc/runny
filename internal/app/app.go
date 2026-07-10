@@ -72,16 +72,7 @@ func Run(opts Options) int {
 	if parsed.Command != "" {
 		cfg.Command = parsed.Command
 	}
-	if parsed.Recursive && parsed.Depth == nil {
-		cfg.Depth = 0
-	}
-	targets, err := discovery.Discover(opts.WorkDir, discovery.Options{
-		Recursive:     cfg.Recursive || cfg.Depth == 0 || cfg.Depth > 1,
-		Depth:         cfg.Depth,
-		IncludeHidden: cfg.IncludeHidden,
-		Include:       cfg.Include,
-		Exclude:       cfg.Exclude,
-	})
+	targets, err := discovery.Discover(opts.WorkDir, resolveDiscoveryOptions(cfg, parsed))
 	if err != nil {
 		fmt.Fprintln(opts.Stderr, err)
 		return 1
@@ -106,6 +97,23 @@ func Run(opts Options) int {
 		return 1
 	}
 	return 0
+}
+
+func resolveDiscoveryOptions(cfg config.Config, parsed cli.Options) discovery.Options {
+	depth := cfg.Depth
+	if parsed.RecursiveSet && parsed.Depth == nil {
+		depth = 1
+		if parsed.Recursive {
+			depth = 0
+		}
+	}
+	return discovery.Options{
+		Recursive:     cfg.Recursive || depth == 0 || depth > 1,
+		Depth:         depth,
+		IncludeHidden: cfg.IncludeHidden,
+		Include:       cfg.Include,
+		Exclude:       cfg.Exclude,
+	}
 }
 
 func flagOverrides(parsed cli.Options) config.FlagOverrides {
