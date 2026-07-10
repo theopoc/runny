@@ -59,7 +59,11 @@ func walk(root, dir, parentID string, depth int, opts Options, targets *[]Target
 			return err
 		}
 		nextDepth := depth + 1
-		include := matchesInclude(rel, opts.Include) && !matches(rel, opts.Exclude)
+		excluded := matches(rel, opts.Exclude)
+		if excluded {
+			continue
+		}
+		include := matchesInclude(rel, opts.Include)
 		id := filepath.ToSlash(rel)
 		if include {
 			target := Target{

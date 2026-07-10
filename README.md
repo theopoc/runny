@@ -33,9 +33,13 @@ cask "theopoc/tap/runny", trusted: true
 runny
 runny -- pnpm test
 runny --depth 2 --workers 4 -- pnpm test
+runny -- printf '%s\n' 'hello world'
+runny -- sh -c 'pnpm test && pnpm lint'
 ```
 
 `runny` always opens the TUI. Flags and config files only prepare the initial discovery, command, execution mode, and logging options. By default, `runny` discovers directories up to depth 3, excludes hidden directories, skips symlinked directories, and runs in parallel.
+
+Arguments after `--` keep their original boundaries. Shell metacharacters inside an argument are treated as data. Use `sh -c` explicitly when the command needs shell composition such as `&&`, pipes, or redirections.
 
 ## Docker
 

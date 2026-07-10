@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,23 @@ func TestStrictYamlRejectsAutoField(t *testing.T) {
 	_, err := Load(LoadOptions{HomeDir: dir, WorkDir: dir})
 	if err == nil {
 		t.Fatal("expected auto field to be rejected")
+	}
+}
+
+func TestLoadRejectsMissingExplicitConfig(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.yaml")
+
+	if _, err := Load(LoadOptions{HomeDir: dir, WorkDir: dir}); err != nil {
+		t.Fatalf("missing implicit config files should be optional: %v", err)
+	}
+
+	_, err := Load(LoadOptions{HomeDir: dir, WorkDir: dir, Config: missing})
+	if err == nil {
+		t.Fatal("expected missing explicit config error")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("error = %q, want explicit path %q", err, missing)
 	}
 }
 

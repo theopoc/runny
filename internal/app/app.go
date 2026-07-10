@@ -111,16 +111,16 @@ func Run(opts Options) int {
 func flagOverrides(parsed cli.Options) config.FlagOverrides {
 	return config.FlagOverrides{
 		Command:        strPtr(parsed.Command),
-		Recursive:      boolPtr(parsed.Recursive),
+		Recursive:      boolPtrIfSet(parsed.Recursive, parsed.RecursiveSet),
 		Depth:          parsed.Depth,
-		IncludeHidden:  boolPtr(parsed.IncludeHidden),
+		IncludeHidden:  boolPtrIfSet(parsed.IncludeHidden, parsed.IncludeHiddenSet),
 		Include:        parsed.Include,
 		Exclude:        parsed.Exclude,
-		Serial:         boolPtr(parsed.Serial),
+		Serial:         boolPtrIfSet(parsed.Serial, parsed.SerialSet),
 		Workers:        parsed.Workers,
-		FailFast:       boolPtr(parsed.FailFast),
-		SaveLogs:       boolPtr(parsed.SaveLogs),
-		DisableLogging: boolPtr(parsed.DisableLogging),
+		FailFast:       boolPtrIfSet(parsed.FailFast, parsed.FailFastSet),
+		SaveLogs:       boolPtrIfSet(parsed.SaveLogs, parsed.SaveLogsSet),
+		DisableLogging: boolPtrIfSet(parsed.DisableLogging, parsed.DisableLoggingSet),
 	}
 }
 
@@ -131,11 +131,11 @@ func strPtr(v string) *string {
 	return &v
 }
 
-func boolPtr(v bool) *bool {
-	if !v {
+func boolPtrIfSet(value, set bool) *bool {
+	if !set {
 		return nil
 	}
-	return &v
+	return &value
 }
 
 func helpText() string {
