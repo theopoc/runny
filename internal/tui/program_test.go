@@ -186,3 +186,85 @@ func TestRunProgramWaitsForSignalCleanup(t *testing.T) {
 		t.Fatal("runProgram did not wait for runner cleanup")
 	}
 }
+
+func TestRunProgramImmediateShutdownSkipsUnstartedCommands(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	batchDropped := make(chan struct{}, 1)
+	started := make(chan struct{}, 2)
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	opts := Options{
+		Command: "echo ok",
+		Workers: 2,
+		Targets: []core.Target{
+			{ID: "api", RelPath: "api", Selected: true},
+			{ID: "web", RelPath: "web", Selected: true},
+		},
+		runFunc: func(context.Context, core.RunRequest) ([]core.RunResult, error) {
+			started <- struct{}{}
+			return nil, nil
+		},
+		programOptions: []tea.ProgramOption{
+			tea.WithInput(reader),
+			tea.WithOutput(io.Discard),
+			tea.WithWindowSize(120, 26),
+			tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+				if _, ok := msg.(tea.BatchMsg); ok {
+					batchDropped <- struct{}{}
+					return nil
+				}
+				return msg
+			}),
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runProgram(ctx, opts)
+	}()
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := writer.Write([]byte{'\r'})
+		writeDone <- err
+	}()
+
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("write enter: %v", err)
+		}
+	case err := <-done:
+		t.Fatalf("runProgram returned before consuming input: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("program did not consume input")
+	}
+	select {
+	case <-batchDropped:
+	case err := <-done:
+		t.Fatalf("runProgram returned before scheduling batch: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("program did not schedule target batch")
+	}
+	select {
+	case <-started:
+		t.Fatal("runFunc should not start before immediate shutdown")
+	default:
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runProgram waited for commands Bubble Tea never started")
+	}
+	select {
+	case <-started:
+		t.Fatal("runFunc should remain unstarted after shutdown")
+	default:
+	}
+}

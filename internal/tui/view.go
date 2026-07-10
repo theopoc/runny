@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,8 +17,8 @@ func Run(opts Options) error {
 }
 
 func runProgram(ctx context.Context, opts Options) error {
-	var runWait sync.WaitGroup
-	opts.runWait = &runWait
+	runTracker := newRunTracker()
+	opts.runTracker = runTracker
 	programOptions := []tea.ProgramOption{
 		tea.WithColorProfile(colorprofile.TrueColor),
 		tea.WithoutSignals(),
@@ -40,6 +39,6 @@ func runProgram(ctx context.Context, opts Options) error {
 	_, err := program.Run()
 	close(programDone)
 	<-shutdownDone
-	runWait.Wait()
+	runTracker.CloseAndWait()
 	return err
 }

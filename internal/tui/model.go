@@ -40,7 +40,7 @@ type Options struct {
 	CommandHistoryPath string
 	RunHistoryPath     string
 	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
-	runWait            *sync.WaitGroup
+	runTracker         *runTracker
 	programOptions     []tea.ProgramOption
 }
 
@@ -94,7 +94,48 @@ type Model struct {
 	cancelRun          context.CancelFunc
 	targetCancels      map[string]context.CancelFunc
 	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
-	runWait            *sync.WaitGroup
+	runTracker         *runTracker
+}
+
+type runTracker struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	closed bool
+	active int
+}
+
+func newRunTracker() *runTracker {
+	tracker := &runTracker{}
+	tracker.cond = sync.NewCond(&tracker.mu)
+	return tracker
+}
+
+func (t *runTracker) TryStart() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return false
+	}
+	t.active++
+	return true
+}
+
+func (t *runTracker) Done() {
+	t.mu.Lock()
+	t.active--
+	if t.active == 0 {
+		t.cond.Broadcast()
+	}
+	t.mu.Unlock()
+}
+
+func (t *runTracker) CloseAndWait() {
+	t.mu.Lock()
+	t.closed = true
+	for t.active > 0 {
+		t.cond.Wait()
+	}
+	t.mu.Unlock()
 }
 
 func NewModel(opts Options) Model {
@@ -127,7 +168,7 @@ func NewModel(opts Options) Model {
 		CommandHistoryPos:  -1,
 		targetCancels:      map[string]context.CancelFunc{},
 		runFunc:            runFunc,
-		runWait:            opts.runWait,
+		runTracker:         opts.runTracker,
 		LogFollow:          true,
 	}
 	if opts.CommandHistoryPath != "" {
@@ -848,13 +889,21 @@ func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
 		DisableLogging: m.DisableLogging,
 		LogRoot:        m.runLogRoot,
 	}
-	runWait := m.runWait
-	if runWait != nil {
-		runWait.Add(1)
-	}
+	runTracker := m.runTracker
 	return func() tea.Msg {
-		if runWait != nil {
-			defer runWait.Done()
+		if runTracker != nil {
+			if !runTracker.TryStart() {
+				targetCancel()
+				now := time.Now()
+				return runDoneMsg{targetID: target.ID, results: []core.RunResult{{
+					Target:  target,
+					Status:  core.StatusCancelled,
+					Error:   context.Canceled.Error(),
+					Started: now,
+					Ended:   now,
+				}}}
+			}
+			defer runTracker.Done()
 		}
 		results, err := runFunc(targetCtx, req)
 		return runDoneMsg{targetID: target.ID, results: results, err: err}
