@@ -25,3 +25,36 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           args: check
+      - run: docker build -t runny:ci .
+
+  notify:
+    needs: test
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Report missing Telegram secrets
+        if: ${{ env.TELEGRAM_BOT_TOKEN == '' || env.TELEGRAM_CHAT_ID == '' }}
+        run: echo "::warning::Telegram secrets unavailable; notification skipped"
+      - name: Send Telegram notification
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        uses: appleboy/telegram-action@4cd2253b24c9682a5be99eb6f7ab3484586978fa # master
+        with:
+          to: ${{ env.TELEGRAM_CHAT_ID }}
+          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          format: html
+          disable_web_page_preview: true
+          message: |
+            ${{ needs.test.result == 'success' && '✅' || '❌' }} <b>CI ${{ needs.test.result }}</b>
+
+            <b>Repository:</b> <code>${{ github.repository }}</code>
+            <b>Branch:</b> <code>${{ github.head_ref || github.ref_name }}</code>
+            <b>Event:</b> ${{ github.event_name }}
+            <b>Commit:</b> <code>${{ github.event.pull_request.head.sha || github.sha }}</code>
+            <b>Author:</b> ${{ github.actor }}
+            <b>Test:</b> ${{ needs.test.result }}
+
+            <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run</a>
