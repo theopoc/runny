@@ -5,6 +5,7 @@
 Run one shell command across selected child directories from a terminal UI.
 
 [![GitHub](https://img.shields.io/badge/GitHub-theopoc%2Frunny-181717?style=for-the-badge&logo=github)](https://github.com/theopoc/runny)
+[![Releases](https://img.shields.io/badge/Releases-view-2ea44f?style=for-the-badge)](https://github.com/theopoc/runny/releases)
 [![Go 1.26.x](https://img.shields.io/badge/Go-1.26.x-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/doc/)
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 

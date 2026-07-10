@@ -45,9 +45,10 @@ The command stays short and uses standard Unix tooling. Quoting `'*'` prevents t
 
 ## Badges
 
-Use consistent `style=for-the-badge` Shields URLs. Include exactly three non-overlapping badges:
+Use consistent `style=for-the-badge` Shields URLs. Include exactly four non-overlapping badges:
 
 - Static GitHub repository badge linking to `theopoc/runny`.
+- Static Releases badge linking to GitHub Releases without claiming release status.
 - Go 1.26.x from `go.mod` and workflow configuration.
 - MIT license from `LICENSE` and GitHub repository metadata.
 

@@ -12,7 +12,7 @@
 
 - Preserve CLI, config, logging, discovery, and TUI behavior.
 - Use canonical repository identity `theopoc/runny`.
-- Use exactly one static GitHub repository badge, one Go badge, and one MIT badge, all with `style=for-the-badge`.
+- Use exactly one static GitHub repository badge, one static Releases link badge, one Go badge, and one MIT badge, all with `style=for-the-badge`.
 - Use no dynamic CI or release badge while the repository is private.
 - Omit Brewfile and project-structure sections.
 - State plainly that the project is 100% vibe coded without treating that fact as quality or security evidence.
@@ -129,7 +129,7 @@ git commit -m "docs: add TUI demo"
 
 - [ ] **Step 1: Rewrite hero and overview**
 
-Use centered `runny` heading, concise tagline, and exactly three Shields.io badges: static GitHub repository, Go 1.26.x, and MIT license. Every badge must use `style=for-the-badge`. Do not add dynamic CI or release badges because unauthenticated badge requests cannot read the private repository and the release workflow has no run.
+Use centered `runny` heading, concise tagline, and exactly four Shields.io badges: static GitHub repository, static Releases link, Go 1.26.x, and MIT license. Every badge must use `style=for-the-badge`. Do not add dynamic CI or release-status badges because unauthenticated badge requests cannot read the private repository and the release workflow has no run.
 
 Embed demo directly after overview:
 
@@ -158,7 +158,7 @@ for url in $(rg -o 'https://img\.shields\.io/[^)]+' README.md); do curl -fsSL "$
 git diff --check
 ```
 
-Expected: first and badge-status scans return no matches; links use `theopoc/runny`; diff check exits successfully. Badge labels cover GitHub, Go, and MIT exactly once each.
+Expected: first and badge-status scans return no matches; links use `theopoc/runny`; diff check exits successfully. Badge labels cover GitHub, Releases, Go, and MIT exactly once each.
 
 - [ ] **Step 5: Commit README**
 
