@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -28,6 +29,13 @@ func NewStore(opts Options) (*Store, error) {
 		if err := os.MkdirAll(opts.Root, 0o700); err != nil {
 			return nil, err
 		}
+		root, err := os.OpenRoot(opts.Root)
+		if err != nil {
+			return nil, err
+		}
+		if err := errors.Join(root.Chmod(".", 0o700), root.Close()); err != nil {
+			return nil, err
+		}
 	}
 	return &Store{root: opts.Root, save: opts.Save, disabled: opts.Disabled, bufs: map[string]*bytes.Buffer{}}, nil
 }
@@ -36,7 +44,7 @@ func (s *Store) Append(targetID, text string) error {
 	if s.disabled {
 		return nil
 	}
-	path, err := targetLogPath(s.root, targetID)
+	path, err := targetLogPath(targetID)
 	if err != nil {
 		return err
 	}
@@ -47,15 +55,7 @@ func (s *Store) Append(targetID, text string) error {
 	}
 	s.bufs[targetID].WriteString(text)
 	if s.save {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return err
-		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-		if err != nil {
-			return err
-		}
-		_, writeErr := f.WriteString(text)
-		return errors.Join(writeErr, f.Close())
+		return appendRooted(s.root, path, text)
 	}
 	return nil
 }
@@ -72,10 +72,59 @@ func (s *Store) String(targetID string) string {
 	return s.bufs[targetID].String()
 }
 
-func targetLogPath(root, targetID string) (string, error) {
+func targetLogPath(targetID string) (string, error) {
 	path := filepath.FromSlash(targetID)
 	if targetID == "" || path == "." || !filepath.IsLocal(path) {
 		return "", fmt.Errorf("invalid target id %q", targetID)
 	}
-	return filepath.Join(root, path+".log"), nil
+	return path + ".log", nil
+}
+
+func appendRooted(rootPath, path, text string) error {
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return err
+	}
+	appendErr := appendToRoot(root, path, text)
+	return errors.Join(appendErr, root.Close())
+}
+
+func appendToRoot(root *os.Root, path, text string) error {
+	parent := filepath.Dir(path)
+	if err := root.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	if err := secureDirectories(root, parent); err != nil {
+		return err
+	}
+	f, err := root.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	_, writeErr := f.WriteString(text)
+	return errors.Join(writeErr, f.Close())
+}
+
+func secureDirectories(root *os.Root, parent string) error {
+	dirs := []string{"."}
+	current := ""
+	if parent != "." {
+		for _, part := range strings.Split(parent, string(filepath.Separator)) {
+			current = filepath.Join(current, part)
+			dirs = append(dirs, current)
+		}
+	}
+	for _, dir := range dirs {
+		dirRoot, err := root.OpenRoot(dir)
+		if err != nil {
+			return err
+		}
+		if err := errors.Join(dirRoot.Chmod(".", 0o700), dirRoot.Close()); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -95,6 +95,22 @@ func TestStoreRejectsUnsafeTargetIDs(t *testing.T) {
 
 func TestStoreUsesPrivateModes(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "run")
+	logPath := filepath.Join(root, "team", "service", "api.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{root, filepath.Join(root, "team"), filepath.Dir(logPath)} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(logPath, []byte("existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(logPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	store, err := NewStore(Options{Root: root, Save: true})
 	if err != nil {
 		t.Fatal(err)
@@ -112,13 +128,63 @@ func TestStoreUsesPrivateModes(t *testing.T) {
 			t.Fatalf("directory %q mode = %04o, want 0700", dir, got)
 		}
 	}
-	info, err := os.Stat(filepath.Join(root, "team", "service", "api.log"))
+	info, err := os.Stat(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("log mode = %04o, want 0600", got)
 	}
+}
+
+func TestStoreRejectsParentSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "run")
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(Options{Root: root, Save: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "api")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Append("api/v1", "unsafe\n"); err == nil {
+		t.Fatal("Append() error = nil, want parent symlink rejection")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "v1.log")); !os.IsNotExist(err) {
+		t.Fatalf("outside log exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestStoreRejectsFinalLogSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "run")
+	outside := filepath.Join(base, "outside.log")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("original\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(Options{Root: root, Save: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "api.log")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Append("api", "unsafe\n"); err == nil {
+		t.Fatal("Append() error = nil, want final symlink rejection")
+	}
+	assertFileContents(t, outside, "original\n")
 }
 
 func assertFileContents(t *testing.T, path, want string) {

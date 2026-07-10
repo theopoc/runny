@@ -121,7 +121,7 @@ func runOne(
 		output = capture.String()
 	}
 	var saveErr error
-	if output != "" && logStore != nil {
+	if logStore != nil {
 		if appendErr := logStore.Append(target.ID, output); appendErr != nil {
 			saveErr = fmt.Errorf("saving log: %w", appendErr)
 		}

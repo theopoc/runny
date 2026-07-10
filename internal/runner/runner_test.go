@@ -115,6 +115,27 @@ func TestRunSurfacesLogWriteFailure(t *testing.T) {
 	}
 }
 
+func TestRunSurfacesSilentLogWriteFailure(t *testing.T) {
+	logRoot := filepath.Join(t.TempDir(), "run")
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:  fmt.Sprintf("rm -rf %q; : > %q", logRoot, logRoot),
+		Targets:  []core.Target{target},
+		Mode:     core.ModeSerial,
+		SaveLogs: true,
+		LogRoot:  logRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Status != core.StatusFailed {
+		t.Fatalf("status = %q, want %q", results[0].Status, core.StatusFailed)
+	}
+	if !strings.Contains(results[0].Error, "saving log:") {
+		t.Fatalf("error = %q, want saving log context", results[0].Error)
+	}
+}
+
 func TestRunJoinsCommandAndLogWriteFailures(t *testing.T) {
 	logRoot := filepath.Join(t.TempDir(), "run")
 	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
