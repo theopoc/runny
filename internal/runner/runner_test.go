@@ -240,6 +240,58 @@ func TestRunnerCancellation(t *testing.T) {
 	}
 }
 
+func TestRunnerLogWriteFailureOverridesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logRoot := filepath.Join(t.TempDir(), "run")
+	targetDir := t.TempDir()
+	started := filepath.Join(targetDir, "started")
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: targetDir, Selected: true}
+	type runOutcome struct {
+		results []core.RunResult
+		err     error
+	}
+	done := make(chan runOutcome, 1)
+	go func() {
+		results, err := Run(ctx, core.RunRequest{
+			Command:  fmt.Sprintf("mkdir %q; touch %q; sleep 20", filepath.Join(logRoot, "api.log"), started),
+			Targets:  []core.Target{target},
+			Mode:     core.ModeSerial,
+			SaveLogs: true,
+			LogRoot:  logRoot,
+		})
+		done <- runOutcome{results: results, err: err}
+	}()
+
+	for range 50 {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatal("command did not start")
+	}
+	cancel()
+
+	select {
+	case outcome := <-done:
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
+		}
+		if len(outcome.results) != 1 || outcome.results[0].Status != core.StatusFailed {
+			t.Fatalf("results = %#v, want failed persistence", outcome.results)
+		}
+		for _, want := range []string{context.Canceled.Error(), "saving log:"} {
+			if !strings.Contains(outcome.results[0].Error, want) {
+				t.Fatalf("error = %q, want %q", outcome.results[0].Error, want)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not cancel")
+	}
+}
+
 func TestRunnerCancellationKillsChildProcesses(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("process groups are unix-specific")

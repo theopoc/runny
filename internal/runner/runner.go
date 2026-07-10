@@ -142,18 +142,26 @@ func runOne(
 		}
 	}
 	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: output}
-	if ctx.Err() != nil {
-		result.Status = core.StatusCancelled
-		result.Error = errors.Join(ctx.Err(), saveErr).Error()
+	if saveErr != nil {
+		result.Status = core.StatusFailed
+		result.Error = errors.Join(err, ctx.Err(), saveErr).Error()
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			result.ExitCode = exitErr.ExitCode()
+		}
 		return result
 	}
-	resultErr := errors.Join(err, saveErr)
-	if resultErr == nil {
+	if ctx.Err() != nil {
+		result.Status = core.StatusCancelled
+		result.Error = ctx.Err().Error()
+		return result
+	}
+	if err == nil {
 		result.Status = core.StatusSucceeded
 		return result
 	}
 	result.Status = core.StatusFailed
-	result.Error = resultErr.Error()
+	result.Error = err.Error()
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		result.ExitCode = exitErr.ExitCode()
