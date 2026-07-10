@@ -1,11 +1,11 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -14,6 +14,8 @@ import (
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/logs"
 )
+
+const maxOutputBytes = 4 << 20
 
 func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 	if req.Command == "" {
@@ -24,11 +26,7 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		return nil, errors.New("no selected targets")
 	}
 	results := make([]core.RunResult, len(targets))
-	logRoot := req.LogRoot
-	if req.SaveLogs && !req.DisableLogging {
-		logRoot = filepath.Join(req.LogRoot, time.Now().UTC().Format("20060102T150405.000000000Z"))
-	}
-	logStore, err := logs.NewStore(logs.Options{Root: logRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
+	logStore, err := logs.NewStore(logs.Options{Root: req.LogRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +77,13 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 	return results, nil
 }
 
-func runOne(ctx context.Context, command string, target core.Target, logStore *logs.Store, disableLogging bool) core.RunResult {
+func runOne(
+	ctx context.Context,
+	command string,
+	target core.Target,
+	logStore *logs.Store,
+	disableLogging bool,
+) core.RunResult {
 	started := time.Now()
 	if ctx.Err() != nil {
 		return cancelledResult(target)
@@ -87,9 +91,14 @@ func runOne(ctx context.Context, command string, target core.Target, logStore *l
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = target.AbsPath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	var capture *tailBuffer
+	var outputWriter io.Writer = io.Discard
+	if !disableLogging {
+		capture = newTailBuffer(maxOutputBytes)
+		outputWriter = capture
+	}
+	cmd.Stdout = outputWriter
+	cmd.Stderr = outputWriter
 	err := cmd.Start()
 	if err == nil {
 		done := make(chan error, 1)
@@ -107,25 +116,29 @@ func runOne(ctx context.Context, command string, target core.Target, logStore *l
 		}
 	}
 	ended := time.Now()
-	output := out.String()
-	if output != "" && logStore != nil {
-		_ = logStore.Append(target.ID, output)
+	var output string
+	if capture != nil {
+		output = capture.String()
 	}
-	if disableLogging {
-		output = ""
+	var saveErr error
+	if output != "" && logStore != nil {
+		if appendErr := logStore.Append(target.ID, output); appendErr != nil {
+			saveErr = fmt.Errorf("saving log: %w", appendErr)
+		}
 	}
 	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: output}
 	if ctx.Err() != nil {
 		result.Status = core.StatusCancelled
-		result.Error = ctx.Err().Error()
+		result.Error = errors.Join(ctx.Err(), saveErr).Error()
 		return result
 	}
-	if err == nil {
+	resultErr := errors.Join(err, saveErr)
+	if resultErr == nil {
 		result.Status = core.StatusSucceeded
 		return result
 	}
 	result.Status = core.StatusFailed
-	result.Error = err.Error()
+	result.Error = resultErr.Error()
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		result.ExitCode = exitErr.ExitCode()
@@ -135,5 +148,11 @@ func runOne(ctx context.Context, command string, target core.Target, logStore *l
 
 func cancelledResult(target core.Target) core.RunResult {
 	now := time.Now()
-	return core.RunResult{Target: target, Status: core.StatusCancelled, Started: now, Ended: now, Error: context.Canceled.Error()}
+	return core.RunResult{
+		Target:  target,
+		Status:  core.StatusCancelled,
+		Started: now,
+		Ended:   now,
+		Error:   context.Canceled.Error(),
+	}
 }
