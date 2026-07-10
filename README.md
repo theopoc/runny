@@ -4,8 +4,7 @@
 
 Run one shell command across selected child directories from a terminal UI.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/theopoc/runny/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/theopoc/runny/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/actions/workflow/status/theopoc/runny/release.yml?style=for-the-badge&label=Release)](https://github.com/theopoc/runny/actions/workflows/release.yml)
+[![GitHub](https://img.shields.io/badge/GitHub-theopoc%2Frunny-181717?style=for-the-badge&logo=github)](https://github.com/theopoc/runny)
 [![Go 1.26.x](https://img.shields.io/badge/Go-1.26.x-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/doc/)
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
@@ -43,13 +42,6 @@ If your Homebrew setup requires trusted taps:
 brew tap theopoc/tap
 brew trust --tap theopoc/tap
 brew install --cask runny
-```
-
-For a Brewfile:
-
-```ruby
-tap "theopoc/tap", trusted: true
-cask "theopoc/tap/runny", trusted: true
 ```
 
 ## Quick Start
@@ -150,16 +142,6 @@ exclude:
 | `ctrl+c` | Cancel active runs and quit cleanly |
 
 Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
-
-## Project Structure
-
-```text
-cmd/runny/       CLI entry point
-internal/cli/    argument parsing
-internal/config/ configuration loading
-internal/runner/ parallel command execution
-internal/tui/    terminal interface
-```
 
 ## Development
 

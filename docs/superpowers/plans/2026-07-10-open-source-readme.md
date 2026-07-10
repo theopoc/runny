@@ -12,7 +12,9 @@
 
 - Preserve CLI, config, logging, discovery, and TUI behavior.
 - Use canonical repository identity `theopoc/runny`.
-- Use only repository-backed badges with `style=for-the-badge`.
+- Use exactly one static GitHub repository badge, one Go badge, and one MIT badge, all with `style=for-the-badge`.
+- Use no dynamic CI or release badge while the repository is private.
+- Omit Brewfile and project-structure sections.
 - State plainly that the project is 100% vibe coded without treating that fact as quality or security evidence.
 - Commit no temporary demo fixtures or raw recording.
 - Keep `wc -l '*'` as the recorded command.
@@ -127,7 +129,7 @@ git commit -m "docs: add TUI demo"
 
 - [ ] **Step 1: Rewrite hero and overview**
 
-Use centered `runny` heading, concise tagline, and Shields.io badges for CI, release workflow, Go 1.26.x, and MIT license. Every badge must use `style=for-the-badge` and link to its real workflow, Go documentation, or license file.
+Use centered `runny` heading, concise tagline, and exactly three Shields.io badges: static GitHub repository, Go 1.26.x, and MIT license. Every badge must use `style=for-the-badge`. Do not add dynamic CI or release badges because unauthenticated badge requests cannot read the private repository and the release workflow has no run.
 
 Embed demo directly after overview:
 
@@ -139,15 +141,7 @@ Add plain statement: `runny is 100% vibe coded.`
 
 - [ ] **Step 2: Add reader-first project guidance**
 
-Order sections as overview, features, installation, quick start, Docker, flags, configuration, shortcuts, project structure, development, contributing, and license. Preserve current commands and behavior. Use this compact project map:
-
-```text
-cmd/runny/       CLI entry point
-internal/cli/    argument parsing
-internal/config/ configuration loading
-internal/runner/ parallel command execution
-internal/tui/    terminal interface
-```
+Order sections as overview, features, installation, quick start, Docker, flags, configuration, shortcuts, development, contributing, and license. Preserve current commands and behavior. Omit Brewfile and project-structure content.
 
 - [ ] **Step 3: Add contribution path**
 
@@ -160,10 +154,11 @@ Run:
 ```bash
 rg -n 'TODO|TBD|\{\{|saewyn/runny' README.md
 rg -o 'https://[^ )]+' README.md
+for url in $(rg -o 'https://img\.shields\.io/[^)]+' README.md); do curl -fsSL "$url"; done | rg 'NOT FOUND|NO STATUS'
 git diff --check
 ```
 
-Expected: first command returns no matches; links use `theopoc/runny`; diff check exits successfully.
+Expected: first and badge-status scans return no matches; links use `theopoc/runny`; diff check exits successfully. Badge labels cover GitHub, Go, and MIT exactly once each.
 
 - [ ] **Step 5: Commit README**
 

@@ -10,8 +10,9 @@ Make `README.md` a concise, community-ready entry point for `runny`. New users s
 - Preserve documented CLI, config, logging, discovery, and TUI behavior.
 - Use repository-backed metadata for every badge and link.
 - Keep Homebrew and Docker installation paths.
-- Add concise project structure, development, contributing, and license sections.
+- Add concise development, contributing, and license sections.
 - Embed a short Ghostty-driven TUI demonstration near the introduction.
+- Omit Brewfile and project-structure sections.
 
 No source code, workflow, release configuration, repository visibility, or community-policy files change. Demo fixtures remain temporary and are not committed.
 
@@ -24,7 +25,7 @@ No source code, workflow, release configuration, repository visibility, or commu
 5. Feature summary.
 6. Quick start with Homebrew install and first commands.
 7. Detailed usage, configuration, Docker, and shortcut references.
-8. Small repository map and development commands.
+8. Development commands.
 9. Contribution guidance linking GitHub issues and pull requests.
 10. MIT license reference.
 
@@ -44,14 +45,13 @@ The command stays short and uses standard Unix tooling. Quoting `'*'` prevents t
 
 ## Badges
 
-Use consistent `style=for-the-badge` Shields URLs. Include only facts confirmed by repository state:
+Use consistent `style=for-the-badge` Shields URLs. Include exactly three non-overlapping badges:
 
-- CI workflow status from `.github/workflows/ci.yml`.
-- Release workflow status from `.github/workflows/release.yml`.
+- Static GitHub repository badge linking to `theopoc/runny`.
 - Go 1.26.x from `go.mod` and workflow configuration.
 - MIT license from `LICENSE` and GitHub repository metadata.
 
-Exclude release-version, download, star-count, social, and package-registry badges. Current repository has no published release or social metadata, and it remains private during this change.
+Exclude dynamic CI, release, release-version, download, star-count, social, and package-registry badges. Current repository is private, so unauthenticated workflow badges return `REPO OR WORKFLOW NOT FOUND`; release workflow also has no runs. Static badges must never depend on GitHub API visibility.
 
 ## Content Rules
 
@@ -66,7 +66,7 @@ Exclude release-version, download, star-count, social, and package-registry badg
 
 - Run `go test ./...` to ensure documentation work starts and ends from a healthy tree.
 - Scan README for placeholders and stale repository identities.
-- Verify badge workflow filenames, links, and `style=for-the-badge` parameters.
+- Fetch every badge image and confirm none contains `NOT FOUND`, `NO STATUS`, or duplicate GitHub information.
 - Inspect rendered Markdown structure through source review.
 - Inspect the final GIF for readable text, correct dimensions, smooth looping, and reasonable repository size.
 - Confirm the recorded sequence shows distinct `wc -l` output for all three targets.
