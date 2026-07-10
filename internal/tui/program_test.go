@@ -1,35 +1,40 @@
 package tui
 
 import (
-	"bytes"
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/history"
 )
 
 func TestRunnyTUIProgramEndToEnd(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
-		{ID: "api", RelPath: "api", Selected: true},
-		{ID: "web", RelPath: "web", Selected: true},
-	}})
+	runHistoryPath := filepath.Join(t.TempDir(), "runs.jsonl")
+	model := NewModel(Options{
+		Command:        "echo ok",
+		RunHistoryPath: runHistoryPath,
+		Targets: []core.Target{
+			{ID: "api", RelPath: "api", Selected: true},
+			{ID: "web", RelPath: "web", Selected: true},
+		},
+	})
 	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 		return []core.RunResult{
 			{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n"},
 		}, nil
 	}
 
-	var out bytes.Buffer
 	reader, writer := io.Pipe()
 	defer writer.Close()
 	program := tea.NewProgram(
 		model,
 		tea.WithInput(reader),
-		tea.WithOutput(&out),
+		tea.WithOutput(io.Discard),
 		tea.WithWindowSize(120, 26),
 		tea.WithoutSignals(),
 	)
@@ -57,16 +62,16 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	program.Send(tea.KeyPressMsg(tea.Key{Code: ' '}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'a'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	time.Sleep(100 * time.Millisecond)
+	waitForCompletedRun(t, runHistoryPath, 2)
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	program.Send(tea.KeyPressMsg(tea.Key{Text: "y"}))
+	var final Model
 	select {
 	case result := <-done:
 		if result.err != nil {
 			t.Fatal(result.err)
 		}
-		finalModel := result.model
-		final := finalModel.(Model)
+		final = result.model.(Model)
 		if final.Workers != 1 {
 			t.Fatalf("workers = %d, want 1", final.Workers)
 		}
@@ -76,10 +81,108 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("program did not quit")
 	}
-	rendered := stripANSI(out.String())
+	rendered := stripANSI(final.View().Content)
 	for _, want := range []string{"runny", "Tasks", "Output", "workers 1", "succeeded"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered output should contain %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func waitForCompletedRun(t *testing.T, path string, total int) {
+	t.Helper()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+	for {
+		runs, err := history.ReadRuns(path)
+		if err == nil && len(runs) == 1 && runs[0].Total == total {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-timeout.C:
+			t.Fatalf("run history did not reach total %d: runs=%#v err=%v", total, runs, err)
+		}
+	}
+}
+
+func TestRunProgramWaitsForSignalCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	opts := Options{
+		Command: "echo ok",
+		Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}},
+		runFunc: func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			<-release
+			return []core.RunResult{{Target: req.Targets[0], Status: core.StatusCancelled}}, nil
+		},
+		programOptions: []tea.ProgramOption{
+			tea.WithInput(reader),
+			tea.WithOutput(io.Discard),
+			tea.WithWindowSize(120, 26),
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runProgram(ctx, opts)
+	}()
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := writer.Write([]byte{'\r'})
+		writeDone <- err
+	}()
+
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("write enter: %v", err)
+		}
+	case err := <-done:
+		t.Fatalf("runProgram returned before consuming input: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("program did not consume input")
+	}
+	select {
+	case <-started:
+	case err := <-done:
+		t.Fatalf("runProgram returned before run started: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("run did not start")
+	}
+
+	cancel()
+	select {
+	case <-cancelled:
+	case err := <-done:
+		t.Fatalf("runProgram returned before runner observed cancellation: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("runner did not observe cancellation")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("runProgram returned before runner cleanup completed: %v", err)
+	default:
+	}
+
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runProgram did not wait for runner cleanup")
 	}
 }

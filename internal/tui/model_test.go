@@ -2,12 +2,14 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -2154,6 +2156,195 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 	}
 	if !strings.Contains(model.Logs["web"], "web bad") || !strings.Contains(model.Logs["web"], "exit status 1") {
 		t.Fatalf("web logs = %q", model.Logs["web"])
+	}
+}
+
+func TestModelRunnerErrorBecomesFailure(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+	}})
+	model.runFunc = func(context.Context, core.RunRequest) ([]core.RunResult, error) {
+		return nil, errors.New("runner setup failed")
+	}
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	model, next := applyOneCmd(t, model, cmd)
+
+	if next != nil {
+		t.Fatal("runner error should not schedule another command")
+	}
+	if model.Status["api"] != core.StatusFailed {
+		t.Fatalf("api status = %s, want failed", model.Status["api"])
+	}
+	if model.Running || model.PendingRuns != 0 {
+		t.Fatalf("run should be terminal, running/pending = %t/%d", model.Running, model.PendingRuns)
+	}
+	if !strings.Contains(model.Logs["api"], "runner setup failed") {
+		t.Fatalf("api log = %q, want runner error", model.Logs["api"])
+	}
+	if len(model.RunHistory) != 1 {
+		t.Fatalf("run history = %#v, want one terminal run", model.RunHistory)
+	}
+	run := model.RunHistory[0]
+	if run.Total != 1 || run.Failed != 1 || run.Succeeded != 0 || run.Cancelled != 0 {
+		t.Fatalf("run totals = %#v, want one failure", run)
+	}
+}
+
+func TestModelFailFastCancelsRemaining(t *testing.T) {
+	model := NewModel(Options{
+		Command:  "echo ok",
+		Workers:  1,
+		FailFast: true,
+		Targets: []core.Target{
+			{ID: "api", RelPath: "api", Selected: true},
+			{ID: "web", RelPath: "web", Selected: true},
+			{ID: "worker", RelPath: "worker", Selected: true},
+		},
+	})
+	model.runFunc = func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		return []core.RunResult{{
+			Target: req.Targets[0],
+			Status: core.StatusFailed,
+			Error:  "exit status 1",
+		}}, nil
+	}
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	model, next := applyOneCmd(t, model, cmd)
+
+	if next != nil {
+		t.Fatal("fail-fast should not schedule queued targets")
+	}
+	if model.Status["api"] != core.StatusFailed ||
+		model.Status["web"] != core.StatusCancelled ||
+		model.Status["worker"] != core.StatusCancelled {
+		t.Fatalf("fail-fast statuses = %#v", model.Status)
+	}
+	if len(model.runQueue) != 0 {
+		t.Fatalf("run queue = %#v, want empty", model.runQueue)
+	}
+	if model.Running || model.PendingRuns != 0 || model.hasActiveRuns() {
+		t.Fatalf("run should be terminal, running/pending/active = %t/%d/%t", model.Running, model.PendingRuns, model.hasActiveRuns())
+	}
+	if len(model.RunHistory) != 1 {
+		t.Fatalf("run history = %#v, want one terminal run", model.RunHistory)
+	}
+	run := model.RunHistory[0]
+	if run.Total != 3 || run.Failed != 1 || run.Cancelled != 2 || run.Succeeded != 0 {
+		t.Fatalf("run totals = %#v, want one failure and two cancellations", run)
+	}
+}
+
+func TestModelUsesOneLogRootPerRun(t *testing.T) {
+	baseLogRoot := t.TempDir()
+	model := NewModel(Options{
+		Command:  "echo ok",
+		Workers:  2,
+		SaveLogs: true,
+		LogRoot:  baseLogRoot,
+		Targets: []core.Target{
+			{ID: "api", RelPath: "api", Selected: true},
+			{ID: "web", RelPath: "web", Selected: true},
+		},
+	})
+	var requestRoots []string
+	model.runFunc = func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		requestRoots = append(requestRoots, req.LogRoot)
+		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded}}, nil
+	}
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	model = updated
+	if model.runLogRoot == "" {
+		t.Fatal("startRun should create a run-scoped log root")
+	}
+	if filepath.Dir(model.runLogRoot) != baseLogRoot {
+		t.Fatalf("run log root = %q, want child of %q", model.runLogRoot, baseLogRoot)
+	}
+	if _, err := time.Parse("20060102T150405.000000000Z", filepath.Base(model.runLogRoot)); err != nil {
+		t.Fatalf("run log root timestamp = %q: %v", filepath.Base(model.runLogRoot), err)
+	}
+
+	model = applyCmd(t, model, cmd)
+	if len(requestRoots) != 2 {
+		t.Fatalf("request log roots = %#v, want two", requestRoots)
+	}
+	for _, root := range requestRoots {
+		if root != model.runLogRoot {
+			t.Fatalf("request log root = %q, want shared root %q", root, model.runLogRoot)
+		}
+	}
+}
+
+func TestModelBackspaceRemovesRune(t *testing.T) {
+	inputs := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "accented", value: "café", want: "caf"},
+		{name: "emoji", value: "go 🚀", want: "go "},
+	}
+	fields := []struct {
+		name    string
+		prepare func(*Model, string)
+		value   func(Model) string
+	}{
+		{
+			name: "command",
+			prepare: func(model *Model, value string) {
+				model.Focus = FocusCommand
+				model.Command = value
+			},
+			value: func(model Model) string { return model.Command },
+		},
+		{
+			name: "filter",
+			prepare: func(model *Model, value string) {
+				model.Focus = FocusFilter
+				model.Filter = value
+			},
+			value: func(model Model) string { return model.Filter },
+		},
+		{
+			name: "palette",
+			prepare: func(model *Model, value string) {
+				model.ShowPalette = true
+				model.Palette = value
+			},
+			value: func(model Model) string { return model.Palette },
+		},
+		{
+			name: "history",
+			prepare: func(model *Model, value string) {
+				model.ShowHistory = true
+				model.HistorySearching = true
+				model.HistoryFilter = value
+			},
+			value: func(model Model) string { return model.HistoryFilter },
+		},
+	}
+
+	for _, field := range fields {
+		for _, input := range inputs {
+			t.Run(field.name+"/"+input.name, func(t *testing.T) {
+				model := NewModel(Options{})
+				field.prepare(&model, input.value)
+
+				model, _ = updateSpecialKey(model, tea.KeyBackspace)
+				got := field.value(model)
+
+				if !utf8.ValidString(got) {
+					t.Fatalf("backspace produced invalid UTF-8: %q", got)
+				}
+				if got != input.want {
+					t.Fatalf("backspace result = %q, want %q", got, input.want)
+				}
+			})
+		}
 	}
 }
 
