@@ -1,12 +1,37 @@
+<div align="center">
+
 # runny
 
-[![ci](https://github.com/theopoc/runny/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/theopoc/runny/actions/workflows/ci.yml)
-[![release](https://github.com/theopoc/runny/actions/workflows/release.yml/badge.svg)](https://github.com/theopoc/runny/actions/workflows/release.yml)
-[![Go](https://img.shields.io/badge/Go-1.26.x-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+Run one shell command across selected child directories from a terminal UI.
 
-`runny` runs one shell command across selected child directories from a terminal UI.
+[![GitHub](https://img.shields.io/badge/GitHub-theopoc%2Frunny-181717?style=for-the-badge&logo=github)](https://github.com/theopoc/runny)
+[![Releases](https://img.shields.io/badge/Releases-view-2ea44f?style=for-the-badge)](https://github.com/theopoc/runny/releases)
+[![Go 1.26.x](https://img.shields.io/badge/Go-1.26.x-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/doc/)
+[![MIT License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-## Install
+</div>
+
+## Overview
+
+`runny` discovers child directories, lets you select targets in a terminal UI, and runs the same command across them. It supports parallel or serial execution, filtering, cancellation, run history, and optional persisted logs.
+
+runny is 100% vibe coded.
+
+![runny TUI demo](demo/runny.gif)
+
+## Features
+
+- Select and filter directories before running a command.
+- Run targets in parallel with a worker limit, or one at a time.
+- Cancel queued or active runs and rerun failures.
+- Review live output and command history in the TUI.
+- Configure discovery, execution, and logging through YAML files or CLI flags.
+
+By default, `runny` discovers directories up to depth 3, excludes hidden directories, skips symlinked directories, and runs in parallel.
+
+## Installation
+
+Install with Homebrew:
 
 ```bash
 brew install --cask theopoc/tap/runny
@@ -20,14 +45,9 @@ brew trust --tap theopoc/tap
 brew install --cask runny
 ```
 
-Brewfile:
+## Quick Start
 
-```ruby
-tap "theopoc/tap", trusted: true
-cask "theopoc/tap/runny", trusted: true
-```
-
-## Usage
+Launch the TUI, optionally with an initial command and execution settings:
 
 ```bash
 runny
@@ -35,7 +55,7 @@ runny -- pnpm test
 runny --depth 2 --workers 4 -- pnpm test
 ```
 
-`runny` always opens the TUI. Flags and config files only prepare the initial discovery, command, execution mode, and logging options. By default, `runny` discovers directories up to depth 3, excludes hidden directories, skips symlinked directories, and runs in parallel.
+`runny` always opens the TUI. Flags and config files prepare the initial discovery, command, execution mode, and logging options.
 
 ## Docker
 
@@ -52,10 +72,7 @@ docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
 docker run --rm -it -v "$PWD:/workspace" -w /workspace runny --depth 2 -- pnpm test
 ```
 
-The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags.
-
-
-Commands run inside the container. Tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
+The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags. Commands run inside the container; tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
 
 ## Flags
 
@@ -76,9 +93,9 @@ Commands run inside the container. Tools installed only on the host, such as `pn
 
 `--include` and `--exclude` are mutually exclusive. `--serial` and `--workers` are mutually exclusive. `--disable-logging` and `--save-logs` are mutually exclusive.
 
-## Config
+## Configuration
 
-Config files load in this order:
+Configuration loads in this order, with later sources taking precedence:
 
 1. `~/.runny.yaml`
 2. `./.runny.yaml`
@@ -99,7 +116,7 @@ exclude:
   - node_modules
 ```
 
-## TUI Shortcuts
+## Shortcuts
 
 | Key | Action |
 | --- | --- |
@@ -129,7 +146,24 @@ Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`
 
 ## Development
 
+Run the checks used for local development:
+
 ```bash
 go test ./...
 go build ./cmd/runny
 ```
+
+## Contributing
+
+Open an [issue](https://github.com/theopoc/runny/issues) for bugs or proposed changes. Pull requests are welcome at [theopoc/runny](https://github.com/theopoc/runny/pulls).
+
+Before submitting a pull request, run:
+
+```bash
+go test ./...
+go build ./cmd/runny
+```
+
+## License
+
+Licensed under the [MIT License](LICENSE).
