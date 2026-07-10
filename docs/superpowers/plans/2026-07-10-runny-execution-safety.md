@@ -6,7 +6,7 @@
 
 **Architecture:** Preserve the current TUI scheduler and shell-backed runner, but make ownership explicit. CLI parsing preserves argv boundaries, the TUI owns one run context and log root, runner output is bounded, and `tui.Run` owns OS signals plus completion waiting.
 
-**Tech Stack:** Go 1.26.4, standard `flag`, `context`, `os/signal`, `sync`, `/bin/sh`, Bubble Tea v2.0.7, Go testing, GitHub Actions.
+**Tech Stack:** Go 1.26.5, standard `flag`, `context`, `os/signal`, `sync`, `/bin/sh`, Bubble Tea v2.0.7, Go testing, GitHub Actions.
 
 ## Global Constraints
 
