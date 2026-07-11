@@ -16,7 +16,7 @@ Automate release preparation after releasable changes reach `main` while keeping
 
 A single GitHub Actions workflow runs on pushes to `main`. Release Please executes first and either creates or updates a release PR, or creates the tag and GitHub Release after that PR is merged. The same workflow also has an explicit manual recovery entry point for an existing release whose artifact publication failed.
 
-GoReleaser runs in the same workflow only when Release Please reports `release_created == true`. This avoids relying on a second workflow event: GitHub does not start another workflow for a tag created with the workflow's built-in `GITHUB_TOKEN`.
+On the normal push path, GoReleaser runs in the same workflow only when Release Please reports `release_created == true`. On manual recovery, it runs only after validation returns an existing release tag with no assets. This avoids relying on a second workflow event: GitHub does not start another workflow for a tag created with the workflow's built-in `GITHUB_TOKEN`.
 
 The publication path is:
 
@@ -38,9 +38,9 @@ The repository will contain Release Please manifest configuration for one Go pro
 
 ### GitHub Actions workflow
 
-The release workflow will trigger on pushes to `main` and grant only permissions required to manage release PRs, tags, and releases. Release Please will expose release metadata through its action outputs.
+The release workflow has two events: pushes to `main` for normal releases and manual dispatch with an existing `vX.Y.Z` tag for recovery. Release Please runs only for pushes and exposes release metadata through its action outputs. Manual recovery validates its tag, matching non-draft GitHub Release, and absence of assets before publication. The workflow grants only permissions required to manage release PRs, tags, and releases.
 
-Build and publication steps will have a `release_created` condition. They will check out Release Please's `tag_name`, fetch complete Git history, configure Go, and execute `goreleaser release --clean`.
+Build and publication steps require either `release_created == true` from the normal path or a validated recovery tag. They check out Release Please's `tag_name` or the validated recovery tag, fetch complete Git history, configure Go, and execute `goreleaser release --clean`.
 
 ### GoReleaser
 
@@ -51,7 +51,7 @@ Existing cross-platform builds, archives, checksums, version linker flags, and H
 - Release Please failure stops workflow before publication.
 - Normal `main` pushes with no completed release report success without running GoReleaser.
 - GoReleaser failure leaves tag and GitHub Release visible, making failure diagnosable and workflow rerunnable.
-- Manual recovery accepts only a validated existing `vX.Y.Z`-style tag and checks out that exact tag. It does not create or move tags.
+- Manual recovery accepts only a validated existing `vX.Y.Z` tag and checks out that exact tag. It does not create or move tags.
 - Recovery refuses drafts and releases with any existing assets. Partial publication therefore requires deliberate maintainer reconciliation; artifacts are never silently replaced.
 - Homebrew publication failure remains visible in GoReleaser logs and must fail release job.
 

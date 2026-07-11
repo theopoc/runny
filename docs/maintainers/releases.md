@@ -50,7 +50,7 @@ but GoReleaser failed before uploading any GitHub assets.
 3. Run **Actions > release > Run workflow**, enter exact existing tag, and run.
 4. Verify uploaded archives/checksum and Homebrew cask before closing incident.
 
-Recovery validates SemVer-like `v*` input, requires existing tag and non-draft
+Recovery requires exact `vX.Y.Z` input, existing tag, and non-draft
 GitHub Release, checks out exact tag, and refuses releases containing assets.
 It never creates or moves tags and never overwrites existing artifacts. If a
 partial run uploaded assets, preserve evidence and decide explicitly whether to

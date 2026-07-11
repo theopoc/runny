@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$RECOVERY_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$RECOVERY_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag: $RECOVERY_TAG" >&2
             exit 1
           fi

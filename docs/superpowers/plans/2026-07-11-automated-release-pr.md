@@ -256,8 +256,8 @@ Do not merge release PR during implementation verification. Report PR URL and wo
 ## Final Verification Checklist
 
 - [ ] `release-please-config.json` and `.release-please-manifest.json` parse and select root Go package.
-- [ ] Release workflow triggers only on pushes to `main`.
-- [ ] GoReleaser steps run only when `release_created == 'true'`.
+- [ ] Normal release path triggers on pushes to `main` and runs Release Please; manual dispatch bypasses Release Please and accepts only a validated existing `vX.Y.Z` recovery tag.
+- [ ] GoReleaser steps run only when `release_created == 'true'` or manual recovery produced a validated tag.
 - [ ] Release tag is checked out with `fetch-depth: 0`.
 - [ ] GoReleaser preserves Release Please notes with `mode: keep-existing`.
 - [ ] Existing artifact matrix, checksum, linker flags, and Homebrew cask configuration remain unchanged.
