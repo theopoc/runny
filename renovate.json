@@ -1,0 +1,158 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "gomod",
+    "github-actions",
+    "dockerfile"
+  ],
+  "timezone": "Europe/Paris",
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "🤖 Dependency Updates Dashboard",
+  "dependencyDashboardLabels": [
+    "dependencies",
+    "renovate-dashboard"
+  ],
+  "dependencyDashboardApproval": false,
+  "prConcurrentLimit": 3,
+  "branchConcurrentLimit": 5,
+  "platformAutomerge": false,
+  "ignoreTests": false,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "separateMajorMinor": true,
+  "separateMinorPatch": false,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": "14 days",
+    "minimumReleaseAgeBehaviour": "timestamp-required",
+    "prCreation": "immediate",
+    "vulnerabilityFixStrategy": "lowest",
+    "addLabels": [
+      "security"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Disable ordinary Go module updates",
+      "matchManagers": [
+        "gomod"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Automerge non-major Go vulnerability fixes after release age",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "postUpdateOptions": [
+        "gomodTidy"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    },
+    {
+      "description": "Require manual review for major Go vulnerability fixes",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "postUpdateOptions": [
+        "gomodTidy"
+      ],
+      "automerge": false,
+      "addLabels": [
+        "major-update"
+      ]
+    },
+    {
+      "description": "Group and pin GitHub Actions",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions",
+      "pinDigests": true
+    },
+    {
+      "description": "Automerge non-major GitHub Actions and digest updates",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "pin",
+        "pinDigest",
+        "digest",
+        "patch",
+        "minor"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Require manual review for major GitHub Actions",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "pinDigests": true,
+      "automerge": false,
+      "addLabels": [
+        "major-update"
+      ]
+    },
+    {
+      "description": "Group and pin Dockerfile images",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "groupName": "Docker images",
+      "pinDigests": true
+    },
+    {
+      "description": "Automerge non-major Dockerfile and digest updates",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "pin",
+        "pinDigest",
+        "digest",
+        "patch",
+        "minor"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Require manual review for major Dockerfile images",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "pinDigests": true,
+      "automerge": false,
+      "addLabels": [
+        "major-update"
+      ]
+    }
+  ]
+}
