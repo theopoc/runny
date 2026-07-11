@@ -4,7 +4,7 @@
 
 **Goal:** Create maintainer-approved Release Please PRs from releasable commits on `main`, then publish `runny` artifacts and Homebrew cask from the same workflow after the release PR is merged.
 
-**Architecture:** One `release` workflow runs Release Please for every push to `main`. Ordinary pushes only create or update a release PR; merging that PR makes Release Please create a tag and GitHub Release, then conditional steps check out that exact tag and run GoReleaser against the existing release.
+**Architecture:** One `release` workflow runs Release Please for every push to `main`. Ordinary pushes only create or update a release PR; merging that PR makes Release Please create a tag and GitHub Release, then conditional steps check out that exact tag and run GoReleaser against the existing release. A manual dispatch can recover a failed publication only for a validated existing release with no uploaded assets.
 
 **Tech Stack:** GitHub Actions, `googleapis/release-please-action@v4`, Release Please manifest configuration, GoReleaser v2, Go 1.26, JSON, YAML
 
@@ -264,3 +264,4 @@ Do not merge release PR during implementation verification. Report PR URL and wo
 - [ ] `rtk goreleaser check`, snapshot release, and `rtk go test ./...` pass.
 - [ ] Initial post-merge run creates release PR for `v0.1.0`, not immediate release.
 - [ ] Release PR remains unmerged for maintainer approval.
+- [ ] Manual recovery rejects invalid/missing tags, drafts, and releases with existing assets before GoReleaser runs.

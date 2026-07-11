@@ -14,7 +14,7 @@ Automate release preparation after releasable changes reach `main` while keeping
 
 ## Architecture
 
-A single GitHub Actions workflow runs on pushes to `main`. Release Please executes first and either creates or updates a release PR, or creates the tag and GitHub Release after that PR is merged.
+A single GitHub Actions workflow runs on pushes to `main`. Release Please executes first and either creates or updates a release PR, or creates the tag and GitHub Release after that PR is merged. The same workflow also has an explicit manual recovery entry point for an existing release whose artifact publication failed.
 
 GoReleaser runs in the same workflow only when Release Please reports `release_created == true`. This avoids relying on a second workflow event: GitHub does not start another workflow for a tag created with the workflow's built-in `GITHUB_TOKEN`.
 
@@ -51,7 +51,8 @@ Existing cross-platform builds, archives, checksums, version linker flags, and H
 - Release Please failure stops workflow before publication.
 - Normal `main` pushes with no completed release report success without running GoReleaser.
 - GoReleaser failure leaves tag and GitHub Release visible, making failure diagnosable and workflow rerunnable.
-- Repeated publication for the same tag must not silently replace released artifacts. Workflow runs GoReleaser once per `release_created` event; retries must account for any artifacts already uploaded by a partial run.
+- Manual recovery accepts only a validated existing `vX.Y.Z`-style tag and checks out that exact tag. It does not create or move tags.
+- Recovery refuses drafts and releases with any existing assets. Partial publication therefore requires deliberate maintainer reconciliation; artifacts are never silently replaced.
 - Homebrew publication failure remains visible in GoReleaser logs and must fail release job.
 
 ## Validation
