@@ -1,6 +1,6 @@
 <div align="center">
 
-# runny
+# Runny
 
 Run one shell command across selected child directories from a terminal UI.
 
@@ -13,11 +13,11 @@ Run one shell command across selected child directories from a terminal UI.
 
 ## Overview
 
-`runny` discovers child directories, lets you select targets in a terminal UI, and runs the same command across them. It supports parallel or serial execution, filtering, cancellation, run history, and optional persisted logs.
+`Runny` discovers child directories, lets you select targets in a terminal UI, and runs the same command across them. It supports parallel or serial execution, filtering, cancellation, run history, and optional persisted logs.
 
-runny is 100% vibe coded.
+Runny is 100% vibe coded.
 
-![runny TUI demo](demo/runny.gif)
+![Runny TUI demo](demo/runny.gif)
 
 ## Features
 
@@ -27,7 +27,7 @@ runny is 100% vibe coded.
 - Review live output and command history in the TUI.
 - Configure discovery, execution, and logging through YAML files or CLI flags.
 
-By default, `runny` discovers directories up to depth 3, excludes hidden directories, skips symlinked directories, and runs in parallel.
+By default, `Runny` discovers directories up to depth 3, excludes hidden directories, skips symlinked directories, and runs in parallel.
 
 ## Installation
 
@@ -55,7 +55,7 @@ runny -- pnpm test
 runny --depth 2 --workers 4 -- pnpm test
 ```
 
-`runny` always opens the TUI. Flags and config files prepare the initial discovery, command, execution mode, and logging options.
+`Runny` always opens the TUI. Flags and config files prepare the initial discovery, command, execution mode, and logging options.
 
 ## Docker
 
