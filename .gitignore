@@ -6,3 +6,4 @@
 /dist/
 /runny
 *.test
+.DS_Store
