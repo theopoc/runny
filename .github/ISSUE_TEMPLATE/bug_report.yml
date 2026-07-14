@@ -1,0 +1,42 @@
+name: Bug report
+description: Report reproducible unexpected behavior in Runny.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Runny. Do not include secrets, command output containing credentials, or private paths.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe observed behavior and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal directory layout, command, and key presses where relevant.
+      placeholder: |
+        1. Run `runny -- ...`
+        2. Select ...
+        3. Press ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Runny version, operating system, terminal, and shell.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Redact secrets, tokens, private paths, and command output before pasting.
+    validations:
+      required: false

@@ -1,0 +1,4 @@
+# Review security-sensitive automation and repository governance changes.
+/.github/ @theopoc
+/renovate.json @theopoc
+/.goreleaser.yaml @theopoc
