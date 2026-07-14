@@ -53,9 +53,13 @@ Launch the TUI, optionally with an initial command and execution settings:
 runny
 runny -- pnpm test
 runny --depth 2 --workers 4 -- pnpm test
+runny -- printf '%s\n' 'hello world'
+runny -- sh -c 'pnpm test && pnpm lint'
 ```
 
 `Runny` always opens the TUI. Flags and config files prepare the initial discovery, command, execution mode, and logging options.
+
+Arguments after `--` keep their original boundaries. Shell metacharacters inside an argument are treated as data. Use `sh -c` explicitly when the command needs shell composition such as `&&`, pipes, or redirections.
 
 ## Docker
 

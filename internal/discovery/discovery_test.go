@@ -76,6 +76,36 @@ func TestDiscoverIncludeExclude(t *testing.T) {
 	}
 }
 
+func TestDiscoverPrunesExcludedDirectories(t *testing.T) {
+	root := t.TempDir()
+	mkdir(t, filepath.Join(root, "kept"))
+	blocked := filepath.Join(root, "excluded", "blocked")
+	mkdir(t, blocked)
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(blocked, 0o755); err != nil {
+			t.Errorf("restore blocked directory permissions: %v", err)
+		}
+	})
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("cannot make directory unreadable with current privileges")
+	}
+
+	targets, err := Discover(root, Options{
+		Recursive: true,
+		Depth:     0,
+		Exclude:   []string{"excluded"},
+	})
+	if err != nil {
+		t.Fatalf("discover with excluded unreadable subtree: %v", err)
+	}
+	if got := rels(targets); len(got) != 1 || got[0] != "kept" {
+		t.Fatalf("targets = %#v, want only kept", got)
+	}
+}
+
 func mkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {

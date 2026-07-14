@@ -3,10 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -36,6 +39,10 @@ type Options struct {
 	LogRoot            string
 	CommandHistoryPath string
 	RunHistoryPath     string
+	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
+	runTracker         *runTracker
+	lifecycleCtx       context.Context
+	programOptions     []tea.ProgramOption
 }
 
 type Model struct {
@@ -71,6 +78,7 @@ type Model struct {
 	PendingRuns        int
 	runCtx             context.Context
 	runQueue           []core.Target
+	runLogRoot         string
 	completedResults   []core.RunResult
 	RunError           string
 	Notice             string
@@ -87,6 +95,49 @@ type Model struct {
 	cancelRun          context.CancelFunc
 	targetCancels      map[string]context.CancelFunc
 	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
+	runTracker         *runTracker
+	lifecycleCtx       context.Context
+}
+
+type runTracker struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	closed bool
+	active int
+}
+
+func newRunTracker() *runTracker {
+	tracker := &runTracker{}
+	tracker.cond = sync.NewCond(&tracker.mu)
+	return tracker
+}
+
+func (t *runTracker) TryStart() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return false
+	}
+	t.active++
+	return true
+}
+
+func (t *runTracker) Done() {
+	t.mu.Lock()
+	t.active--
+	if t.active == 0 {
+		t.cond.Broadcast()
+	}
+	t.mu.Unlock()
+}
+
+func (t *runTracker) CloseAndWait() {
+	t.mu.Lock()
+	t.closed = true
+	for t.active > 0 {
+		t.cond.Wait()
+	}
+	t.mu.Unlock()
 }
 
 func NewModel(opts Options) Model {
@@ -96,6 +147,14 @@ func NewModel(opts Options) Model {
 	for _, target := range opts.Targets {
 		status[target.ID] = core.StatusIdle
 		logs[target.ID] = ""
+	}
+	runFunc := opts.runFunc
+	if runFunc == nil {
+		runFunc = runner.Run
+	}
+	lifecycleCtx := opts.lifecycleCtx
+	if lifecycleCtx == nil {
+		lifecycleCtx = context.Background()
 	}
 	model := Model{
 		Command:            opts.Command,
@@ -114,7 +173,9 @@ func NewModel(opts Options) Model {
 		RunHistoryPath:     opts.RunHistoryPath,
 		CommandHistoryPos:  -1,
 		targetCancels:      map[string]context.CancelFunc{},
-		runFunc:            runner.Run,
+		runFunc:            runFunc,
+		runTracker:         opts.runTracker,
+		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
 	}
 	if opts.CommandHistoryPath != "" {
@@ -142,6 +203,8 @@ type runDoneMsg struct {
 	err      error
 }
 
+type shutdownMsg struct{}
+
 type paletteCommand struct {
 	Name        string
 	Description string
@@ -163,6 +226,10 @@ var paletteCommands = []paletteCommand{
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(shutdownMsg); ok {
+		m.cancelAll()
+		return m, tea.Quit
+	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.Width = size.Width
 		m.Height = size.Height
@@ -297,9 +364,7 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "down":
 		m.nextCommandHistory()
 	case "backspace":
-		if len(m.Command) > 0 {
-			m.Command = m.Command[:len(m.Command)-1]
-		}
+		m.Command = deleteLastRune(m.Command)
 		m.resetCommandHistoryNavigation()
 	case "ctrl+u":
 		m.Command = ""
@@ -339,8 +404,8 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	case "down":
 		m.moveFilterMatch(1)
 	case "backspace":
-		if len(m.Filter) > 0 {
-			m.Filter = m.Filter[:len(m.Filter)-1]
+		if m.Filter != "" {
+			m.Filter = deleteLastRune(m.Filter)
 			m.ensureCursorVisible()
 		}
 	case "ctrl+w":
@@ -364,8 +429,8 @@ func (m Model) handlePaletteKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		m.PalettePos = 0
 		m.RunError = ""
 	case "backspace":
-		if len(m.Palette) > 0 {
-			m.Palette = m.Palette[:len(m.Palette)-1]
+		if m.Palette != "" {
+			m.Palette = deleteLastRune(m.Palette)
 			m.PalettePos = 0
 			m.RunError = ""
 		}
@@ -581,8 +646,8 @@ func (m Model) handleHistoryKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 			m.HistoryPos = 0
 			m.RunError = ""
 		case "backspace":
-			if len(m.HistoryFilter) > 0 {
-				m.HistoryFilter = m.HistoryFilter[:len(m.HistoryFilter)-1]
+			if m.HistoryFilter != "" {
+				m.HistoryFilter = deleteLastRune(m.HistoryFilter)
 				m.HistoryPos = 0
 				m.RunError = ""
 			}
@@ -656,7 +721,7 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	reqTargets := append([]core.Target(nil), targets...)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	if m.targetCancels == nil {
 		m.targetCancels = map[string]context.CancelFunc{}
 	}
@@ -666,6 +731,10 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	m.Running = true
 	m.PendingRuns = len(reqTargets)
 	m.runQueue = append([]core.Target(nil), reqTargets...)
+	m.runLogRoot = ""
+	if m.SaveLogs && !m.DisableLogging {
+		m.runLogRoot = filepath.Join(m.LogRoot, time.Now().UTC().Format("20060102T150405.000000000Z"))
+	}
 	m.completedResults = nil
 	m.RunError = ""
 	m.Notice = fmt.Sprintf("started %d target(s)", len(reqTargets))
@@ -710,7 +779,18 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 	}
 	if done.err != nil {
 		m.RunError = done.err.Error()
+		if len(done.results) == 0 {
+			target, _ := m.targetByID(done.targetID)
+			done.results = []core.RunResult{{
+				Target:  target,
+				Status:  core.StatusFailed,
+				Error:   done.err.Error(),
+				Started: m.TargetStarted[done.targetID],
+				Ended:   time.Now(),
+			}}
+		}
 	}
+	failedFast := false
 	for _, result := range done.results {
 		if m.Status[result.Target.ID] == core.StatusCancelled && result.Status != core.StatusCancelled {
 			result.Status = core.StatusCancelled
@@ -731,9 +811,17 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 			log.WriteString(result.Error)
 		}
 		m.Logs[result.Target.ID] = log.String()
+		if m.FailFast && result.Status == core.StatusFailed {
+			failedFast = true
+		}
+	}
+	if failedFast {
+		m.cancelAll()
 	}
 	if m.PendingRuns == 0 {
-		m.appendRunHistory()
+		if m.Running {
+			m.appendRunHistory()
+		}
 		m.Running = false
 		m.runCtx = nil
 		m.runQueue = nil
@@ -806,12 +894,35 @@ func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
 		FailFast:       m.FailFast,
 		SaveLogs:       m.SaveLogs,
 		DisableLogging: m.DisableLogging,
-		LogRoot:        m.LogRoot,
+		LogRoot:        m.runLogRoot,
 	}
+	runTracker := m.runTracker
 	return func() tea.Msg {
+		if runTracker != nil {
+			if !runTracker.TryStart() {
+				targetCancel()
+				now := time.Now()
+				return runDoneMsg{targetID: target.ID, results: []core.RunResult{{
+					Target:  target,
+					Status:  core.StatusCancelled,
+					Error:   context.Canceled.Error(),
+					Started: now,
+					Ended:   now,
+				}}}
+			}
+			defer runTracker.Done()
+		}
 		results, err := runFunc(targetCtx, req)
 		return runDoneMsg{targetID: target.ID, results: results, err: err}
 	}
+}
+
+func deleteLastRune(value string) string {
+	_, size := utf8.DecodeLastRuneInString(value)
+	if size == 0 {
+		return value
+	}
+	return value[:len(value)-size]
 }
 
 func (m Model) workerLimit() int {

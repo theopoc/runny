@@ -5,23 +5,30 @@ import (
 	"flag"
 	"io"
 	"strings"
+	"unicode"
 )
 
 type Options struct {
-	Command        string
-	Config         string
-	Recursive      bool
-	Depth          *int
-	IncludeHidden  bool
-	Include        []string
-	Exclude        []string
-	Serial         bool
-	Workers        *int
-	FailFast       bool
-	SaveLogs       bool
-	DisableLogging bool
-	Version        bool
-	Help           bool
+	Command           string
+	Config            string
+	Recursive         bool
+	RecursiveSet      bool
+	Depth             *int
+	IncludeHidden     bool
+	IncludeHiddenSet  bool
+	Include           []string
+	Exclude           []string
+	Serial            bool
+	SerialSet         bool
+	Workers           *int
+	FailFast          bool
+	FailFastSet       bool
+	SaveLogs          bool
+	SaveLogsSet       bool
+	DisableLogging    bool
+	DisableLoggingSet bool
+	Version           bool
+	Help              bool
 }
 
 type listFlag []string
@@ -67,17 +74,29 @@ func Parse(args []string) (Options, error) {
 	}
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "recursive", "r":
+			opts.RecursiveSet = true
 		case "depth":
 			opts.Depth = depth
 		case "d":
 			opts.Depth = depthShort
+		case "include-hidden", "H":
+			opts.IncludeHiddenSet = true
+		case "serial", "s":
+			opts.SerialSet = true
 		case "workers":
 			opts.Workers = workers
 		case "w":
 			opts.Workers = workersShort
+		case "fail-fast", "f":
+			opts.FailFastSet = true
+		case "save-logs", "L":
+			opts.SaveLogsSet = true
+		case "disable-logging", "N":
+			opts.DisableLoggingSet = true
 		}
 	})
-	opts.Command = strings.Join(fs.Args(), " ")
+	opts.Command = shellJoin(fs.Args())
 	if len(opts.Include) > 0 && len(opts.Exclude) > 0 {
 		return Options{}, errors.New("include and exclude are mutually exclusive")
 	}
@@ -88,4 +107,24 @@ func Parse(args []string) (Options, error) {
 		return Options{}, errors.New("disable-logging and save-logs are mutually exclusive")
 	}
 	return opts, nil
+}
+
+func shellJoin(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.IndexFunc(value, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("_@%+=:,./-", r)
+	}) == -1 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

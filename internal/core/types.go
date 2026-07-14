@@ -52,7 +52,7 @@ type RunRequest struct {
 	FailFast       bool
 	SaveLogs       bool
 	DisableLogging bool
-	LogRoot        string
+	LogRoot        string // Already-scoped directory for this run.
 }
 
 type RunResult struct {

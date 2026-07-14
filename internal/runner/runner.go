@@ -1,11 +1,11 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -15,7 +15,13 @@ import (
 	"github.com/theopoc/runny/internal/logs"
 )
 
-func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+const maxOutputBytes = 4 << 20
+
+type logStoreCloser interface {
+	Close() error
+}
+
+func Run(ctx context.Context, req core.RunRequest) (results []core.RunResult, err error) {
 	if req.Command == "" {
 		return nil, errors.New("command is required")
 	}
@@ -23,15 +29,14 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 	if len(targets) == 0 {
 		return nil, errors.New("no selected targets")
 	}
-	results := make([]core.RunResult, len(targets))
-	logRoot := req.LogRoot
-	if req.SaveLogs && !req.DisableLogging {
-		logRoot = filepath.Join(req.LogRoot, time.Now().UTC().Format("20060102T150405.000000000Z"))
-	}
-	logStore, err := logs.NewStore(logs.Options{Root: logRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
+	results = make([]core.RunResult, len(targets))
+	logStore, err := logs.NewStore(logs.Options{Root: req.LogRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		err = closeLogStore(logStore, err)
+	}()
 	if ctx.Err() != nil {
 		for i, target := range targets {
 			results[i] = cancelledResult(target)
@@ -79,7 +84,21 @@ func Run(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
 	return results, nil
 }
 
-func runOne(ctx context.Context, command string, target core.Target, logStore *logs.Store, disableLogging bool) core.RunResult {
+func closeLogStore(store logStoreCloser, runErr error) error {
+	closeErr := store.Close()
+	if closeErr == nil {
+		return runErr
+	}
+	return errors.Join(runErr, fmt.Errorf("closing log store: %w", closeErr))
+}
+
+func runOne(
+	ctx context.Context,
+	command string,
+	target core.Target,
+	logStore *logs.Store,
+	disableLogging bool,
+) core.RunResult {
 	started := time.Now()
 	if ctx.Err() != nil {
 		return cancelledResult(target)
@@ -87,9 +106,14 @@ func runOne(ctx context.Context, command string, target core.Target, logStore *l
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = target.AbsPath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	var capture *tailBuffer
+	var outputWriter io.Writer = io.Discard
+	if !disableLogging {
+		capture = newTailBuffer(maxOutputBytes)
+		outputWriter = capture
+	}
+	cmd.Stdout = outputWriter
+	cmd.Stderr = outputWriter
 	err := cmd.Start()
 	if err == nil {
 		done := make(chan error, 1)
@@ -107,14 +131,26 @@ func runOne(ctx context.Context, command string, target core.Target, logStore *l
 		}
 	}
 	ended := time.Now()
-	output := out.String()
-	if output != "" && logStore != nil {
-		_ = logStore.Append(target.ID, output)
+	var output string
+	if capture != nil {
+		output = capture.String()
 	}
-	if disableLogging {
-		output = ""
+	var saveErr error
+	if logStore != nil {
+		if appendErr := logStore.Append(target.ID, output); appendErr != nil {
+			saveErr = fmt.Errorf("saving log: %w", appendErr)
+		}
 	}
 	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: output}
+	if saveErr != nil {
+		result.Status = core.StatusFailed
+		result.Error = errors.Join(err, ctx.Err(), saveErr).Error()
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			result.ExitCode = exitErr.ExitCode()
+		}
+		return result
+	}
 	if ctx.Err() != nil {
 		result.Status = core.StatusCancelled
 		result.Error = ctx.Err().Error()
@@ -135,5 +171,11 @@ func runOne(ctx context.Context, command string, target core.Target, logStore *l
 
 func cancelledResult(target core.Target) core.RunResult {
 	now := time.Now()
-	return core.RunResult{Target: target, Status: core.StatusCancelled, Started: now, Ended: now, Error: context.Canceled.Error()}
+	return core.RunResult{
+		Target:  target,
+		Status:  core.StatusCancelled,
+		Started: now,
+		Ended:   now,
+		Error:   context.Canceled.Error(),
+	}
 }

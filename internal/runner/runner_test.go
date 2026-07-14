@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +15,28 @@ import (
 
 	"github.com/theopoc/runny/internal/core"
 )
+
+const testMaxOutputBytes = 4 << 20
+
+type closeErrorStore struct {
+	err error
+}
+
+func (s closeErrorStore) Close() error {
+	return s.err
+}
+
+func TestCloseLogStoreReportsCloseError(t *testing.T) {
+	runErr := errors.New("run failed")
+	closeErr := errors.New("close failed")
+	err := closeLogStore(closeErrorStore{err: closeErr}, runErr)
+	if !errors.Is(err, runErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("closeLogStore() error = %v, want joined run and close errors", err)
+	}
+	if !strings.Contains(err.Error(), "closing log store:") {
+		t.Fatalf("closeLogStore() error = %q, want close context", err)
+	}
+}
 
 func TestRunnerRunsCommandInTargetDirectory(t *testing.T) {
 	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
@@ -44,11 +68,58 @@ func TestRunnerMarksFailure(t *testing.T) {
 	}
 }
 
-func TestRunnerRespectsLoggingOptions(t *testing.T) {
-	target := core.Target{ID: "api/service", RelPath: "api/service", AbsPath: t.TempDir(), Selected: true}
-	logRoot := t.TempDir()
+func TestRunBoundsOutput(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
 	results, err := Run(context.Background(), core.RunRequest{
-		Command:  "echo hello",
+		Command: fmt.Sprintf("dd if=/dev/zero bs=%d count=1 2>/dev/null", testMaxOutputBytes+1024),
+		Targets: []core.Target{target},
+		Mode:    core.ModeSerial,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Status != core.StatusSucceeded {
+		t.Fatalf("result = %#v", results[0])
+	}
+	wantLen := len(truncatedOutputMarker) + testMaxOutputBytes
+	if len(results[0].Output) != wantLen {
+		t.Fatalf("output length = %d, want %d", len(results[0].Output), wantLen)
+	}
+	if !strings.HasPrefix(results[0].Output, truncatedOutputMarker) {
+		prefix := results[0].Output[:min(len(results[0].Output), len(truncatedOutputMarker))]
+		t.Fatalf("output does not start with truncation marker: %q", prefix)
+	}
+}
+
+func TestRunDisablesCapture(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:        "dd if=/dev/zero bs=1048576 count=32 2>/dev/null",
+		Targets:        []core.Target{target},
+		Mode:           core.ModeSerial,
+		DisableLogging: true,
+	})
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Status != core.StatusSucceeded || results[0].Output != "" {
+		t.Fatalf("result = %#v", results[0])
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8<<20 {
+		t.Fatalf("disabled logging allocated %d bytes, want no output-sized capture", allocated)
+	}
+}
+
+func TestRunSurfacesLogWriteFailure(t *testing.T) {
+	logRoot := filepath.Join(t.TempDir(), "run")
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:  fmt.Sprintf("rm -rf %q; printf blocked > %q; echo hello", logRoot, logRoot),
 		Targets:  []core.Target{target},
 		Mode:     core.ModeSerial,
 		SaveLogs: true,
@@ -57,22 +128,85 @@ func TestRunnerRespectsLoggingOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if results[0].Output != "hello\n" {
-		t.Fatalf("output = %q", results[0].Output)
+	if results[0].Status != core.StatusFailed {
+		t.Fatalf("status = %q, want %q", results[0].Status, core.StatusFailed)
 	}
-	matches, err := filepath.Glob(filepath.Join(logRoot, "*", "api_service.log"))
+	if !strings.Contains(results[0].Error, "saving log:") {
+		t.Fatalf("error = %q, want saving log context", results[0].Error)
+	}
+}
+
+func TestRunSurfacesSilentLogWriteFailure(t *testing.T) {
+	logRoot := filepath.Join(t.TempDir(), "run")
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:  fmt.Sprintf("rm -rf %q; : > %q", logRoot, logRoot),
+		Targets:  []core.Target{target},
+		Mode:     core.ModeSerial,
+		SaveLogs: true,
+		LogRoot:  logRoot,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matches) != 1 {
-		t.Fatalf("saved logs = %#v, want one run-scoped log file", matches)
+	if results[0].Status != core.StatusFailed {
+		t.Fatalf("status = %q, want %q", results[0].Status, core.StatusFailed)
 	}
-	data, err := os.ReadFile(matches[0])
+	if !strings.Contains(results[0].Error, "saving log:") {
+		t.Fatalf("error = %q, want saving log context", results[0].Error)
+	}
+}
+
+func TestRunJoinsCommandAndLogWriteFailures(t *testing.T) {
+	logRoot := filepath.Join(t.TempDir(), "run")
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:  fmt.Sprintf("rm -rf %q; printf blocked > %q; echo hello; exit 7", logRoot, logRoot),
+		Targets:  []core.Target{target},
+		Mode:     core.ModeSerial,
+		SaveLogs: true,
+		LogRoot:  logRoot,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "hello\n" {
-		t.Fatalf("saved log = %q", data)
+	result := results[0]
+	if result.Status != core.StatusFailed || result.ExitCode != 7 {
+		t.Fatalf("result = %#v", result)
+	}
+	if !strings.Contains(result.Error, "exit status 7") || !strings.Contains(result.Error, "saving log:") {
+		t.Fatalf("error = %q, want command and saving log errors", result.Error)
+	}
+}
+
+func TestRunnerRespectsLoggingOptions(t *testing.T) {
+	target := core.Target{ID: "api/service", RelPath: "api/service", AbsPath: t.TempDir(), Selected: true}
+	worker := core.Target{ID: "worker", RelPath: "worker", AbsPath: t.TempDir(), Selected: true}
+	logRoot := t.TempDir()
+	results, err := Run(context.Background(), core.RunRequest{
+		Command:  "echo hello",
+		Targets:  []core.Target{target, worker},
+		Mode:     core.ModeSerial,
+		SaveLogs: true,
+		LogRoot:  logRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].Output != "hello\n" || results[1].Output != "hello\n" {
+		t.Fatalf("results = %#v", results)
+	}
+	for _, path := range []string{
+		filepath.Join(logRoot, "api", "service.log"),
+		filepath.Join(logRoot, "worker.log"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "hello\n" {
+			t.Fatalf("saved log %q = %q", path, data)
+		}
 	}
 
 	results, err = Run(context.Background(), core.RunRequest{
@@ -103,6 +237,58 @@ func TestRunnerCancellation(t *testing.T) {
 	}
 	if results[0].Status != core.StatusCancelled {
 		t.Fatalf("result = %#v", results[0])
+	}
+}
+
+func TestRunnerLogWriteFailureOverridesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logRoot := filepath.Join(t.TempDir(), "run")
+	targetDir := t.TempDir()
+	started := filepath.Join(targetDir, "started")
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: targetDir, Selected: true}
+	type runOutcome struct {
+		results []core.RunResult
+		err     error
+	}
+	done := make(chan runOutcome, 1)
+	go func() {
+		results, err := Run(ctx, core.RunRequest{
+			Command:  fmt.Sprintf("mkdir %q; touch %q; sleep 20", filepath.Join(logRoot, "api.log"), started),
+			Targets:  []core.Target{target},
+			Mode:     core.ModeSerial,
+			SaveLogs: true,
+			LogRoot:  logRoot,
+		})
+		done <- runOutcome{results: results, err: err}
+	}()
+
+	for range 50 {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatal("command did not start")
+	}
+	cancel()
+
+	select {
+	case outcome := <-done:
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
+		}
+		if len(outcome.results) != 1 || outcome.results[0].Status != core.StatusFailed {
+			t.Fatalf("results = %#v, want failed persistence", outcome.results)
+		}
+		for _, want := range []string{context.Canceled.Error(), "saving log:"} {
+			if !strings.Contains(outcome.results[0].Error, want) {
+				t.Fatalf("error = %q, want %q", outcome.results[0].Error, want)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not cancel")
 	}
 }
 

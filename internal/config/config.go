@@ -52,15 +52,16 @@ func Defaults() Config {
 
 func Load(opts LoadOptions) (Config, error) {
 	cfg := Defaults()
-	paths := []string{
+	for _, path := range []string{
 		filepath.Join(opts.HomeDir, ".runny.yaml"),
 		filepath.Join(opts.WorkDir, ".runny.yaml"),
+	} {
+		if err := mergeFile(&cfg, path, false); err != nil {
+			return Config{}, err
+		}
 	}
 	if opts.Config != "" {
-		paths = append(paths, opts.Config)
-	}
-	for _, path := range paths {
-		if err := mergeFile(&cfg, path); err != nil {
+		if err := mergeFile(&cfg, opts.Config, true); err != nil {
 			return Config{}, err
 		}
 	}
@@ -71,13 +72,13 @@ func Load(opts LoadOptions) (Config, error) {
 	return cfg, nil
 }
 
-func mergeFile(cfg *Config, path string) error {
+func mergeFile(cfg *Config, path string, required bool) error {
 	f, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) && !required {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", path, err)
 	}
 	defer f.Close()
 	dec := yaml.NewDecoder(f)

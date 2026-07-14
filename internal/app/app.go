@@ -72,16 +72,7 @@ func Run(opts Options) int {
 	if parsed.Command != "" {
 		cfg.Command = parsed.Command
 	}
-	if parsed.Recursive && parsed.Depth == nil {
-		cfg.Depth = 0
-	}
-	targets, err := discovery.Discover(opts.WorkDir, discovery.Options{
-		Recursive:     cfg.Recursive || cfg.Depth == 0 || cfg.Depth > 1,
-		Depth:         cfg.Depth,
-		IncludeHidden: cfg.IncludeHidden,
-		Include:       cfg.Include,
-		Exclude:       cfg.Exclude,
-	})
+	targets, err := discovery.Discover(opts.WorkDir, resolveDiscoveryOptions(cfg, parsed))
 	if err != nil {
 		fmt.Fprintln(opts.Stderr, err)
 		return 1
@@ -108,19 +99,36 @@ func Run(opts Options) int {
 	return 0
 }
 
+func resolveDiscoveryOptions(cfg config.Config, parsed cli.Options) discovery.Options {
+	depth := cfg.Depth
+	if parsed.RecursiveSet && parsed.Depth == nil {
+		depth = 1
+		if parsed.Recursive {
+			depth = 0
+		}
+	}
+	return discovery.Options{
+		Recursive:     cfg.Recursive || depth == 0 || depth > 1,
+		Depth:         depth,
+		IncludeHidden: cfg.IncludeHidden,
+		Include:       cfg.Include,
+		Exclude:       cfg.Exclude,
+	}
+}
+
 func flagOverrides(parsed cli.Options) config.FlagOverrides {
 	return config.FlagOverrides{
 		Command:        strPtr(parsed.Command),
-		Recursive:      boolPtr(parsed.Recursive),
+		Recursive:      boolPtrIfSet(parsed.Recursive, parsed.RecursiveSet),
 		Depth:          parsed.Depth,
-		IncludeHidden:  boolPtr(parsed.IncludeHidden),
+		IncludeHidden:  boolPtrIfSet(parsed.IncludeHidden, parsed.IncludeHiddenSet),
 		Include:        parsed.Include,
 		Exclude:        parsed.Exclude,
-		Serial:         boolPtr(parsed.Serial),
+		Serial:         boolPtrIfSet(parsed.Serial, parsed.SerialSet),
 		Workers:        parsed.Workers,
-		FailFast:       boolPtr(parsed.FailFast),
-		SaveLogs:       boolPtr(parsed.SaveLogs),
-		DisableLogging: boolPtr(parsed.DisableLogging),
+		FailFast:       boolPtrIfSet(parsed.FailFast, parsed.FailFastSet),
+		SaveLogs:       boolPtrIfSet(parsed.SaveLogs, parsed.SaveLogsSet),
+		DisableLogging: boolPtrIfSet(parsed.DisableLogging, parsed.DisableLoggingSet),
 	}
 }
 
@@ -131,11 +139,11 @@ func strPtr(v string) *string {
 	return &v
 }
 
-func boolPtr(v bool) *bool {
-	if !v {
+func boolPtrIfSet(value, set bool) *bool {
+	if !set {
 		return nil
 	}
-	return &v
+	return &value
 }
 
 func helpText() string {
