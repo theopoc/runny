@@ -21,7 +21,7 @@ jobs:
       - name: Create or update release PR
         id: release
         if: ${{ github.event_name == 'push' }}
-        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
 
       - name: Validate recovery release
         id: recovery
@@ -58,7 +58,7 @@ jobs:
 
       - name: Check out release tag
         if: ${{ steps.release.outputs.release_created == 'true' || steps.recovery.outputs.tag != '' }}
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ steps.release.outputs.tag_name || steps.recovery.outputs.tag }}
           fetch-depth: 0
@@ -72,7 +72,7 @@ jobs:
 
       - name: Publish release artifacts
         if: ${{ steps.release.outputs.release_created == 'true' || steps.recovery.outputs.tag != '' }}
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           distribution: goreleaser
           version: "~> v2"
