@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/theopoc/runny/compare/v0.2.0...v0.3.0) (2026-08-14)
+
+
+### Features
+
+* **tui:** add mouse wheel pane scrolling ([#46](https://github.com/theopoc/runny/issues/46)) ([0885150](https://github.com/theopoc/runny/commit/08851508289722ed27fc104fcf62c0d7264acd6d))
+* **tui:** focus panes with mouse clicks ([#45](https://github.com/theopoc/runny/issues/45)) ([6012c9b](https://github.com/theopoc/runny/commit/6012c9b5bad8b19330803719384f3f7384ffb35a))
+
 ## [0.2.0](https://github.com/theopoc/runny/compare/v0.1.1...v0.2.0) (2026-08-14)
 
 
