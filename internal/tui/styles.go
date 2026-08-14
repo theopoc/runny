@@ -86,6 +86,7 @@ var (
 	commandPromptStyle      = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Background(runnyTheme.bgCommand).Bold(true)
 	commandDisplayStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 	commandInputStyle       = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand)
+	commandSelectionStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection)
 	commandInputTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
 	commandInputBorderStyle = lipgloss.NewStyle().
 				Foreground(runnyTheme.accentCommand)
