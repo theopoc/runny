@@ -775,9 +775,11 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		} else {
 			m.RunError = "no selected targets; press a to toggle visible"
 		}
+		m.Focus = FocusTargets
 		m.Notice = ""
 		return m, nil
 	}
+	m.Focus = FocusTargets
 	reqTargets := append([]core.Target(nil), targets...)
 	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	if m.targetCancels == nil {
