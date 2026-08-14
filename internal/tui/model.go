@@ -254,7 +254,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ConfirmRun = false
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = true
-		m.ConfirmQuitYes = false
+		m.ConfirmQuitYes = true
 		return m, nil
 	}
 	if keyName == "?" {
