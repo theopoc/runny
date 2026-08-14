@@ -21,6 +21,18 @@ gh api repos/OWNER/runny/actions/permissions/workflow
 The release workflow requests its narrower runtime permissions explicitly:
 `contents: write` and `pull-requests: write`.
 
+In **Settings > General > Pull Requests**, allow squash merging only. Configure
+the squash commit title from the pull request title and leave the commit body
+blank. Disable merge commits and rebase merging. Verify the invariant with:
+
+```bash
+gh api repos/OWNER/runny \
+  --jq '{allow_merge_commit,allow_squash_merge,allow_rebase_merge,squash_merge_commit_title,squash_merge_commit_message}'
+```
+
+Feature and fix pull request titles must use Conventional Commit syntax. One
+pull request must produce one commit on `main` and one release-note entry.
+
 Create the `TAP_GITHUB_TOKEN` Actions secret. It must be able to update the
 Homebrew tap repository configured in `.goreleaser.yaml`. Use a fine-grained
 token scoped to that repository with **Contents: Read and write**. Repository or
@@ -29,9 +41,11 @@ this token in repository files or logs.
 
 ## Normal release
 
-1. Merge releasable Conventional Commits into `main` (`feat`, `fix`, or `perf`).
+1. Give each releasable pull request a Conventional Commit title (`feat`,
+   `fix`, or `perf`) and squash-merge it into `main`.
 2. Wait for workflow `release` to create or update Release Please PR.
-3. Review version, `CHANGELOG.md`, manifest change, and CI results.
+3. Review version, `CHANGELOG.md`, manifest change, CI results, and confirm each
+   logical change appears exactly once.
 4. Merge Release Please PR. Do not create tag manually.
 5. Confirm same `release` run creates `vX.Y.Z`, publishes GitHub assets, and
    updates Homebrew tap.
