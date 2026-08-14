@@ -232,6 +232,14 @@ func TestMouseWheelScrollsFocusedOutputThreeLines(t *testing.T) {
 	if model.PreviewOffset != 59 {
 		t.Fatalf("wheel down output offset = %d, want 59", model.PreviewOffset)
 	}
+
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	model = updated.(Model)
+	if model.PreviewOffset != 56 {
+		t.Fatalf("wheel up after overscroll offset = %d, want 56", model.PreviewOffset)
+	}
 }
 
 func TestMouseWheelIsIgnoredOutsidePaneInteraction(t *testing.T) {

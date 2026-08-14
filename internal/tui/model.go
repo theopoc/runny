@@ -414,10 +414,12 @@ func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
 	case FocusTargets:
 		m.moveCursor(direction)
 	case FocusLogs:
+		maxOffset := m.outputMaxOffset()
 		if m.LogFollow {
-			m.PreviewOffset = m.outputMaxOffset()
+			m.PreviewOffset = maxOffset
 		}
 		m.scrollPreview(direction * 3)
+		m.PreviewOffset = min(m.PreviewOffset, maxOffset)
 	}
 }
 
