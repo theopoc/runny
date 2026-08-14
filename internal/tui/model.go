@@ -1131,7 +1131,7 @@ func (m Model) render() string {
 	if height == 0 {
 		height = 20
 	}
-	panelHeight, leftWidth, rightWidth := panelDimensions(width, height)
+	panelHeight, leftWidth, rightWidth := m.panelDimensions(width, height)
 
 	b.WriteString(m.renderPanelPrefix(width))
 	panels := m.renderPanelArea(width, panelHeight, leftWidth, rightWidth)
@@ -1159,7 +1159,11 @@ func (m Model) render() string {
 }
 
 func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
-	panelHeight = max(10, height-9)
+	return panelDimensionsForInput(width, height, 1)
+}
+
+func panelDimensionsForInput(width int, height int, inputRows int) (panelHeight int, leftWidth int, rightWidth int) {
+	panelHeight = max(10, height-9-max(0, inputRows-1))
 	leftWidth = width * 58 / 100
 	if leftWidth < 50 {
 		leftWidth = 50
@@ -1172,11 +1176,15 @@ func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rig
 	return panelHeight, leftWidth, rightWidth
 }
 
+func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
+	return panelDimensionsForInput(width, height, m.commandInputVisibleRows(width))
+}
+
 func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 	if m.Width < 80 || m.Height < 20 || m.hasOverlay() {
 		return 0, false
 	}
-	panelHeight, leftWidth, rightWidth := panelDimensions(m.Width, m.Height)
+	panelHeight, leftWidth, rightWidth := m.panelDimensions(m.Width, m.Height)
 	panelTop := strings.Count(m.renderPanelPrefix(m.Width), "\n")
 	if y < panelTop || y >= panelTop+panelHeight {
 		return 0, false
@@ -1419,24 +1427,57 @@ func (m Model) renderSubHeader(width int) string {
 }
 
 func (m Model) commandInputBoxLines(width int) []string {
-	title := " " + commandInputTitleStyle.Render(m.commandInputTitle()) + " "
+	titleText := m.commandInputTitle()
+	title := " " + commandInputTitleStyle.Render(titleText) + " "
 	width = max(width, lipgloss.Width(title)+2)
 	contentWidth := max(0, width-4)
 	topFill := max(0, width-lipgloss.Width(title)-2)
-	inputValue := m.commandInputValue()
-	value := ""
+	values := []string{}
 	if m.Focus == FocusCommand && !m.ShowPalette {
-		value = m.renderCommandInputValue(contentWidth)
+		var hiddenAbove, hiddenBelow bool
+		values, hiddenAbove, hiddenBelow = m.renderWrappedCommandInput(contentWidth, m.commandInputMaxRows())
+		indicator := ""
+		switch {
+		case hiddenAbove && hiddenBelow:
+			indicator = " ↕"
+		case hiddenAbove:
+			indicator = " ↑"
+		case hiddenBelow:
+			indicator = " ↓"
+		}
+		if indicator != "" {
+			title = " " + commandInputTitleStyle.Render(titleText+indicator) + " "
+			topFill = max(0, width-lipgloss.Width(title)-2)
+		}
 	} else {
-		value = commandInputStyle.Render(inputValue)
+		values = []string{commandInputStyle.Render(m.commandInputValue())}
 	}
-	value = padRightVisible(truncateVisible(value, contentWidth), contentWidth)
-
-	return []string{
+	lines := []string{
 		commandInputBorderStyle.Render("┌") + title + commandInputBorderStyle.Render(strings.Repeat("─", topFill)+"┐"),
-		commandInputBorderStyle.Render("│") + " " + value + " " + commandInputBorderStyle.Render("│"),
-		commandInputBorderStyle.Render("└" + strings.Repeat("─", max(0, width-2)) + "┘"),
 	}
+	for _, value := range values {
+		value = padRightVisible(truncateVisible(value, contentWidth), contentWidth)
+		lines = append(lines, commandInputBorderStyle.Render("│")+" "+value+" "+commandInputBorderStyle.Render("│"))
+	}
+	lines = append(lines, commandInputBorderStyle.Render("└"+strings.Repeat("─", max(0, width-2))+"┘"))
+	return lines
+}
+
+func (m Model) commandInputMaxRows() int {
+	height := m.Height
+	if height <= 0 {
+		height = 20
+	}
+	return max(1, height-19)
+}
+
+func (m Model) commandInputVisibleRows(width int) int {
+	if m.Focus != FocusCommand || m.ShowPalette {
+		return 1
+	}
+	contentWidth := max(1, width-4)
+	rows, _, _ := m.renderWrappedCommandInput(contentWidth, m.commandInputMaxRows())
+	return max(1, len(rows))
 }
 
 func (m Model) commandInputTitle() string {
@@ -2513,7 +2554,7 @@ func (m Model) paletteRows() []string {
 		helpText = fmt.Sprintf("%d fuzzy match(es)   enter %s   esc close   ↑↓ choose", len(matches), selected)
 	}
 	rows := []string{commandPromptStyle.Render(" : " + input + " ")}
-	panelHeight := max(10, m.Height-9)
+	panelHeight, _, _ := m.panelDimensions(max(80, m.Width), m.Height)
 	compact := m.Height > 0 && panelHeight-2 < len(matches)+3
 	if !compact {
 		rows = append(rows, subtleStyle.Render(helpText), "")
@@ -3230,7 +3271,7 @@ func (m Model) directoryViewportRows() int {
 	if height < 20 {
 		height = 20
 	}
-	panelHeight := max(10, height-9)
+	panelHeight, _, _ := m.panelDimensions(max(80, m.Width), height)
 	return max(1, panelHeight-5)
 }
 

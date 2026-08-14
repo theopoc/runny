@@ -3,9 +3,20 @@ package tui
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 )
+
+type commandVisualCell struct {
+	text      string
+	runeStart int
+	runeEnd   int
+	width     int
+	cursor    bool
+	selected  bool
+}
 
 func (m *Model) ensureCommandCursor() {
 	if !m.commandCursorValid {
@@ -194,6 +205,86 @@ func (m Model) renderCommandInputValue(width int) string {
 		value.WriteString(commandInputStyle.Reverse(true).Render(" "))
 	}
 	return value.String()
+}
+
+func (m Model) renderWrappedCommandInput(width int, maxRows int) (rows []string, hiddenAbove bool, hiddenBelow bool) {
+	width = max(1, width)
+	maxRows = max(1, maxRows)
+	cursor := m.commandCursor
+	if !m.commandCursorValid {
+		cursor = len([]rune(m.Command))
+	}
+	cursor = min(max(cursor, 0), len([]rune(m.Command)))
+	selectionStart, selectionEnd, selected := m.commandSelectionRange()
+
+	cells := make([]commandVisualCell, 0, len([]rune(m.Command))+1)
+	graphemes := uniseg.NewGraphemes(m.Command)
+	runeOffset := 0
+	for graphemes.Next() {
+		text := graphemes.Str()
+		runeCount := utf8.RuneCountInString(text)
+		cell := commandVisualCell{
+			text:      text,
+			runeStart: runeOffset,
+			runeEnd:   runeOffset + runeCount,
+			width:     max(0, ansi.StringWidth(text)),
+		}
+		cell.cursor = cursor >= cell.runeStart && cursor < cell.runeEnd
+		cell.selected = selected && cell.runeStart < selectionEnd && cell.runeEnd > selectionStart
+		cells = append(cells, cell)
+		runeOffset += runeCount
+	}
+	if cursor == runeOffset {
+		cells = append(cells, commandVisualCell{
+			text:      " ",
+			runeStart: runeOffset,
+			runeEnd:   runeOffset,
+			width:     1,
+			cursor:    true,
+		})
+	}
+
+	visualRows := make([][]commandVisualCell, 1)
+	rowWidths := []int{0}
+	cursorRow := 0
+	for _, cell := range cells {
+		row := len(visualRows) - 1
+		if rowWidths[row] > 0 && rowWidths[row]+cell.width > width {
+			visualRows = append(visualRows, nil)
+			rowWidths = append(rowWidths, 0)
+			row++
+		}
+		visualRows[row] = append(visualRows[row], cell)
+		rowWidths[row] += cell.width
+		if cell.cursor {
+			cursorRow = row
+		}
+	}
+
+	start := 0
+	if len(visualRows) > maxRows {
+		start = max(0, cursorRow-maxRows/2)
+		start = min(start, len(visualRows)-maxRows)
+	}
+	end := min(len(visualRows), start+maxRows)
+	hiddenAbove = start > 0
+	hiddenBelow = end < len(visualRows)
+	rows = make([]string, 0, end-start)
+	for _, visualRow := range visualRows[start:end] {
+		var rendered strings.Builder
+		for _, cell := range visualRow {
+			style := commandInputStyle
+			if cell.selected {
+				style = commandSelectionStyle
+			}
+			if cell.cursor && !cell.selected {
+				style = style.Reverse(true)
+			}
+			rendered.WriteString(style.Render(cell.text))
+		}
+		rows = append(rows, rendered.String())
+	}
+	return rows, hiddenAbove, hiddenBelow
 }
 
 func commandInputViewport(runes []rune, cursor int, width int) (int, int) {
