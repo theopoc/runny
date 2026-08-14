@@ -53,6 +53,7 @@ type RunRequest struct {
 	SaveLogs       bool
 	DisableLogging bool
 	LogRoot        string // Already-scoped directory for this run.
+	OnEvent        func(Event)
 }
 
 type RunResult struct {
@@ -79,7 +80,7 @@ type Event struct {
 	TargetID string
 	Target   Target
 	Status   Status
-	Line     string
+	Output   string
 	Result   RunResult
 	Time     time.Time
 }

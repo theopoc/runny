@@ -15,8 +15,6 @@ import (
 	"github.com/theopoc/runny/internal/logs"
 )
 
-const maxOutputBytes = 4 << 20
-
 type logStoreCloser interface {
 	Close() error
 }
@@ -59,7 +57,7 @@ func Run(ctx context.Context, req core.RunRequest) (results []core.RunResult, er
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
-				result := runOne(runCtx, req.Command, targets[idx], logStore, req.DisableLogging)
+				result := runOne(runCtx, req.Command, targets[idx], logStore, req.DisableLogging, req.OnEvent)
 				results[idx] = result
 				if req.FailFast && result.Status == core.StatusFailed {
 					cancel()
@@ -98,6 +96,7 @@ func runOne(
 	target core.Target,
 	logStore *logs.Store,
 	disableLogging bool,
+	onEvent func(core.Event),
 ) core.RunResult {
 	started := time.Now()
 	if ctx.Err() != nil {
@@ -109,8 +108,8 @@ func runOne(
 	var capture *tailBuffer
 	var outputWriter io.Writer = io.Discard
 	if !disableLogging {
-		capture = newTailBuffer(maxOutputBytes)
-		outputWriter = capture
+		capture = newTailBuffer(MaxOutputBytes)
+		outputWriter = &eventWriter{target: target, capture: capture, onEvent: onEvent}
 	}
 	cmd.Stdout = outputWriter
 	cmd.Stderr = outputWriter
@@ -167,6 +166,29 @@ func runOne(
 		result.ExitCode = exitErr.ExitCode()
 	}
 	return result
+}
+
+type eventWriter struct {
+	mu      sync.Mutex
+	target  core.Target
+	capture io.Writer
+	onEvent func(core.Event)
+}
+
+func (w *eventWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.capture.Write(p)
+	if n > 0 && w.onEvent != nil {
+		w.onEvent(core.Event{
+			Type:     core.EventOutput,
+			TargetID: w.target.ID,
+			Target:   w.target,
+			Output:   string(p[:n]),
+			Time:     time.Now(),
+		})
+	}
+	return n, err
 }
 
 func cancelledResult(target core.Target) core.RunResult {

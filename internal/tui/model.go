@@ -54,6 +54,7 @@ type Model struct {
 	Targets            []core.Target
 	Status             map[string]core.Status
 	Logs               map[string]string
+	liveLogTruncated   map[string]bool
 	TargetStarted      map[string]time.Time
 	History            []string
 	RunHistory         []history.RunEntry
@@ -166,6 +167,7 @@ func NewModel(opts Options) Model {
 		Targets:            opts.Targets,
 		Status:             status,
 		Logs:               logs,
+		liveLogTruncated:   map[string]bool{},
 		TargetStarted:      started,
 		Focus:              FocusTargets,
 		Mode:               opts.Mode,
@@ -206,6 +208,12 @@ type runDoneMsg struct {
 	targetID string
 	results  []core.RunResult
 	err      error
+}
+
+type runOutputMsg struct {
+	targetID string
+	chunk    string
+	stream   <-chan tea.Msg
 }
 
 type shutdownMsg struct{}
@@ -264,6 +272,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if done, ok := msg.(runDoneMsg); ok {
 		cmd := m.applyRunDone(done)
 		return m, cmd
+	}
+	if output, ok := msg.(runOutputMsg); ok {
+		m.Logs[output.targetID], m.liveLogTruncated[output.targetID] = runner.AppendOutputTail(
+			m.Logs[output.targetID],
+			output.chunk,
+			m.liveLogTruncated[output.targetID],
+		)
+		return m, waitForRunStream(output.stream)
 	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -807,6 +823,7 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	for _, target := range reqTargets {
 		m.Status[target.ID] = core.StatusQueued
 		m.Logs[target.ID] = ""
+		m.liveLogTruncated[target.ID] = false
 		delete(m.TargetStarted, target.ID)
 	}
 	next, cmd := m.startQueuedRuns()
@@ -859,17 +876,17 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 		}
 		m.Status[result.Target.ID] = result.Status
 		m.recordCompletedResult(result)
-		var log strings.Builder
-		if result.Output != "" {
-			log.WriteString(result.Output)
+		log := m.Logs[result.Target.ID]
+		if log == "" {
+			log = result.Output
 		}
-		if result.Error != "" {
-			if log.Len() > 0 && !strings.HasSuffix(log.String(), "\n") {
-				log.WriteByte('\n')
+		if result.Error != "" && !strings.Contains(log, result.Error) {
+			if log != "" && !strings.HasSuffix(log, "\n") {
+				log += "\n"
 			}
-			log.WriteString(result.Error)
+			log += result.Error
 		}
-		m.Logs[result.Target.ID] = log.String()
+		m.Logs[result.Target.ID] = log
 		if m.FailFast && result.Status == core.StatusFailed {
 			failedFast = true
 		}
@@ -955,7 +972,21 @@ func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
 		DisableLogging: m.DisableLogging,
 		LogRoot:        m.runLogRoot,
 	}
+	stream := make(chan tea.Msg)
+	req.OnEvent = func(event core.Event) {
+		if event.Type != core.EventOutput || event.TargetID != target.ID || event.Output == "" {
+			return
+		}
+		select {
+		case stream <- runOutputMsg{targetID: target.ID, chunk: event.Output, stream: stream}:
+		case <-targetCtx.Done():
+		}
+	}
 	runTracker := m.runTracker
+	lifecycleCtx := m.lifecycleCtx
+	if lifecycleCtx == nil {
+		lifecycleCtx = context.Background()
+	}
 	return func() tea.Msg {
 		if runTracker != nil {
 			if !runTracker.TryStart() {
@@ -969,10 +1000,34 @@ func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
 					Ended:   now,
 				}}}
 			}
-			defer runTracker.Done()
 		}
-		results, err := runFunc(targetCtx, req)
-		return runDoneMsg{targetID: target.ID, results: results, err: err}
+		go func() {
+			defer close(stream)
+			if runTracker != nil {
+				defer runTracker.Done()
+			}
+			results, err := runFunc(targetCtx, req)
+			done := runDoneMsg{targetID: target.ID, results: results, err: err}
+			select {
+			case stream <- done:
+			case <-lifecycleCtx.Done():
+			}
+		}()
+		select {
+		case msg := <-stream:
+			return msg
+		case <-lifecycleCtx.Done():
+			return nil
+		}
+	}
+}
+
+func waitForRunStream(stream <-chan tea.Msg) tea.Cmd {
+	if stream == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		return <-stream
 	}
 }
 

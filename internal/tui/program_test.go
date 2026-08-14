@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +15,23 @@ import (
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/history"
 )
+
+type synchronizedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *synchronizedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *synchronizedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
 
 func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	runHistoryPath := filepath.Join(t.TempDir(), "runs.jsonl")
@@ -87,6 +106,55 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered output should contain %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestRunProgramDeliversLiveOutputBeforeTargetCompletes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	release := make(chan struct{})
+	var screen synchronizedBuffer
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	opts := Options{
+		Command: "echo live",
+		Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}},
+		runFunc: func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
+			req.OnEvent(core.Event{Type: core.EventOutput, TargetID: "api", Output: "live now\n"})
+			<-release
+			return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "live now\n"}}, nil
+		},
+		programOptions: []tea.ProgramOption{
+			tea.WithInput(reader),
+			tea.WithOutput(&screen),
+			tea.WithWindowSize(120, 26),
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runProgram(ctx, opts)
+	}()
+	if _, err := writer.Write([]byte{'\r'}); err != nil {
+		t.Fatalf("write enter: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !strings.Contains(screen.String(), "live now") && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !strings.Contains(screen.String(), "live now") {
+		t.Fatalf("program did not render live output before target completion:\n%s", screen.String())
+	}
+
+	close(release)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("program did not stop")
 	}
 }
 
