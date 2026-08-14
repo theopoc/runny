@@ -1643,8 +1643,8 @@ func TestCtrlCShowsQuitConfirmationFromOverlay(t *testing.T) {
 	if !model.ConfirmQuit {
 		t.Fatal("ctrl+c should show quit confirmation")
 	}
-	if model.ConfirmQuitYes {
-		t.Fatal("quit confirmation should default to No")
+	if !model.ConfirmQuitYes {
+		t.Fatal("quit confirmation should default to Yes")
 	}
 	if model.ShowHelp {
 		t.Fatal("ctrl+c should replace current overlay with quit confirmation")
@@ -1673,6 +1673,7 @@ func TestQuitConfirmationUsesTabSelectedButtons(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.ConfirmQuit = true
+	model.ConfirmQuitYes = true
 
 	view := stripANSI(model.View().Content)
 	for _, want := range []string{"Quit runny?", "Yes", "No"} {
@@ -1702,23 +1703,24 @@ func TestQuitConfirmationUsesTabSelectedButtons(t *testing.T) {
 		t.Fatalf("quit confirmation selected choice should use error background")
 	}
 
-	updated, cmd := updateKey(model, "enter")
-	model = updated
-	if cmd != nil {
-		t.Fatal("enter on default No should not quit")
-	}
-	if model.ConfirmQuit {
-		t.Fatal("enter on default No should close confirmation")
-	}
-
-	model.ConfirmQuit = true
-	updated, cmd = updateKey(model, "tab")
+	updated, cmd := updateKey(model, "tab")
 	model = updated
 	if cmd != nil {
 		t.Fatal("tab should not quit")
 	}
-	if !model.ConfirmQuitYes {
-		t.Fatal("tab should move selection to Yes")
+	if model.ConfirmQuitYes {
+		t.Fatal("tab should move selection to No")
+	}
+
+	model.ConfirmQuit = true
+	model.ConfirmQuitYes = true
+	updated, cmd = updateKey(model, "enter")
+	model = updated
+	if cmd == nil {
+		t.Fatal("enter on default Yes should quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("enter command = %T, want tea.QuitMsg", cmd())
 	}
 }
 
@@ -2627,23 +2629,14 @@ func TestCtrlCConfirmsBeforeCancellingActiveWorkAndQuitting(t *testing.T) {
 	if !model.ConfirmQuit {
 		t.Fatal("ctrl+c should show quit confirmation")
 	}
-	if model.ConfirmQuitYes {
-		t.Fatal("quit confirmation should default to No")
+	if !model.ConfirmQuitYes {
+		t.Fatal("quit confirmation should default to Yes")
 	}
 	if cancelled {
 		t.Fatal("ctrl+c should not cancel the root run context before confirmation")
 	}
 	if model.Status["api"] == core.StatusCancelled || model.Status["web"] == core.StatusCancelled {
 		t.Fatalf("statuses = %#v, want active work unchanged before confirmation", model.Status)
-	}
-
-	updated, cmd = updateKey(model, "tab")
-	model = updated
-	if cmd != nil {
-		t.Fatal("tab should not quit")
-	}
-	if !model.ConfirmQuitYes {
-		t.Fatal("tab should select Yes")
 	}
 
 	updated, cmd = updateKey(model, "enter")
