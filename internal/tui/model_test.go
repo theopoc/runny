@@ -704,7 +704,7 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want 1", model.Cursor)
 	}
-	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "/ w▌") {
+	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "w▌") {
 		t.Fatalf("filter focus should show cursor:\n%s", view)
 	}
 	model, _ = updateKey(model, " ")
@@ -831,6 +831,50 @@ func TestCommandInputStartsEmptyWithoutCursor(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("command input should include styling:\n%s", rendered)
+	}
+}
+
+func TestFilterInputOmitsSlashAndPlaceholder(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = updateKey(model, "/")
+
+	empty := stripANSI(model.View().Content)
+	if strings.Contains(empty, "/ <filter>") {
+		t.Fatalf("empty filter input should not show slash or placeholder:\n%s", empty)
+	}
+	if !strings.Contains(empty, "▌") {
+		t.Fatalf("empty focused filter should show cursor:\n%s", empty)
+	}
+
+	model, _ = updateKey(model, "a")
+	model, _ = updateKey(model, "p")
+	model, _ = updateKey(model, "i")
+	filled := stripANSI(model.View().Content)
+	if strings.Contains(filled, "/ api▌") {
+		t.Fatalf("filled filter input should not show slash:\n%s", filled)
+	}
+	if !strings.Contains(filled, "api▌") {
+		t.Fatalf("filled filter input should show text and cursor:\n%s", filled)
+	}
+}
+
+func TestFilterInputDisplayGolden(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = updateKey(model, "/")
+	empty := model.commandInputValue()
+
+	model, _ = updateKey(model, "a")
+	model, _ = updateKey(model, "p")
+	model, _ = updateKey(model, "i")
+	filled := model.commandInputValue()
+
+	want, err := os.ReadFile("testdata/TestFilterInputDisplayGolden.golden")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := "empty:\n" + empty + "\n\nfilled:\n" + filled
+	if got != strings.TrimRight(string(want), "\n") {
+		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 
@@ -1817,9 +1861,18 @@ func TestPaletteRowsShowMatchCountAndNoMatchGuidance(t *testing.T) {
 		}
 	}
 	model.Palette = ""
-	rows = stripANSI(strings.Join(model.paletteRows(), "\n"))
-	if !strings.Contains(rows, "more command(s); keep typing to narrow") {
-		t.Fatalf("truncated palette rows should show a narrow hint:\n%s", rows)
+	paletteRows := model.paletteRows()
+	rows = stripANSI(strings.Join(paletteRows, "\n"))
+	if got, want := len(paletteRows), 3+len(paletteCommands); got != want {
+		t.Fatalf("palette rows = %d, want %d with every command:\n%s", got, want, rows)
+	}
+	for _, command := range paletteCommands {
+		if !strings.Contains(rows, command.Description) {
+			t.Fatalf("palette rows should contain %q:\n%s", command.Description, rows)
+		}
+	}
+	if strings.Contains(rows, "more command(s)") {
+		t.Fatalf("full palette should not show a truncation hint:\n%s", rows)
 	}
 
 	model.Palette = "rf"
@@ -1846,6 +1899,22 @@ func TestPaletteRowsShowMatchCountAndNoMatchGuidance(t *testing.T) {
 	}
 }
 
+func TestPaletteOverlayShowsEveryCommandAtStandardSize(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.ShowPalette = true
+	model, _ = updateWindowSize(model, 80, 24)
+
+	view := stripANSI(model.View().Content)
+	for _, command := range paletteCommands {
+		if !strings.Contains(view, command.Description) {
+			t.Fatalf("palette overlay should contain %q at 80x24:\n%s", command.Description, view)
+		}
+	}
+	if strings.Contains(view, "more command(s)") {
+		t.Fatalf("full palette overlay should not show a truncation hint:\n%s", view)
+	}
+}
+
 func TestOverlayPreservesMainPanelsBehindPopup(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.ShowHelp = true
@@ -1862,6 +1931,30 @@ func TestOverlayPreservesMainPanelsBehindPopup(t *testing.T) {
 	}
 	if lines := strings.Count(view, "\n") + 1; lines > 24 {
 		t.Fatalf("overlay should keep screen bounded, lines = %d:\n%s", lines, view)
+	}
+}
+
+func TestPaletteOverlayPreservesPanelBorderColumns(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.ShowPalette = true
+	model, _ = updateWindowSize(model, 120, 33)
+
+	panelHeight := 24
+	leftWidth := 69
+	rightWidth := 47
+	overlay := model.renderOverlay(120, panelHeight)
+	backgroundLines := strings.Split(stripANSI(model.renderPanelArea(120, panelHeight, leftWidth, rightWidth)), "\n")
+	composedLines := strings.Split(stripANSI(placeOverlay(
+		model.renderPanelArea(120, panelHeight, leftWidth, rightWidth),
+		overlay,
+		120,
+	)), "\n")
+
+	for i := range backgroundLines {
+		want := lipgloss.Width(backgroundLines[i])
+		if got := lipgloss.Width(composedLines[i]); got != want {
+			t.Fatalf("panel border column changed on row %d: got width %d, want %d\n%s", i, got, want, strings.Join(composedLines, "\n"))
+		}
 	}
 }
 
@@ -2307,6 +2400,41 @@ func TestRunCompletionPreservesStreamedOutputAndDeduplicatesError(t *testing.T) 
 
 	if model.Logs[target.ID] != "live output\nexit status 1\n" {
 		t.Fatalf("final logs = %q", model.Logs[target.ID])
+	}
+}
+
+func TestCommandEnterFocusesTasksWhenRunStarts(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+	}})
+	model.Focus = FocusCommand
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+
+	if cmd == nil {
+		t.Fatal("enter should start a run")
+	}
+	if updated.Focus != FocusTargets {
+		t.Fatalf("focus = %v, want tasks after starting run", updated.Focus)
+	}
+}
+
+func TestCommandEnterFocusesTasksWhenNoTargetIsSelected(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: false},
+	}})
+	model.Focus = FocusCommand
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+
+	if cmd != nil {
+		t.Fatal("enter should not start a run without selected targets")
+	}
+	if updated.Focus != FocusTargets {
+		t.Fatalf("focus = %v, want tasks when no target is selected", updated.Focus)
+	}
+	if updated.RunError != "no selected targets; press a to toggle visible" {
+		t.Fatalf("run error = %q", updated.RunError)
 	}
 }
 

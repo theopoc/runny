@@ -791,9 +791,11 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		} else {
 			m.RunError = "no selected targets; press a to toggle visible"
 		}
+		m.Focus = FocusTargets
 		m.Notice = ""
 		return m, nil
 	}
+	m.Focus = FocusTargets
 	reqTargets := append([]core.Target(nil), targets...)
 	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	if m.targetCancels == nil {
@@ -1407,11 +1409,7 @@ func (m Model) commandInputValue() string {
 		return ": " + palette
 	}
 	if m.Focus == FocusFilter {
-		filterText := m.Filter
-		if filterText == "" {
-			filterText = "<filter>"
-		}
-		return "/ " + filterText + "▌"
+		return m.Filter + "▌"
 	}
 	if m.Focus == FocusCommand {
 		return m.renderCommandInputValue(len([]rune(m.Command)) + 1)
@@ -2465,19 +2463,16 @@ func (m Model) paletteRows() []string {
 		}
 		helpText = fmt.Sprintf("%d fuzzy match(es)   enter %s   esc close   ↑↓ choose", len(matches), selected)
 	}
-	rows := []string{
-		commandPromptStyle.Render(" : " + input + " "),
-		subtleStyle.Render(helpText),
-		"",
+	rows := []string{commandPromptStyle.Render(" : " + input + " ")}
+	panelHeight := max(10, m.Height-9)
+	compact := m.Height > 0 && panelHeight-2 < len(matches)+3
+	if !compact {
+		rows = append(rows, subtleStyle.Render(helpText), "")
 	}
 	if len(matches) == 0 {
 		return append(rows, "  no commands; backspace or ctrl+u to edit")
 	}
-	visibleLimit := 8
 	for i, command := range matches {
-		if i >= visibleLimit {
-			break
-		}
 		prefix := "  "
 		if i == m.PalettePos {
 			prefix = "› "
@@ -2489,9 +2484,6 @@ func (m Model) paletteRows() []string {
 			line = paletteActiveStyle.Render(padRightVisible(line, 72))
 		}
 		rows = append(rows, line)
-	}
-	if hidden := len(matches) - min(len(matches), visibleLimit); hidden > 0 {
-		rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more command(s); keep typing to narrow", hidden)))
 	}
 	return rows
 }

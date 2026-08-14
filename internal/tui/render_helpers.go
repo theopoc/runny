@@ -141,7 +141,7 @@ func boxLinesWithTitle(width int, height int, title string, rows []string, activ
 		lines = append(lines, borderStyle.Render(border.topLeft+strings.Repeat(border.horizontal, width-2)+border.topRight))
 	} else {
 		titleText := " " + titleStyle.Render(title) + " "
-		topFill := max(0, width-lipgloss.Width(titleText)-2)
+		topFill := max(0, width-lipgloss.Width(titleText)-3)
 		lines = append(lines, borderStyle.Render(border.topLeft+border.horizontal)+titleText+borderStyle.Render(strings.Repeat(border.horizontal, topFill)+border.topRight))
 	}
 	contentWidth := width - 4
