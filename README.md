@@ -143,6 +143,7 @@ exclude:
 | `del`, `x` | Cancel selected running or queued runs, or focused run |
 | `R` | Rerun all failed with confirmation |
 | `pageup`, `pagedown` | Scroll output |
+| Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |
 | `f` | Toggle output tail mode |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
