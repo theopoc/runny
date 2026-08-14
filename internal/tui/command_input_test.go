@@ -19,7 +19,7 @@ func TestCommandInputEditsAtCursor(t *testing.T) {
 	if model.Command != "echo nok" {
 		t.Fatalf("command = %q, want %q", model.Command, "echo nok")
 	}
-	if view := model.renderSubHeader(80); !strings.Contains(stripANSI(view), "echo nok") || !strings.Contains(view, "\x1b[7mo") {
+	if view := model.renderSubHeader(80); !strings.Contains(stripANSI(view), "echo nok") || model.commandCursor != 6 {
 		t.Fatalf("cursor should overlay character at insertion point:\n%s", stripANSI(view))
 	}
 }
@@ -76,10 +76,12 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	model := NewModel(Options{Command: "prefix-0123456789-suffix"})
 	model.Focus = FocusCommand
 
-	rendered := model.renderSubHeader(16)
-	view := stripANSI(rendered)
-	if !strings.Contains(view, "suffix ") || !strings.Contains(rendered, "\x1b[7m ") {
-		t.Fatalf("long command should scroll to cursor at end:\n%s", view)
+	runes := []rune(model.Command)
+	cursor := len(runes)
+	start, end := commandInputViewport(runes, cursor, 8)
+	view := string(runes[start:end])
+	if view != "-suffix" {
+		t.Fatalf("long command viewport at end = %q", view)
 	}
 	if strings.Contains(view, "prefix") {
 		t.Fatalf("long command viewport should hide distant prefix:\n%s", view)
@@ -88,9 +90,9 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	for range 6 {
 		model, _ = updateSpecialKey(model, tea.KeyLeft)
 	}
-	rendered = model.renderSubHeader(16)
-	view = stripANSI(rendered)
-	if !strings.Contains(view, "suffix") || !strings.Contains(rendered, "\x1b[7ms") {
+	start, end = commandInputViewport(runes, model.commandCursor, 8)
+	view = string(runes[start:end])
+	if view != "789-suff" || model.commandCursor != len([]rune(model.Command))-6 {
 		t.Fatalf("viewport should follow cursor moved inside command:\n%s", view)
 	}
 }
@@ -169,6 +171,28 @@ func TestCommandSelectionKeepsFollowingTextColor(t *testing.T) {
 	rendered := model.renderCommandInputValue(80)
 	if !regexp.MustCompile("\\x1b\\[[0-9;]*4[0-9;]*mi").MatchString(rendered) {
 		t.Fatalf("text after selection should restore command color: %q", rendered)
+	}
+}
+
+func TestCommandSelectionFromEndIncludesFirstCharacter(t *testing.T) {
+	originalStyle := commandSelectionStyle
+	commandSelectionStyle = commandSelectionStyle.Underline(true)
+	t.Cleanup(func() { commandSelectionStyle = originalStyle })
+
+	model := NewModel(Options{Command: "sdmlkq"})
+	model.Focus = FocusCommand
+	model.moveCommandCursorToEnd()
+	for range len([]rune(model.Command)) {
+		model.moveCommandCursor(-1, true)
+	}
+
+	if got := model.selectedCommandText(); got != model.Command {
+		t.Fatalf("selection = %q, want complete command %q", got, model.Command)
+	}
+	rendered := model.renderCommandInputValue(80)
+	wantFirst := commandSelectionStyle.Render("s")
+	if !strings.HasPrefix(rendered, wantFirst) {
+		t.Fatalf("first selected character should keep selection style: got %q, want prefix %q", rendered, wantFirst)
 	}
 }
 

@@ -184,7 +184,8 @@ func (m Model) renderCommandInputValue(width int) string {
 		if selected && i >= selectionStart && i < selectionEnd {
 			style = commandSelectionStyle
 		}
-		if i == cursor {
+		isSelected := selected && i >= selectionStart && i < selectionEnd
+		if i == cursor && !isSelected {
 			style = style.Reverse(true)
 		}
 		value.WriteString(style.Render(string(r)))
