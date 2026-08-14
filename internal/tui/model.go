@@ -2408,19 +2408,16 @@ func (m Model) paletteRows() []string {
 		}
 		helpText = fmt.Sprintf("%d fuzzy match(es)   enter %s   esc close   ↑↓ choose", len(matches), selected)
 	}
-	rows := []string{
-		commandPromptStyle.Render(" : " + input + " "),
-		subtleStyle.Render(helpText),
-		"",
+	rows := []string{commandPromptStyle.Render(" : " + input + " ")}
+	panelHeight := max(10, m.Height-9)
+	compact := m.Height > 0 && panelHeight-2 < len(matches)+3
+	if !compact {
+		rows = append(rows, subtleStyle.Render(helpText), "")
 	}
 	if len(matches) == 0 {
 		return append(rows, "  no commands; backspace or ctrl+u to edit")
 	}
-	visibleLimit := 8
 	for i, command := range matches {
-		if i >= visibleLimit {
-			break
-		}
 		prefix := "  "
 		if i == m.PalettePos {
 			prefix = "› "
@@ -2432,9 +2429,6 @@ func (m Model) paletteRows() []string {
 			line = paletteActiveStyle.Render(padRightVisible(line, 72))
 		}
 		rows = append(rows, line)
-	}
-	if hidden := len(matches) - min(len(matches), visibleLimit); hidden > 0 {
-		rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more command(s); keep typing to narrow", hidden)))
 	}
 	return rows
 }
