@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1](https://github.com/theopoc/runny/compare/v0.1.0...v0.1.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* harden execution safety ([e03cf09](https://github.com/theopoc/runny/commit/e03cf094cc70a961ea6b2fb22a69fffdfdb4f88e))
+* **tui:** default quit confirmation to yes ([462ab8b](https://github.com/theopoc/runny/commit/462ab8b443066433bebba0c3c9a6156a2562afa5))
+* **tui:** default quit confirmation to yes ([08a3062](https://github.com/theopoc/runny/commit/08a3062c89af808e3ec3f2be94d75a5fae04ea0c))
+* **tui:** improve command editing and running feedback ([c4f149d](https://github.com/theopoc/runny/commit/c4f149d8348d0ffe40c4872036a6c60d16979189))
+* **tui:** improve command editing and running feedback ([53666f6](https://github.com/theopoc/runny/commit/53666f6c7c3161b0864d698d80ff4e6443637c79))
+* **tui:** match terminal command editing behavior ([6579c18](https://github.com/theopoc/runny/commit/6579c18abd6a0a27387c837b83833d986b0c8f12))
+* **tui:** preserve full command selection ([2e82ee7](https://github.com/theopoc/runny/commit/2e82ee74457e7e80330a0f1606026c71cb95ba35))
+
 ## 0.1.0 (2026-07-11)
 
 
