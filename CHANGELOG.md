@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0](https://github.com/theopoc/runny/compare/v0.1.1...v0.2.0) (2026-08-14)
+
+
+### Features
+
+* **tui:** stream command output live ([39fc68b](https://github.com/theopoc/runny/commit/39fc68b4622a966348ba3e7b3abb76c707c358e4))
+* **tui:** stream command output live ([f4c2536](https://github.com/theopoc/runny/commit/f4c2536210ec04cd1d1e85ee1cde036c0cc867a9))
+
+
+### Bug Fixes
+
+* **tui:** focus tasks after command enter ([5ebd0f1](https://github.com/theopoc/runny/commit/5ebd0f1f3d38101371fa476f22eb0d910e5a91f2))
+* **tui:** focus tasks after command enter ([a025c22](https://github.com/theopoc/runny/commit/a025c2204b7cb7039020ec3ea14ae10a20b1441f))
+* **tui:** remove filter input slash ([a563dc9](https://github.com/theopoc/runny/commit/a563dc964d96b229c21e2d8e9da4f1f94c837317))
+* **tui:** remove slash from filter input ([9097780](https://github.com/theopoc/runny/commit/90977803604650ff68d5b6ee2444211366eb2e57))
+* **tui:** show full command palette ([4c09f20](https://github.com/theopoc/runny/commit/4c09f2001041f30d9f9073a7f919ccbbb874cb27))
+* **tui:** show full command palette ([eab9bde](https://github.com/theopoc/runny/commit/eab9bde549c162eb612e3730ef48149e461bb26a))
+
 ## [0.1.1](https://github.com/theopoc/runny/compare/v0.1.0...v0.1.1) (2026-08-14)
 
 
