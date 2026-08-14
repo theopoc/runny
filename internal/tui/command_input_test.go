@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestCommandInputEditsAtCursor(t *testing.T) {
@@ -94,6 +95,139 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	view = string(runes[start:end])
 	if view != "789-suff" || model.commandCursor != len([]rune(model.Command))-6 {
 		t.Fatalf("viewport should follow cursor moved inside command:\n%s", view)
+	}
+}
+
+func TestCommandInputExpandsToKeepLongFocusedCommandVisible(t *testing.T) {
+	command := strings.Repeat("x", 76)
+	model := NewModel(Options{Command: command})
+	model.Focus = FocusCommand
+	model, _ = updateWindowSize(model, 80, 24)
+	model.moveCommandCursorToEnd()
+
+	view := stripANSI(model.renderSubHeader(80))
+	lines := strings.Split(view, "\n")
+	if len(lines) <= 3 {
+		t.Fatalf("focused long command should expand beyond one content row:\n%s", view)
+	}
+	if !strings.Contains(view, command) {
+		t.Fatalf("focused expanded input should keep complete command visible:\n%s", view)
+	}
+	for _, line := range lines {
+		if width := ansi.StringWidth(line); width > 80 {
+			t.Fatalf("responsive command line width = %d, want <= 80:\n%s", width, view)
+		}
+	}
+}
+
+func TestCommandInputGrowthKeepsViewWithinTerminalHeight(t *testing.T) {
+	model := NewModel(Options{Command: strings.Repeat("long-command-", 40)})
+	model.Focus = FocusCommand
+	model, _ = updateWindowSize(model, 80, 24)
+	model.moveCommandCursorToEnd()
+
+	view := stripANSI(model.View().Content)
+	if height := len(strings.Split(view, "\n")); height > 24 {
+		t.Fatalf("responsive view height = %d, want <= 24:\n%s", height, view)
+	}
+}
+
+func TestCommandInputCollapsesOutsideFocusAndExpandsAgain(t *testing.T) {
+	model := NewModel(Options{Command: strings.Repeat("command-", 20)})
+	model, _ = updateWindowSize(model, 80, 24)
+	model.Focus = FocusTargets
+
+	collapsed := stripANSI(model.renderSubHeader(80))
+	if lines := strings.Split(collapsed, "\n"); len(lines) != 3 {
+		t.Fatalf("unfocused command box height = %d, want 3:\n%s", len(lines), collapsed)
+	}
+
+	model.Focus = FocusCommand
+	expanded := stripANSI(model.renderSubHeader(80))
+	if lines := strings.Split(expanded, "\n"); len(lines) <= 3 {
+		t.Fatalf("refocused command should expand:\n%s", expanded)
+	}
+}
+
+func TestCommandInputRewrapsWithTerminalWidth(t *testing.T) {
+	model := NewModel(Options{Command: strings.Repeat("x", 200)})
+	model.Focus = FocusCommand
+	model.moveCommandCursorToEnd()
+
+	model, _ = updateWindowSize(model, 120, 24)
+	wideHeight := len(strings.Split(stripANSI(model.renderSubHeader(120)), "\n"))
+	model, _ = updateWindowSize(model, 80, 24)
+	narrowHeight := len(strings.Split(stripANSI(model.renderSubHeader(80)), "\n"))
+	model, _ = updateWindowSize(model, 120, 24)
+	wideAgainHeight := len(strings.Split(stripANSI(model.renderSubHeader(120)), "\n"))
+
+	if narrowHeight <= wideHeight {
+		t.Fatalf("narrow command height = %d, want greater than wide height %d", narrowHeight, wideHeight)
+	}
+	if wideAgainHeight != wideHeight {
+		t.Fatalf("wide command height after resize = %d, want %d", wideAgainHeight, wideHeight)
+	}
+}
+
+func TestCommandInputVerticalViewportFollowsCursor(t *testing.T) {
+	model := NewModel(Options{Command: strings.Repeat("x", 800)})
+	model.Focus = FocusCommand
+	model, _ = updateWindowSize(model, 80, 24)
+
+	model.setCommandCursor(0, false)
+	atStart := stripANSI(model.renderSubHeader(80))
+	if lines := strings.Split(atStart, "\n"); len(lines) != 7 || !strings.Contains(atStart, "Command ↓") {
+		t.Fatalf("viewport at start should show five rows and content below:\n%s", atStart)
+	}
+
+	model.setCommandCursor(400, false)
+	inMiddle := stripANSI(model.renderSubHeader(80))
+	if !strings.Contains(inMiddle, "Command ↕") {
+		t.Fatalf("viewport in middle should show content above and below:\n%s", inMiddle)
+	}
+
+	model.moveCommandCursorToEnd()
+	atEnd := stripANSI(model.renderSubHeader(80))
+	if !strings.Contains(atEnd, "Command ↑") {
+		t.Fatalf("viewport at end should show content above:\n%s", atEnd)
+	}
+	panelHeight, _, _ := model.panelDimensions(80, 24)
+	if panelHeight < 10 {
+		t.Fatalf("panel height = %d, want at least 10", panelHeight)
+	}
+}
+
+func TestCommandInputWrapsWideUnicodeByTerminalCells(t *testing.T) {
+	command := strings.Repeat("界", 38) + strings.Repeat("👩‍💻", 4)
+	model := NewModel(Options{Command: command})
+	model.Focus = FocusCommand
+	model, _ = updateWindowSize(model, 80, 24)
+	model.moveCommandCursorToEnd()
+
+	view := stripANSI(model.renderSubHeader(80))
+	if strings.Count(view, "界") != 38 || strings.Count(view, "👩‍💻") != 4 {
+		t.Fatalf("wrapped Unicode command lost graphemes:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if width := ansi.StringWidth(line); width > 80 {
+			t.Fatalf("wrapped Unicode line width = %d, want <= 80:\n%s", width, view)
+		}
+	}
+}
+
+func TestExpandedCommandMovesPanelMouseHitRegion(t *testing.T) {
+	model := NewModel(Options{Command: strings.Repeat("x", 200), Targets: nil})
+	model.Focus = FocusCommand
+	model, _ = updateWindowSize(model, 80, 24)
+	panelTop := strings.Count(model.renderPanelPrefix(80), "\n")
+	if panelTop <= 5 {
+		t.Fatalf("expanded panel top = %d, want below fixed command position", panelTop)
+	}
+	if _, hit := model.paneFocusAt(1, 5); hit {
+		t.Fatal("mouse row inside expanded command input should not focus panel")
+	}
+	if focus, hit := model.paneFocusAt(1, panelTop); !hit || focus != FocusTargets {
+		t.Fatalf("mouse row at panel top returned focus=%v hit=%t, want targets hit", focus, hit)
 	}
 }
 
