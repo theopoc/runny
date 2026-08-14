@@ -281,6 +281,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		return m, waitForRunStream(output.stream)
 	}
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		if click.Button == tea.MouseLeft {
+			if focus, hit := m.paneFocusAt(click.X, click.Y); hit {
+				m.Focus = focus
+			}
+		}
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
@@ -1102,6 +1110,7 @@ func (m Model) View() tea.View {
 	content := m.render()
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.WindowTitle = "runny"
 	return view
 }
@@ -1122,16 +1131,7 @@ func (m Model) render() string {
 	if height == 0 {
 		height = 20
 	}
-	panelHeight := max(10, height-9)
-	leftWidth := width * 58 / 100
-	if leftWidth < 50 {
-		leftWidth = 50
-	}
-	rightWidth := width - leftWidth - 4
-	if rightWidth < 32 {
-		rightWidth = 32
-		leftWidth = width - rightWidth - 4
-	}
+	panelHeight, leftWidth, rightWidth := panelDimensions(width, height)
 
 	b.WriteString(m.renderHeader(width))
 	b.WriteByte('\n')
@@ -1161,6 +1161,47 @@ func (m Model) render() string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderFooter(width))
 	return b.String()
+}
+
+const (
+	panelTop = 5
+	panelGap = 2
+)
+
+func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
+	panelHeight = max(10, height-9)
+	leftWidth = width * 58 / 100
+	if leftWidth < 50 {
+		leftWidth = 50
+	}
+	rightWidth = width - leftWidth - 4
+	if rightWidth < 32 {
+		rightWidth = 32
+		leftWidth = width - rightWidth - 4
+	}
+	return panelHeight, leftWidth, rightWidth
+}
+
+func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
+	if m.Width < 80 || m.Height < 20 || m.Zoom || m.compactMode(m.Width) || m.hasOverlay() {
+		return 0, false
+	}
+	panelHeight, leftWidth, rightWidth := panelDimensions(m.Width, m.Height)
+	if y < panelTop || y >= panelTop+panelHeight {
+		return 0, false
+	}
+	if x >= 0 && x < leftWidth {
+		return FocusTargets, true
+	}
+	rightStart := leftWidth + panelGap
+	if x >= rightStart && x < rightStart+rightWidth {
+		return FocusLogs, true
+	}
+	return 0, false
+}
+
+func (m Model) hasOverlay() bool {
+	return m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit
 }
 
 func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightWidth int) string {
