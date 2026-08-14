@@ -42,7 +42,7 @@ jobs:
         run: echo "::warning::Telegram secrets unavailable; notification skipped"
       - name: Send Telegram notification
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
-        uses: appleboy/telegram-action@78e5f2ccac7c07db6afc0e8a0f9055f8f6aef7b1 # master
+        uses: appleboy/telegram-action@d600df785afe8648bc23cbcf4495d9d30075dcba # master
         with:
           to: ${{ env.TELEGRAM_CHAT_ID }}
           token: ${{ env.TELEGRAM_BOT_TOKEN }}
