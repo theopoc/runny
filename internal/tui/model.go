@@ -397,6 +397,14 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		m.moveCommandCursor(-1, true)
 	case "shift+right":
 		m.moveCommandCursor(1, true)
+	case "alt+left", "alt+b":
+		m.moveCommandCursorByWord(-1, false)
+	case "alt+right", "alt+f":
+		m.moveCommandCursorByWord(1, false)
+	case "alt+shift+left", "alt+shift+b":
+		m.moveCommandCursorByWord(-1, true)
+	case "alt+shift+right", "alt+shift+f":
+		m.moveCommandCursorByWord(1, true)
 	case "home", "ctrl+a":
 		m.setCommandCursor(0, false)
 	case "end", "ctrl+e":
@@ -413,16 +421,16 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		m.resetCommandHistoryNavigation()
 	case "ctrl+w":
 		m.deleteCommandWordBackward()
-	case "ctrl+c":
+	case "ctrl+c", "super+c":
 		return m, tea.SetClipboard(m.selectedCommandText())
-	case "ctrl+x":
+	case "ctrl+x", "super+x":
 		selected := m.selectedCommandText()
 		if selected != "" {
 			m.deleteCommandSelection()
 			m.resetCommandHistoryNavigation()
 			return m, tea.SetClipboard(selected)
 		}
-	case "ctrl+v":
+	case "ctrl+v", "super+v":
 		return m, func() tea.Msg { return tea.ReadClipboard() }
 	case " ", "space":
 		m.insertCommandText(" ")
@@ -1310,10 +1318,12 @@ func (m Model) commandInputBoxLines(width int) []string {
 	contentWidth := max(0, width-4)
 	topFill := max(0, width-lipgloss.Width(title)-2)
 	inputValue := m.commandInputValue()
+	value := ""
 	if m.Focus == FocusCommand && !m.ShowPalette {
-		inputValue = m.renderCommandInputValue(contentWidth)
+		value = m.renderCommandInputValue(contentWidth)
+	} else {
+		value = commandInputStyle.Render(inputValue)
 	}
-	value := commandInputStyle.Render(inputValue)
 	value = padRightVisible(truncateVisible(value, contentWidth), contentWidth)
 
 	return []string{

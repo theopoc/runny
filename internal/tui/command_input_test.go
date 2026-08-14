@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -18,8 +19,8 @@ func TestCommandInputEditsAtCursor(t *testing.T) {
 	if model.Command != "echo nok" {
 		t.Fatalf("command = %q, want %q", model.Command, "echo nok")
 	}
-	if plain := stripANSI(model.renderSubHeader(80)); !strings.Contains(plain, "echo n▌ok") {
-		t.Fatalf("cursor should render at insertion point:\n%s", plain)
+	if view := model.renderSubHeader(80); !strings.Contains(stripANSI(view), "echo nok") || !strings.Contains(view, "\x1b[7mo") {
+		t.Fatalf("cursor should overlay character at insertion point:\n%s", stripANSI(view))
 	}
 }
 
@@ -75,8 +76,9 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	model := NewModel(Options{Command: "prefix-0123456789-suffix"})
 	model.Focus = FocusCommand
 
-	view := stripANSI(model.renderSubHeader(16))
-	if !strings.Contains(view, "suffix▌") {
+	rendered := model.renderSubHeader(16)
+	view := stripANSI(rendered)
+	if !strings.Contains(view, "suffix ") || !strings.Contains(rendered, "\x1b[7m ") {
 		t.Fatalf("long command should scroll to cursor at end:\n%s", view)
 	}
 	if strings.Contains(view, "prefix") {
@@ -86,9 +88,87 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	for range 6 {
 		model, _ = updateSpecialKey(model, tea.KeyLeft)
 	}
-	view = stripANSI(model.renderSubHeader(16))
-	if !strings.Contains(view, "▌suffi") {
+	rendered = model.renderSubHeader(16)
+	view = stripANSI(rendered)
+	if !strings.Contains(view, "suffix") || !strings.Contains(rendered, "\x1b[7ms") {
 		t.Fatalf("viewport should follow cursor moved inside command:\n%s", view)
+	}
+}
+
+func TestCommandCursorDoesNotInsertDisplayCell(t *testing.T) {
+	model := NewModel(Options{Command: "for seq in 1..3 ; do"})
+	model.Focus = FocusCommand
+	model.moveCommandCursorToEnd()
+
+	model, _ = updateSpecialKey(model, tea.KeyLeft)
+	if got := stripANSI(model.renderCommandInputValue(80)); got != model.Command {
+		t.Fatalf("moving cursor must not insert a display cell: got %q, want %q", got, model.Command)
+	}
+}
+
+func TestCommandOptionArrowMovesByWord(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		leftCode  rune
+		rightCode rune
+	}{
+		{name: "modified arrows", leftCode: tea.KeyLeft, rightCode: tea.KeyRight},
+		{name: "terminal meta aliases", leftCode: 'b', rightCode: 'f'},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewModel(Options{Command: "for seq in 1..3 ; do"})
+			model.Focus = FocusCommand
+			model.moveCommandCursorToEnd()
+
+			updated, _ := model.Update(tea.KeyPressMsg{Code: test.leftCode, Mod: tea.ModAlt})
+			model = updated.(Model)
+			if model.commandCursor != 18 {
+				t.Fatalf("option+left cursor = %d, want start of previous word at 18", model.commandCursor)
+			}
+
+			updated, _ = model.Update(tea.KeyPressMsg{Code: test.rightCode, Mod: tea.ModAlt})
+			model = updated.(Model)
+			if model.commandCursor != len([]rune(model.Command)) {
+				t.Fatalf("option+right cursor = %d, want command end %d", model.commandCursor, len([]rune(model.Command)))
+			}
+		})
+	}
+}
+
+func TestCommandSelectionCopiesWithControlOrCommandC(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mod  tea.KeyMod
+	}{
+		{name: "control", mod: tea.ModCtrl},
+		{name: "command", mod: tea.ModSuper},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewModel(Options{Command: "echo selected"})
+			model.Focus = FocusCommand
+			model.moveCommandCursorToEnd()
+			model.moveCommandCursor(-8, true)
+
+			_, cmd := model.Update(tea.KeyPressMsg{Code: 'c', Mod: test.mod})
+			if cmd == nil {
+				t.Fatalf("%s+c should copy selected command text", test.name)
+			}
+		})
+	}
+}
+
+func TestCommandSelectionKeepsFollowingTextColor(t *testing.T) {
+	originalStyle := commandInputStyle
+	commandInputStyle = commandInputStyle.Underline(true)
+	t.Cleanup(func() { commandInputStyle = originalStyle })
+	model := NewModel(Options{Command: "for seq in"})
+	model.Focus = FocusCommand
+	model.setCommandCursor(4, false)
+	model.moveCommandCursor(3, true)
+
+	rendered := model.renderCommandInputValue(80)
+	if !regexp.MustCompile("\\x1b\\[[0-9;]*4[0-9;]*mi").MatchString(rendered) {
+		t.Fatalf("text after selection should restore command color: %q", rendered)
 	}
 }
 

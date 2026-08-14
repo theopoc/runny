@@ -876,8 +876,8 @@ func TestCommandFocusAcceptsSlashAndSpace(t *testing.T) {
 	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "./sh -c") {
 		t.Fatalf("command focus should show command input:\n%s", view)
 	}
-	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "./sh -c▌") {
-		t.Fatalf("command focus should show cursor:\n%s", view)
+	if view := model.renderSubHeader(100); !strings.Contains(view, "\x1b[7m ") {
+		t.Fatalf("command focus should show terminal cursor:\n%s", stripANSI(view))
 	}
 	model, _ = updateKey(model, "ctrl+u")
 	if model.Command != "" {
@@ -894,9 +894,9 @@ func TestCommandFocusShowsTrailingSpaceImmediately(t *testing.T) {
 	model = typeText(model, "echo")
 	model, _ = updateSpecialKey(model, tea.KeySpace)
 
-	view := stripANSI(model.renderSubHeader(100))
-	if !strings.Contains(view, "echo ▌") {
-		t.Fatalf("command focus should show trailing space before cursor:\n%s", view)
+	view := model.renderSubHeader(100)
+	if !strings.Contains(stripANSI(view), "echo  ") || !strings.Contains(view, "\x1b[7m ") {
+		t.Fatalf("command focus should show cursor after trailing space:\n%s", stripANSI(view))
 	}
 }
 
@@ -2377,8 +2377,8 @@ func TestModelRunErrorsGuideNextAction(t *testing.T) {
 	if model.Focus != FocusCommand {
 		t.Fatalf("focus = %v, want command input after empty run", model.Focus)
 	}
-	if subheader := stripANSI(model.renderSubHeader(100)); !strings.Contains(subheader, "Command") || !strings.Contains(subheader, "▌") || strings.Contains(subheader, "<type command") {
-		t.Fatalf("empty run should show command cursor:\n%s", subheader)
+	if rendered := model.renderSubHeader(100); !strings.Contains(stripANSI(rendered), "Command") || !strings.Contains(rendered, "\x1b[7m ") || strings.Contains(stripANSI(rendered), "<type command") {
+		t.Fatalf("empty run should show command cursor:\n%s", stripANSI(rendered))
 	}
 
 	model = NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})

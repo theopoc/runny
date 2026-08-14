@@ -28,6 +28,28 @@ func (m *Model) moveCommandCursor(delta int, selecting bool) {
 	}
 }
 
+func (m *Model) moveCommandCursorByWord(direction int, selecting bool) {
+	m.ensureCommandCursor()
+	runes := []rune(m.Command)
+	position := m.commandCursor
+	if direction < 0 {
+		for position > 0 && unicode.IsSpace(runes[position-1]) {
+			position--
+		}
+		for position > 0 && !unicode.IsSpace(runes[position-1]) {
+			position--
+		}
+	} else if direction > 0 {
+		for position < len(runes) && !unicode.IsSpace(runes[position]) {
+			position++
+		}
+		for position < len(runes) && unicode.IsSpace(runes[position]) {
+			position++
+		}
+	}
+	m.setCommandCursor(position, selecting)
+}
+
 func (m *Model) setCommandCursor(position int, selecting bool) {
 	m.ensureCommandCursor()
 	if selecting && !m.commandSelecting {
@@ -157,27 +179,30 @@ func (m Model) renderCommandInputValue(width int) string {
 	selectionStart -= viewportStart
 	selectionEnd -= viewportStart
 	var value strings.Builder
-	for i := 0; i <= len(runes); i++ {
-		if i == cursor {
-			value.WriteString("▌")
-		}
-		if i == len(runes) {
-			break
-		}
+	for i, r := range runes {
+		style := commandInputStyle
 		if selected && i >= selectionStart && i < selectionEnd {
-			value.WriteString(commandSelectionStyle.Render(string(runes[i])))
-		} else {
-			value.WriteRune(runes[i])
+			style = commandSelectionStyle
 		}
+		if i == cursor {
+			style = style.Reverse(true)
+		}
+		value.WriteString(style.Render(string(r)))
+	}
+	if cursor == len(runes) {
+		value.WriteString(commandInputStyle.Reverse(true).Render(" "))
 	}
 	return value.String()
 }
 
 func commandInputViewport(runes []rune, cursor int, width int) (int, int) {
-	if width <= 1 {
+	if width <= 0 {
 		return cursor, cursor
 	}
-	remaining := width - 1
+	remaining := width
+	if cursor == len(runes) {
+		remaining--
+	}
 	start, end := cursor, cursor
 	rightBudget := remaining / 2
 	for end < len(runes) {
