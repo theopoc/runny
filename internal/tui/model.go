@@ -775,9 +775,11 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		} else {
 			m.RunError = "no selected targets; press a to toggle visible"
 		}
+		m.Focus = FocusTargets
 		m.Notice = ""
 		return m, nil
 	}
+	m.Focus = FocusTargets
 	reqTargets := append([]core.Target(nil), targets...)
 	ctx, cancel := context.WithCancel(m.lifecycleCtx)
 	if m.targetCancels == nil {
@@ -1352,11 +1354,7 @@ func (m Model) commandInputValue() string {
 		return ": " + palette
 	}
 	if m.Focus == FocusFilter {
-		filterText := m.Filter
-		if filterText == "" {
-			filterText = "<filter>"
-		}
-		return "/ " + filterText + "▌"
+		return m.Filter + "▌"
 	}
 	if m.Focus == FocusCommand {
 		return m.renderCommandInputValue(len([]rune(m.Command)) + 1)
