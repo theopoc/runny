@@ -6,7 +6,7 @@
 ╔═ Tasks ═════════════════════════════════════════════════╗  ╭─ Output ────────────────────────────╮
 ║ DIRECTORY                                 STATUS       ║  │                                    │
 ║ showing 1-4 of 4 •                                     ║  │                                    │
-║   ▶ −  📂 api                             ● running    ║  │                                    │
+║   ▶ −  📂 api                             ⠋ running    ║  │                                    │
 ║   …    └─ 📁 api/cmd                      ◌ queued     ║  │                                    │
 ║        📁 web                             ○ skipped    ║  │                                    │
 ║   !    📁 worker                          ✕ failed     ║  │                                    │

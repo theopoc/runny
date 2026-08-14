@@ -47,6 +47,10 @@ type Options struct {
 
 type Model struct {
 	Command            string
+	commandCursor      int
+	commandCursorValid bool
+	commandSelection   int
+	commandSelecting   bool
 	Targets            []core.Target
 	Status             map[string]core.Status
 	Logs               map[string]string
@@ -76,6 +80,7 @@ type Model struct {
 	LogFollow          bool
 	Running            bool
 	PendingRuns        int
+	spinnerFrame       int
 	runCtx             context.Context
 	runQueue           []core.Target
 	runLogRoot         string
@@ -226,6 +231,27 @@ var paletteCommands = []paletteCommand{
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if paste, ok := msg.(tea.PasteMsg); ok {
+		if m.Focus == FocusCommand {
+			m.insertCommandText(paste.Content)
+			return m, nil
+		}
+		return m, nil
+	}
+	if clipboard, ok := msg.(tea.ClipboardMsg); ok {
+		if m.Focus == FocusCommand {
+			m.insertCommandText(clipboard.Content)
+			return m, nil
+		}
+		return m, nil
+	}
+	if _, ok := msg.(spinnerTickMsg); ok {
+		if !m.Running {
+			return m, nil
+		}
+		m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
+		return m, spinnerTick()
+	}
 	if _, ok := msg.(shutdownMsg); ok {
 		m.cancelAll()
 		return m, tea.Quit
@@ -247,7 +273,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key.Key().Text != "" {
 		keyName = key.Key().Text
 	}
-	if keyName == "ctrl+c" {
+	if keyName == "ctrl+c" && !(m.Focus == FocusCommand && m.hasCommandSelection()) {
 		m.ShowHelp = false
 		m.ShowHistory = false
 		m.ShowPalette = false
@@ -363,24 +389,46 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		m.previousCommandHistory()
 	case "down":
 		m.nextCommandHistory()
+	case "left":
+		m.moveCommandCursor(-1, false)
+	case "right":
+		m.moveCommandCursor(1, false)
+	case "shift+left":
+		m.moveCommandCursor(-1, true)
+	case "shift+right":
+		m.moveCommandCursor(1, true)
+	case "home", "ctrl+a":
+		m.setCommandCursor(0, false)
+	case "end", "ctrl+e":
+		m.setCommandCursor(len([]rune(m.Command)), false)
 	case "backspace":
-		m.Command = deleteLastRune(m.Command)
-		m.resetCommandHistoryNavigation()
+		m.deleteCommandBackward()
+	case "delete":
+		m.deleteCommandForward()
 	case "ctrl+u":
 		m.Command = ""
+		m.setCommandCursor(0, false)
 		m.Notice = "command cleared"
 		m.RunError = ""
 		m.resetCommandHistoryNavigation()
 	case "ctrl+w":
-		m.Command = trimLastWord(m.Command)
-		m.resetCommandHistoryNavigation()
+		m.deleteCommandWordBackward()
+	case "ctrl+c":
+		return m, tea.SetClipboard(m.selectedCommandText())
+	case "ctrl+x":
+		selected := m.selectedCommandText()
+		if selected != "" {
+			m.deleteCommandSelection()
+			m.resetCommandHistoryNavigation()
+			return m, tea.SetClipboard(selected)
+		}
+	case "ctrl+v":
+		return m, func() tea.Msg { return tea.ReadClipboard() }
 	case " ", "space":
-		m.Command += " "
-		m.resetCommandHistoryNavigation()
+		m.insertCommandText(" ")
 	default:
 		if key.Key().Text != "" {
-			m.Command += key.Key().Text
-			m.resetCommandHistoryNavigation()
+			m.insertCommandText(key.Key().Text)
 		}
 	}
 	return m, nil
@@ -634,6 +682,7 @@ func (m Model) handleHistoryKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		case "enter":
 			if command := m.selectedHistoryCommand(); command != "" {
 				m.Command = command
+				m.moveCommandCursorToEnd()
 				m.RunError = ""
 				m.ShowHistory = false
 				m.HistorySearching = false
@@ -688,6 +737,7 @@ func (m Model) handleHistoryKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "enter":
 		if command := m.selectedHistoryCommand(); command != "" {
 			m.Command = command
+			m.moveCommandCursorToEnd()
 			m.RunError = ""
 			m.ShowHistory = false
 			m.Focus = FocusCommand
@@ -751,7 +801,8 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		m.Logs[target.ID] = ""
 		delete(m.TargetStarted, target.ID)
 	}
-	return m.startQueuedRuns()
+	next, cmd := m.startQueuedRuns()
+	return next, tea.Batch(spinnerTick(), cmd)
 }
 
 func (m Model) targetsForRun(failedOnly bool) []core.Target {
@@ -1258,7 +1309,11 @@ func (m Model) commandInputBoxLines(width int) []string {
 	width = max(width, lipgloss.Width(title)+2)
 	contentWidth := max(0, width-4)
 	topFill := max(0, width-lipgloss.Width(title)-2)
-	value := commandInputStyle.Render(m.commandInputValue())
+	inputValue := m.commandInputValue()
+	if m.Focus == FocusCommand && !m.ShowPalette {
+		inputValue = m.renderCommandInputValue(contentWidth)
+	}
+	value := commandInputStyle.Render(inputValue)
 	value = padRightVisible(truncateVisible(value, contentWidth), contentWidth)
 
 	return []string{
@@ -1294,7 +1349,7 @@ func (m Model) commandInputValue() string {
 		return "/ " + filterText + "▌"
 	}
 	if m.Focus == FocusCommand {
-		return m.Command + "▌"
+		return m.renderCommandInputValue(len([]rune(m.Command)) + 1)
 	}
 	return strings.TrimSpace(m.Command)
 }
@@ -2145,7 +2200,7 @@ func (m Model) statusLabel(status core.Status) string {
 	case core.StatusQueued:
 		return "◌ queued"
 	case core.StatusRunning:
-		return "● running"
+		return spinnerFrame(m.spinnerFrame) + " running"
 	case core.StatusSucceeded:
 		return "✓ ok"
 	case core.StatusFailed:
@@ -2606,6 +2661,7 @@ func (m *Model) previousCommandHistory() {
 		m.CommandHistoryPos++
 	}
 	m.Command = m.History[m.CommandHistoryPos]
+	m.moveCommandCursorToEnd()
 }
 
 func (m *Model) nextCommandHistory() {
@@ -2615,11 +2671,13 @@ func (m *Model) nextCommandHistory() {
 	if m.CommandHistoryPos == 0 {
 		m.CommandHistoryPos = -1
 		m.Command = m.CommandDraft
+		m.moveCommandCursorToEnd()
 		m.CommandDraft = ""
 		return
 	}
 	m.CommandHistoryPos--
 	m.Command = m.History[m.CommandHistoryPos]
+	m.moveCommandCursorToEnd()
 }
 
 func (m *Model) resetCommandHistoryNavigation() {

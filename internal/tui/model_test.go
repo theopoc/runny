@@ -1216,7 +1216,7 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	header := stripANSI(model.taskHeader(width))
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], width))
 	headerIndex := strings.Index(header, "STATUS")
-	statusIndex := strings.Index(row, "● running")
+	statusIndex := strings.Index(row, model.statusLabel(core.StatusRunning))
 	if headerIndex < 0 || statusIndex < 0 || lipgloss.Width(header[:headerIndex]) != lipgloss.Width(row[:statusIndex]) {
 		t.Fatalf("status column header=%d row=%d\n%s\n%s", headerIndex, statusIndex, header, row)
 	}
