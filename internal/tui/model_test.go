@@ -175,6 +175,110 @@ func TestModelFocusAndFilteredMatchNavigation(t *testing.T) {
 	}
 }
 
+func TestMouseWheelMovesFocusedTaskSelectionOneVisibleTarget(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "hidden", RelPath: "hidden", ParentID: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Targets[0].Children = []string{"hidden"}
+	model.Targets[0].Folded = true
+
+	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	model = updated.(Model)
+	if model.Cursor != 2 {
+		t.Fatalf("cursor after wheel down = %d, want next visible target 2", model.Cursor)
+	}
+
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	model = updated.(Model)
+	if model.Cursor != 0 {
+		t.Fatalf("cursor after wheel up = %d, want previous visible target 0", model.Cursor)
+	}
+
+	targets := make([]core.Target, 8)
+	for i := range targets {
+		targets[i] = core.Target{ID: fmt.Sprintf("target-%d", i), RelPath: fmt.Sprintf("target-%d", i)}
+	}
+	model = NewModel(Options{Targets: targets})
+	model.Height = 20
+	model.Cursor = 5
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	model = updated.(Model)
+	if model.Cursor != 6 || model.DirectoryOffset != 1 {
+		t.Fatalf("wheel beyond viewport = cursor %d, offset %d; want 6, 1", model.Cursor, model.DirectoryOffset)
+	}
+}
+
+func TestMouseWheelScrollsFocusedOutputThreeLines(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusLogs
+	model.Height = 32
+	model.LogFollow = true
+	lines := make([]string, 80)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%02d", i+1)
+	}
+	model.Logs["api"] = strings.Join(lines, "\n")
+
+	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	model = updated.(Model)
+	if model.PreviewOffset != 56 || model.LogFollow {
+		t.Fatalf("wheel up output state = offset %d, follow %t; want 56, false", model.PreviewOffset, model.LogFollow)
+	}
+
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	model = updated.(Model)
+	if model.PreviewOffset != 59 {
+		t.Fatalf("wheel down output offset = %d, want 59", model.PreviewOffset)
+	}
+}
+
+func TestMouseWheelIsIgnoredOutsidePaneInteraction(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Model)
+	}{
+		{name: "command input", setup: func(m *Model) { m.Focus = FocusCommand }},
+		{name: "filter input", setup: func(m *Model) { m.Focus = FocusFilter }},
+		{name: "help overlay", setup: func(m *Model) { m.ShowHelp = true }},
+		{name: "history overlay", setup: func(m *Model) { m.ShowHistory = true }},
+		{name: "palette", setup: func(m *Model) { m.ShowPalette = true }},
+		{name: "run confirmation", setup: func(m *Model) { m.ConfirmRun = true }},
+		{name: "cancel confirmation", setup: func(m *Model) { m.ConfirmCancelAll = true }},
+		{name: "quit confirmation", setup: func(m *Model) { m.ConfirmQuit = true }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(Options{Targets: []core.Target{
+				{ID: "api", RelPath: "api", Selected: true},
+				{ID: "web", RelPath: "web", Selected: true},
+			}})
+			model.PreviewOffset = 6
+			tt.setup(&model)
+
+			updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+			model = updated.(Model)
+			if model.Cursor != 0 || model.PreviewOffset != 6 {
+				t.Fatalf("wheel changed state: cursor %d, offset %d", model.Cursor, model.PreviewOffset)
+			}
+		})
+	}
+}
+
+func TestKeyboardOutputScrollKeepsExistingTailBehavior(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusLogs
+	model.LogFollow = true
+	model.Logs["api"] = strings.Repeat("line\n", 80)
+
+	model, _ = updateKey(model, "pagedown")
+	if model.PreviewOffset != 5 || model.LogFollow {
+		t.Fatalf("keyboard scroll state = offset %d, follow %t; want 5, false", model.PreviewOffset, model.LogFollow)
+	}
+}
+
 func TestTabFocusTogglesVisiblePanels(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 

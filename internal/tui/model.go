@@ -281,6 +281,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		return m, waitForRunStream(output.stream)
 	}
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		m.handleMouseWheel(wheel)
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
@@ -389,6 +393,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LogFollow = !m.LogFollow
 	}
 	return m, nil
+}
+
+func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
+	if m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit {
+		return
+	}
+
+	direction := 0
+	switch wheel.Button {
+	case tea.MouseWheelUp:
+		direction = -1
+	case tea.MouseWheelDown:
+		direction = 1
+	default:
+		return
+	}
+
+	switch m.Focus {
+	case FocusTargets:
+		m.moveCursor(direction)
+	case FocusLogs:
+		if m.LogFollow {
+			m.PreviewOffset = m.outputMaxOffset()
+		}
+		m.scrollPreview(direction * 3)
+	}
 }
 
 func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1102,6 +1132,7 @@ func (m Model) View() tea.View {
 	content := m.render()
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.WindowTitle = "runny"
 	return view
 }
@@ -1122,7 +1153,7 @@ func (m Model) render() string {
 	if height == 0 {
 		height = 20
 	}
-	panelHeight := max(10, height-9)
+	panelHeight := panelHeightForWindow(height)
 	leftWidth := width * 58 / 100
 	if leftWidth < 50 {
 		leftWidth = 50
@@ -1852,8 +1883,8 @@ func (m Model) outputRangeLabel(targetID string, height int) string {
 }
 
 func (m Model) renderOutputLines(targetID string, height int) []string {
-	output := strings.Split(strings.TrimRight(m.Logs[targetID], "\n"), "\n")
-	if len(output) == 1 && output[0] == "" {
+	output := outputLines(m.Logs[targetID])
+	if len(output) == 0 {
 		return nil
 	}
 	visible := max(1, height-2)
@@ -3116,6 +3147,33 @@ func (m *Model) scrollPreview(delta int) {
 	m.LogFollow = false
 }
 
+func (m Model) outputMaxOffset() int {
+	if m.Cursor < 0 || m.Cursor >= len(m.Targets) {
+		return 0
+	}
+	output := outputLines(m.Logs[m.Targets[m.Cursor].ID])
+	if len(output) == 0 {
+		return 0
+	}
+	visible := max(1, panelHeightForWindow(m.Height)-2)
+	return max(0, len(output)-visible)
+}
+
+func outputLines(output string) []string {
+	output = strings.TrimRight(output, "\n")
+	if output == "" {
+		return nil
+	}
+	return strings.Split(output, "\n")
+}
+
+func panelHeightForWindow(height int) int {
+	if height < 20 {
+		height = 20
+	}
+	return max(10, height-9)
+}
+
 func (m *Model) ensureCursorVisible() {
 	if len(m.Targets) == 0 {
 		m.Cursor = 0
@@ -3177,12 +3235,7 @@ func (m *Model) ensureDirectoryOffset() {
 }
 
 func (m Model) directoryViewportRows() int {
-	height := m.Height
-	if height < 20 {
-		height = 20
-	}
-	panelHeight := max(10, height-9)
-	return max(1, panelHeight-5)
+	return max(1, panelHeightForWindow(m.Height)-5)
 }
 
 func (m Model) visibleTargetIndexes() []int {
