@@ -1,8 +1,14 @@
 package runner
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
-const truncatedOutputMarker = "[runny: output truncated]\n"
+const (
+	MaxOutputBytes        = 4 << 20
+	TruncatedOutputMarker = "[runny: output truncated]\n"
+)
 
 type tailBuffer struct {
 	mu        sync.Mutex
@@ -19,26 +25,8 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	n := len(p)
-	if n == 0 {
-		return 0, nil
-	}
-	if b.limit <= 0 {
-		b.truncated = true
-		return n, nil
-	}
-	if n >= b.limit {
-		b.truncated = b.truncated || len(b.buf) > 0 || n > b.limit
-		b.buf = append(b.buf[:0], p[n-b.limit:]...)
-		return n, nil
-	}
-	if overflow := len(b.buf) + n - b.limit; overflow > 0 {
-		copy(b.buf, b.buf[overflow:])
-		b.buf = b.buf[:len(b.buf)-overflow]
-		b.truncated = true
-	}
-	b.buf = append(b.buf, p...)
-	return n, nil
+	b.buf, b.truncated = appendTail(b.buf, p, b.limit, b.truncated)
+	return len(p), nil
 }
 
 func (b *tailBuffer) String() string {
@@ -46,7 +34,38 @@ func (b *tailBuffer) String() string {
 	defer b.mu.Unlock()
 
 	if b.truncated {
-		return truncatedOutputMarker + string(b.buf)
+		return TruncatedOutputMarker + string(b.buf)
 	}
 	return string(b.buf)
+}
+
+func AppendOutputTail(current string, chunk string, truncated bool) (string, bool) {
+	if truncated {
+		current = strings.TrimPrefix(current, TruncatedOutputMarker)
+	}
+	buf, truncated := appendTail([]byte(current), []byte(chunk), MaxOutputBytes, truncated)
+	if truncated {
+		return TruncatedOutputMarker + string(buf), true
+	}
+	return string(buf), false
+}
+
+func appendTail(buf []byte, p []byte, limit int, truncated bool) ([]byte, bool) {
+	n := len(p)
+	if n == 0 {
+		return buf, truncated
+	}
+	if limit <= 0 {
+		return buf[:0], true
+	}
+	if n >= limit {
+		truncated = truncated || len(buf) > 0 || n > limit
+		return append(buf[:0], p[n-limit:]...), truncated
+	}
+	if overflow := len(buf) + n - limit; overflow > 0 {
+		copy(buf, buf[overflow:])
+		buf = buf[:len(buf)-overflow]
+		truncated = true
+	}
+	return append(buf, p...), truncated
 }

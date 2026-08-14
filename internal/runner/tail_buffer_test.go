@@ -23,7 +23,7 @@ func TestTailBufferRetainsNewestBytesOverLimit(t *testing.T) {
 	if _, err := buf.Write([]byte("abcdefgh")); err != nil {
 		t.Fatal(err)
 	}
-	want := truncatedOutputMarker + "defgh"
+	want := TruncatedOutputMarker + "defgh"
 	if got := buf.String(); got != want {
 		t.Fatalf("String() = %q, want %q", got, want)
 	}
@@ -37,7 +37,7 @@ func TestTailBufferRetainsNewestBytesAcrossWrites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := truncatedOutputMarker + "cdefg"
+	want := TruncatedOutputMarker + "cdefg"
 	if got := buf.String(); got != want {
 		t.Fatalf("String() = %q, want %q", got, want)
 	}

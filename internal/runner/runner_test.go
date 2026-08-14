@@ -9,14 +9,14 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/theopoc/runny/internal/core"
 )
-
-const testMaxOutputBytes = 4 << 20
 
 type closeErrorStore struct {
 	err error
@@ -68,10 +68,115 @@ func TestRunnerMarksFailure(t *testing.T) {
 	}
 }
 
+func TestRunStreamsStdoutAndStderrBeforeCommandFinishes(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	events := make(chan core.Event, 4)
+	type outcome struct {
+		results []core.RunResult
+		err     error
+	}
+	done := make(chan outcome, 1)
+
+	go func() {
+		results, err := Run(context.Background(), core.RunRequest{
+			Command: "printf 'stdout-before-finish\\n'; sleep 1; printf 'stderr-before-finish\\n' >&2",
+			Targets: []core.Target{target},
+			Mode:    core.ModeSerial,
+			OnEvent: func(event core.Event) {
+				events <- event
+			},
+		})
+		done <- outcome{results: results, err: err}
+	}()
+
+	select {
+	case event := <-events:
+		if event.Type != core.EventOutput || event.TargetID != target.ID || event.Output != "stdout-before-finish\n" {
+			t.Fatalf("first event = %#v", event)
+		}
+	case <-done:
+		t.Fatal("command finished before first output event")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("first output event was not delivered while command was running")
+	}
+
+	select {
+	case result := <-done:
+		t.Fatalf("command finished before delayed stderr was observed: %#v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	var streamed strings.Builder
+	streamed.WriteString("stdout-before-finish\n")
+	for !strings.Contains(streamed.String(), "stderr-before-finish\n") {
+		select {
+		case event := <-events:
+			if event.Type != core.EventOutput || event.TargetID != target.ID {
+				t.Fatalf("event = %#v", event)
+			}
+			streamed.WriteString(event.Output)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("stderr event was not delivered: %q", streamed.String())
+		}
+	}
+
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if len(result.results) != 1 || result.results[0].Output != streamed.String() {
+			t.Fatalf("results = %#v, streamed = %q", result.results, streamed.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("command did not finish")
+	}
+}
+
+func TestEventWriterSerializesConcurrentOutput(t *testing.T) {
+	const writers = 16
+	var active atomic.Int32
+	var concurrent atomic.Bool
+	var eventCount atomic.Int32
+	writer := &eventWriter{
+		target:  core.Target{ID: "api"},
+		capture: newTailBuffer(writers),
+		onEvent: func(core.Event) {
+			if active.Add(1) > 1 {
+				concurrent.Store(true)
+			}
+			time.Sleep(2 * time.Millisecond)
+			active.Add(-1)
+			eventCount.Add(1)
+		},
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, err := writer.Write([]byte("x")); err != nil {
+				t.Errorf("Write() error = %v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if concurrent.Load() {
+		t.Fatal("output event sink was called concurrently")
+	}
+	if eventCount.Load() != writers {
+		t.Fatalf("event count = %d, want %d", eventCount.Load(), writers)
+	}
+}
+
 func TestRunBoundsOutput(t *testing.T) {
 	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
 	results, err := Run(context.Background(), core.RunRequest{
-		Command: fmt.Sprintf("dd if=/dev/zero bs=%d count=1 2>/dev/null", testMaxOutputBytes+1024),
+		Command: fmt.Sprintf("dd if=/dev/zero bs=%d count=1 2>/dev/null", MaxOutputBytes+1024),
 		Targets: []core.Target{target},
 		Mode:    core.ModeSerial,
 	})
@@ -81,18 +186,19 @@ func TestRunBoundsOutput(t *testing.T) {
 	if results[0].Status != core.StatusSucceeded {
 		t.Fatalf("result = %#v", results[0])
 	}
-	wantLen := len(truncatedOutputMarker) + testMaxOutputBytes
+	wantLen := len(TruncatedOutputMarker) + MaxOutputBytes
 	if len(results[0].Output) != wantLen {
 		t.Fatalf("output length = %d, want %d", len(results[0].Output), wantLen)
 	}
-	if !strings.HasPrefix(results[0].Output, truncatedOutputMarker) {
-		prefix := results[0].Output[:min(len(results[0].Output), len(truncatedOutputMarker))]
+	if !strings.HasPrefix(results[0].Output, TruncatedOutputMarker) {
+		prefix := results[0].Output[:min(len(results[0].Output), len(TruncatedOutputMarker))]
 		t.Fatalf("output does not start with truncation marker: %q", prefix)
 	}
 }
 
 func TestRunDisablesCapture(t *testing.T) {
 	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+	eventCount := 0
 	runtime.GC()
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -101,6 +207,9 @@ func TestRunDisablesCapture(t *testing.T) {
 		Targets:        []core.Target{target},
 		Mode:           core.ModeSerial,
 		DisableLogging: true,
+		OnEvent: func(core.Event) {
+			eventCount++
+		},
 	})
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
@@ -109,6 +218,9 @@ func TestRunDisablesCapture(t *testing.T) {
 	}
 	if results[0].Status != core.StatusSucceeded || results[0].Output != "" {
 		t.Fatalf("result = %#v", results[0])
+	}
+	if eventCount != 0 {
+		t.Fatalf("disabled logging emitted %d output events", eventCount)
 	}
 	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8<<20 {
 		t.Fatalf("disabled logging allocated %d bytes, want no output-sized capture", allocated)

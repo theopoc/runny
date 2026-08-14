@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/history"
+	"github.com/theopoc/runny/internal/runner"
 )
 
 func TestModelToggleAllWithLowercaseAAndFilter(t *testing.T) {
@@ -2118,6 +2120,70 @@ func TestOutputPanelStaysEmptyForRunningCommandUntilOutputArrives(t *testing.T) 
 	}
 }
 
+func TestRunOutputMessageUpdatesRunningTarget(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Running = true
+	model.Status["api"] = core.StatusRunning
+	stream := make(chan tea.Msg)
+
+	updated, next := model.Update(runOutputMsg{
+		targetID: "api",
+		chunk:    "live stdout\nlive stderr\n",
+		stream:   stream,
+	})
+	model = updated.(Model)
+
+	if model.Logs["api"] != "live stdout\nlive stderr\n" {
+		t.Fatalf("api logs = %q", model.Logs["api"])
+	}
+	if next == nil {
+		t.Fatal("output event should keep waiting for target stream")
+	}
+}
+
+func TestRunOutputMessageBoundsLiveOutput(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	chunk := strings.Repeat("x", runner.MaxOutputBytes+1)
+
+	updated, _ := model.Update(runOutputMsg{targetID: "api", chunk: chunk})
+	got := updated.(Model).Logs["api"]
+
+	if !strings.HasPrefix(got, runner.TruncatedOutputMarker) {
+		t.Fatalf("live output prefix = %q", got[:min(len(got), len(runner.TruncatedOutputMarker))])
+	}
+	if len(got) != len(runner.TruncatedOutputMarker)+runner.MaxOutputBytes {
+		t.Fatalf("live output length = %d", len(got))
+	}
+}
+
+func TestRunOutputMessageFollowsTailAndPreservesManualScroll(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Status["api"] = core.StatusRunning
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%02d", i+1)
+	}
+
+	updated, _ := model.Update(runOutputMsg{targetID: "api", chunk: strings.Join(lines, "\n") + "\n"})
+	model = updated.(Model)
+	view := strings.Join(model.renderOutputLines("api", 6), "\n")
+	if !strings.Contains(view, "line-20") || strings.Contains(view, "line-01") {
+		t.Fatalf("tail view did not follow live output:\n%s", view)
+	}
+
+	model.LogFollow = false
+	model.PreviewOffset = 2
+	updated, _ = model.Update(runOutputMsg{targetID: "api", chunk: "line-21\n"})
+	model = updated.(Model)
+	if model.PreviewOffset != 2 {
+		t.Fatalf("manual preview offset = %d, want 2", model.PreviewOffset)
+	}
+	view = strings.Join(model.renderOutputLines("api", 6), "\n")
+	if !strings.Contains(view, "line-03") || strings.Contains(view, "line-21") {
+		t.Fatalf("manual scroll moved after live output:\n%s", view)
+	}
+}
+
 func TestPreviewOutputRangeShowsManualScroll(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Logs["api"] = strings.Join([]string{
@@ -2251,6 +2317,89 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 	}
 	if !strings.Contains(model.Logs["web"], "web bad") || !strings.Contains(model.Logs["web"], "exit status 1") {
 		t.Fatalf("web logs = %q", model.Logs["web"])
+	}
+}
+
+func TestTargetRunStreamsOutputBeforeReturningFinalResult(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", Selected: true}
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{target}})
+	model.Running = true
+	model.PendingRuns = 1
+	model.runCtx = context.Background()
+	release := make(chan struct{})
+	model.runFunc = func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		if req.OnEvent == nil {
+			return nil, errors.New("missing output event sink")
+		}
+		req.OnEvent(core.Event{Type: core.EventOutput, TargetID: target.ID, Output: "live output\n"})
+		<-release
+		return []core.RunResult{{Target: target, Status: core.StatusSucceeded, Output: "live output\n"}}, nil
+	}
+
+	first := make(chan tea.Msg, 1)
+	go func() {
+		first <- model.startTargetCmd(target)()
+	}()
+
+	var output runOutputMsg
+	select {
+	case msg := <-first:
+		var ok bool
+		output, ok = msg.(runOutputMsg)
+		if !ok {
+			t.Fatalf("first target message = %T, want runOutputMsg", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("live output was not delivered before run completion")
+	}
+	updated, next := model.Update(output)
+	model = updated.(Model)
+	if model.Logs[target.ID] != "live output\n" {
+		t.Fatalf("live logs = %q", model.Logs[target.ID])
+	}
+	if next == nil {
+		t.Fatal("live output should schedule next stream read")
+	}
+
+	finished := make(chan tea.Msg, 1)
+	go func() {
+		finished <- next()
+	}()
+	close(release)
+	select {
+	case msg := <-finished:
+		done, ok := msg.(runDoneMsg)
+		if !ok {
+			t.Fatalf("final target message = %T, want runDoneMsg", msg)
+		}
+		updated, _ = model.Update(done)
+		model = updated.(Model)
+	case <-time.After(time.Second):
+		t.Fatal("final target result was not delivered")
+	}
+	if model.Logs[target.ID] != "live output\n" {
+		t.Fatalf("final logs duplicated streamed output: %q", model.Logs[target.ID])
+	}
+}
+
+func TestRunCompletionPreservesStreamedOutputAndDeduplicatesError(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", Selected: true}
+	model := NewModel(Options{Targets: []core.Target{target}})
+	model.Running = true
+	model.PendingRuns = 1
+	model.Status[target.ID] = core.StatusRunning
+	model.Logs[target.ID] = "live output\nexit status 1\n"
+
+	updated, _ := model.Update(runDoneMsg{targetID: target.ID, results: []core.RunResult{{
+		Target: target,
+		Status: core.StatusFailed,
+		Output: "different final snapshot\n",
+		Error:  "exit status 1",
+	}}})
+	model = updated.(Model)
+
+	if model.Logs[target.ID] != "live output\nexit status 1\n" {
+		t.Fatalf("final logs = %q", model.Logs[target.ID])
 	}
 }
 
