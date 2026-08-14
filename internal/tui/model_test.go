@@ -314,6 +314,123 @@ func TestTabFocusTogglesVisiblePanels(t *testing.T) {
 	}
 }
 
+func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web"},
+	}})
+	model.Width = 120
+	model.Height = 26
+	model.Cursor = 1
+	model.Notice = "keep me"
+
+	updated, _ := model.Update(tea.MouseClickMsg{X: 71, Y: 5, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.Focus != FocusLogs {
+		t.Fatalf("output border click focus = %v, want output", model.Focus)
+	}
+	if model.Cursor != 1 || !model.Targets[0].Selected || model.Targets[1].Selected {
+		t.Fatalf("output click changed task state: cursor=%d targets=%#v", model.Cursor, model.Targets)
+	}
+	if model.Notice != "keep me" {
+		t.Fatalf("output click notice = %q, want unchanged", model.Notice)
+	}
+
+	updated, _ = model.Update(tea.MouseClickMsg{X: 0, Y: 21, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.Focus != FocusTargets {
+		t.Fatalf("tasks border click focus = %v, want tasks", model.Focus)
+	}
+}
+
+func TestMouseClickIgnoresUnavailablePanes(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Model)
+		click tea.MouseClickMsg
+		want  Focus
+	}{
+		{
+			name:  "right button",
+			click: tea.MouseClickMsg{X: 80, Y: 10, Button: tea.MouseRight},
+			want:  FocusTargets,
+		},
+		{
+			name:  "panel gap",
+			click: tea.MouseClickMsg{X: 69, Y: 10, Button: tea.MouseLeft},
+			want:  FocusTargets,
+		},
+		{
+			name: "overlay",
+			setup: func(m *Model) {
+				m.ShowHelp = true
+			},
+			click: tea.MouseClickMsg{X: 80, Y: 10, Button: tea.MouseLeft},
+			want:  FocusTargets,
+		},
+		{
+			name: "compact output remains visible",
+			setup: func(m *Model) {
+				m.Width = 95
+				m.Focus = FocusLogs
+			},
+			click: tea.MouseClickMsg{X: 0, Y: 5, Button: tea.MouseLeft},
+			want:  FocusLogs,
+		},
+		{
+			name: "compact tasks receives focus from command",
+			setup: func(m *Model) {
+				m.Width = 95
+				m.Focus = FocusCommand
+			},
+			click: tea.MouseClickMsg{X: 50, Y: 10, Button: tea.MouseLeft},
+			want:  FocusTargets,
+		},
+		{
+			name: "zoomed output remains visible",
+			setup: func(m *Model) {
+				m.Zoom = true
+				m.Focus = FocusLogs
+			},
+			click: tea.MouseClickMsg{X: 0, Y: 5, Button: tea.MouseLeft},
+			want:  FocusLogs,
+		},
+		{
+			name: "zoomed tasks receives focus from filter",
+			setup: func(m *Model) {
+				m.Zoom = true
+				m.Focus = FocusFilter
+			},
+			click: tea.MouseClickMsg{X: 50, Y: 10, Button: tea.MouseLeft},
+			want:  FocusTargets,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+			model.Width = 120
+			model.Height = 26
+			if tt.setup != nil {
+				tt.setup(&model)
+			}
+
+			updated, _ := model.Update(tt.click)
+			if got := updated.(Model).Focus; got != tt.want {
+				t.Fatalf("focus = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestViewEnablesMouseCellMotion(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+	view := model.View()
+	if view.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("mouse mode = %v, want cell motion", view.MouseMode)
+	}
+}
+
 func TestFooterIsContextual(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	tasksFooter := stripANSI(model.renderFooter(120))
