@@ -1133,12 +1133,7 @@ func (m Model) render() string {
 	}
 	panelHeight, leftWidth, rightWidth := panelDimensions(width, height)
 
-	b.WriteString(m.renderHeader(width))
-	b.WriteByte('\n')
-	b.WriteString(m.renderDashboard(width))
-	b.WriteByte('\n')
-	b.WriteString(m.renderSubHeader(width))
-	b.WriteByte('\n')
+	b.WriteString(m.renderPanelPrefix(width))
 	panels := m.renderPanelArea(width, panelHeight, leftWidth, rightWidth)
 	if overlay := m.renderOverlay(width, panelHeight); overlay != "" {
 		b.WriteString(placeOverlay(panels, overlay, width))
@@ -1163,11 +1158,6 @@ func (m Model) render() string {
 	return b.String()
 }
 
-const (
-	panelTop = 5
-	panelGap = 2
-)
-
 func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
 	panelHeight = max(10, height-9)
 	leftWidth = width * 58 / 100
@@ -1183,21 +1173,39 @@ func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rig
 }
 
 func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
-	if m.Width < 80 || m.Height < 20 || m.Zoom || m.compactMode(m.Width) || m.hasOverlay() {
+	if m.Width < 80 || m.Height < 20 || m.hasOverlay() {
 		return 0, false
 	}
 	panelHeight, leftWidth, rightWidth := panelDimensions(m.Width, m.Height)
+	panelTop := strings.Count(m.renderPanelPrefix(m.Width), "\n")
 	if y < panelTop || y >= panelTop+panelHeight {
 		return 0, false
+	}
+	if m.Zoom || m.compactMode(m.Width) {
+		if x < 0 || x >= m.singlePanelWidth(m.Width) {
+			return 0, false
+		}
+		if m.Focus == FocusLogs {
+			return FocusLogs, true
+		}
+		return FocusTargets, true
 	}
 	if x >= 0 && x < leftWidth {
 		return FocusTargets, true
 	}
-	rightStart := leftWidth + panelGap
+	rightStart := leftWidth + lipgloss.Width(panelSeparator)
 	if x >= rightStart && x < rightStart+rightWidth {
 		return FocusLogs, true
 	}
 	return 0, false
+}
+
+func (m Model) renderPanelPrefix(width int) string {
+	return strings.Join([]string{
+		m.renderHeader(width),
+		m.renderDashboard(width),
+		m.renderSubHeader(width),
+	}, "\n") + "\n"
 }
 
 func (m Model) hasOverlay() bool {

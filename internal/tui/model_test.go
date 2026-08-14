@@ -266,6 +266,15 @@ func TestMouseClickIgnoresUnavailablePanes(t *testing.T) {
 			want:  FocusLogs,
 		},
 		{
+			name: "compact tasks receives focus from command",
+			setup: func(m *Model) {
+				m.Width = 95
+				m.Focus = FocusCommand
+			},
+			click: tea.MouseClickMsg{X: 50, Y: 10, Button: tea.MouseLeft},
+			want:  FocusTargets,
+		},
+		{
 			name: "zoomed output remains visible",
 			setup: func(m *Model) {
 				m.Zoom = true
@@ -273,6 +282,15 @@ func TestMouseClickIgnoresUnavailablePanes(t *testing.T) {
 			},
 			click: tea.MouseClickMsg{X: 0, Y: 5, Button: tea.MouseLeft},
 			want:  FocusLogs,
+		},
+		{
+			name: "zoomed tasks receives focus from filter",
+			setup: func(m *Model) {
+				m.Zoom = true
+				m.Focus = FocusFilter
+			},
+			click: tea.MouseClickMsg{X: 50, Y: 10, Button: tea.MouseLeft},
+			want:  FocusTargets,
 		},
 	}
 
