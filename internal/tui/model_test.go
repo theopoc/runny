@@ -702,7 +702,7 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want 1", model.Cursor)
 	}
-	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "/ w▌") {
+	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "w▌") {
 		t.Fatalf("filter focus should show cursor:\n%s", view)
 	}
 	model, _ = updateKey(model, " ")
@@ -829,6 +829,30 @@ func TestCommandInputStartsEmptyWithoutCursor(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("command input should include styling:\n%s", rendered)
+	}
+}
+
+func TestFilterInputOmitsSlashAndPlaceholder(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = updateKey(model, "/")
+
+	empty := stripANSI(model.View().Content)
+	if strings.Contains(empty, "/ <filter>") {
+		t.Fatalf("empty filter input should not show slash or placeholder:\n%s", empty)
+	}
+	if !strings.Contains(empty, "▌") {
+		t.Fatalf("empty focused filter should show cursor:\n%s", empty)
+	}
+
+	model, _ = updateKey(model, "a")
+	model, _ = updateKey(model, "p")
+	model, _ = updateKey(model, "i")
+	filled := stripANSI(model.View().Content)
+	if strings.Contains(filled, "/ api▌") {
+		t.Fatalf("filled filter input should not show slash:\n%s", filled)
+	}
+	if !strings.Contains(filled, "api▌") {
+		t.Fatalf("filled filter input should show text and cursor:\n%s", filled)
 	}
 }
 

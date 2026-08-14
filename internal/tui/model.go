@@ -1352,11 +1352,7 @@ func (m Model) commandInputValue() string {
 		return ": " + palette
 	}
 	if m.Focus == FocusFilter {
-		filterText := m.Filter
-		if filterText == "" {
-			filterText = "<filter>"
-		}
-		return "/ " + filterText + "▌"
+		return m.Filter + "▌"
 	}
 	if m.Focus == FocusCommand {
 		return m.renderCommandInputValue(len([]rune(m.Command)) + 1)
