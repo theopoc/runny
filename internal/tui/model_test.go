@@ -2161,6 +2161,41 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 	}
 }
 
+func TestCommandEnterFocusesTasksWhenRunStarts(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+	}})
+	model.Focus = FocusCommand
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+
+	if cmd == nil {
+		t.Fatal("enter should start a run")
+	}
+	if updated.Focus != FocusTargets {
+		t.Fatalf("focus = %v, want tasks after starting run", updated.Focus)
+	}
+}
+
+func TestCommandEnterFocusesTasksWhenNoTargetIsSelected(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: false},
+	}})
+	model.Focus = FocusCommand
+
+	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+
+	if cmd != nil {
+		t.Fatal("enter should not start a run without selected targets")
+	}
+	if updated.Focus != FocusTargets {
+		t.Fatalf("focus = %v, want tasks when no target is selected", updated.Focus)
+	}
+	if updated.RunError != "no selected targets; press a to toggle visible" {
+		t.Fatalf("run error = %q", updated.RunError)
+	}
+}
+
 func TestModelRunnerErrorBecomesFailure(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
