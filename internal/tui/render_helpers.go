@@ -7,6 +7,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+const panelSeparator = "  "
+
 func joinPanels(left []string, right []string) string {
 	var b strings.Builder
 	height := max(len(left), len(right))
@@ -16,7 +18,7 @@ func joinPanels(left []string, right []string) string {
 		} else {
 			b.WriteString(strings.Repeat(" ", len(left[0])))
 		}
-		b.WriteString("  ")
+		b.WriteString(panelSeparator)
 		if i < len(right) {
 			b.WriteString(right[i])
 		}

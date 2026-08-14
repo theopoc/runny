@@ -281,6 +281,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		return m, waitForRunStream(output.stream)
 	}
+	if click, ok := msg.(tea.MouseClickMsg); ok {
+		if click.Button == tea.MouseLeft {
+			if focus, hit := m.paneFocusAt(click.X, click.Y); hit {
+				m.Focus = focus
+			}
+		}
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
@@ -1102,6 +1110,7 @@ func (m Model) View() tea.View {
 	content := m.render()
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.WindowTitle = "runny"
 	return view
 }
@@ -1122,23 +1131,9 @@ func (m Model) render() string {
 	if height == 0 {
 		height = 20
 	}
-	panelHeight := max(10, height-9)
-	leftWidth := width * 58 / 100
-	if leftWidth < 50 {
-		leftWidth = 50
-	}
-	rightWidth := width - leftWidth - 4
-	if rightWidth < 32 {
-		rightWidth = 32
-		leftWidth = width - rightWidth - 4
-	}
+	panelHeight, leftWidth, rightWidth := panelDimensions(width, height)
 
-	b.WriteString(m.renderHeader(width))
-	b.WriteByte('\n')
-	b.WriteString(m.renderDashboard(width))
-	b.WriteByte('\n')
-	b.WriteString(m.renderSubHeader(width))
-	b.WriteByte('\n')
+	b.WriteString(m.renderPanelPrefix(width))
 	panels := m.renderPanelArea(width, panelHeight, leftWidth, rightWidth)
 	if overlay := m.renderOverlay(width, panelHeight); overlay != "" {
 		b.WriteString(placeOverlay(panels, overlay, width))
@@ -1161,6 +1156,60 @@ func (m Model) render() string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderFooter(width))
 	return b.String()
+}
+
+func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
+	panelHeight = max(10, height-9)
+	leftWidth = width * 58 / 100
+	if leftWidth < 50 {
+		leftWidth = 50
+	}
+	rightWidth = width - leftWidth - 4
+	if rightWidth < 32 {
+		rightWidth = 32
+		leftWidth = width - rightWidth - 4
+	}
+	return panelHeight, leftWidth, rightWidth
+}
+
+func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
+	if m.Width < 80 || m.Height < 20 || m.hasOverlay() {
+		return 0, false
+	}
+	panelHeight, leftWidth, rightWidth := panelDimensions(m.Width, m.Height)
+	panelTop := strings.Count(m.renderPanelPrefix(m.Width), "\n")
+	if y < panelTop || y >= panelTop+panelHeight {
+		return 0, false
+	}
+	if m.Zoom || m.compactMode(m.Width) {
+		if x < 0 || x >= m.singlePanelWidth(m.Width) {
+			return 0, false
+		}
+		if m.Focus == FocusLogs {
+			return FocusLogs, true
+		}
+		return FocusTargets, true
+	}
+	if x >= 0 && x < leftWidth {
+		return FocusTargets, true
+	}
+	rightStart := leftWidth + lipgloss.Width(panelSeparator)
+	if x >= rightStart && x < rightStart+rightWidth {
+		return FocusLogs, true
+	}
+	return 0, false
+}
+
+func (m Model) renderPanelPrefix(width int) string {
+	return strings.Join([]string{
+		m.renderHeader(width),
+		m.renderDashboard(width),
+		m.renderSubHeader(width),
+	}, "\n") + "\n"
+}
+
+func (m Model) hasOverlay() bool {
+	return m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit
 }
 
 func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightWidth int) string {
