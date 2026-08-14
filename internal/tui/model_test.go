@@ -1815,9 +1815,18 @@ func TestPaletteRowsShowMatchCountAndNoMatchGuidance(t *testing.T) {
 		}
 	}
 	model.Palette = ""
-	rows = stripANSI(strings.Join(model.paletteRows(), "\n"))
-	if !strings.Contains(rows, "more command(s); keep typing to narrow") {
-		t.Fatalf("truncated palette rows should show a narrow hint:\n%s", rows)
+	paletteRows := model.paletteRows()
+	rows = stripANSI(strings.Join(paletteRows, "\n"))
+	if got, want := len(paletteRows), 3+len(paletteCommands); got != want {
+		t.Fatalf("palette rows = %d, want %d with every command:\n%s", got, want, rows)
+	}
+	for _, command := range paletteCommands {
+		if !strings.Contains(rows, command.Description) {
+			t.Fatalf("palette rows should contain %q:\n%s", command.Description, rows)
+		}
+	}
+	if strings.Contains(rows, "more command(s)") {
+		t.Fatalf("full palette should not show a truncation hint:\n%s", rows)
 	}
 
 	model.Palette = "rf"
@@ -1844,6 +1853,22 @@ func TestPaletteRowsShowMatchCountAndNoMatchGuidance(t *testing.T) {
 	}
 }
 
+func TestPaletteOverlayShowsEveryCommandAtStandardSize(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.ShowPalette = true
+	model, _ = updateWindowSize(model, 80, 24)
+
+	view := stripANSI(model.View().Content)
+	for _, command := range paletteCommands {
+		if !strings.Contains(view, command.Description) {
+			t.Fatalf("palette overlay should contain %q at 80x24:\n%s", command.Description, view)
+		}
+	}
+	if strings.Contains(view, "more command(s)") {
+		t.Fatalf("full palette overlay should not show a truncation hint:\n%s", view)
+	}
+}
+
 func TestOverlayPreservesMainPanelsBehindPopup(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.ShowHelp = true
@@ -1860,6 +1885,30 @@ func TestOverlayPreservesMainPanelsBehindPopup(t *testing.T) {
 	}
 	if lines := strings.Count(view, "\n") + 1; lines > 24 {
 		t.Fatalf("overlay should keep screen bounded, lines = %d:\n%s", lines, view)
+	}
+}
+
+func TestPaletteOverlayPreservesPanelBorderColumns(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.ShowPalette = true
+	model, _ = updateWindowSize(model, 120, 33)
+
+	panelHeight := 24
+	leftWidth := 69
+	rightWidth := 47
+	overlay := model.renderOverlay(120, panelHeight)
+	backgroundLines := strings.Split(stripANSI(model.renderPanelArea(120, panelHeight, leftWidth, rightWidth)), "\n")
+	composedLines := strings.Split(stripANSI(placeOverlay(
+		model.renderPanelArea(120, panelHeight, leftWidth, rightWidth),
+		overlay,
+		120,
+	)), "\n")
+
+	for i := range backgroundLines {
+		want := lipgloss.Width(backgroundLines[i])
+		if got := lipgloss.Width(composedLines[i]); got != want {
+			t.Fatalf("panel border column changed on row %d: got width %d, want %d\n%s", i, got, want, strings.Join(composedLines, "\n"))
+		}
 	}
 }
 
