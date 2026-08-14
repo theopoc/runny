@@ -856,6 +856,26 @@ func TestFilterInputOmitsSlashAndPlaceholder(t *testing.T) {
 	}
 }
 
+func TestFilterInputDisplayGolden(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = updateKey(model, "/")
+	empty := model.commandInputValue()
+
+	model, _ = updateKey(model, "a")
+	model, _ = updateKey(model, "p")
+	model, _ = updateKey(model, "i")
+	filled := model.commandInputValue()
+
+	want, err := os.ReadFile("testdata/TestFilterInputDisplayGolden.golden")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := "empty:\n" + empty + "\n\nfilled:\n" + filled
+	if got != strings.TrimRight(string(want), "\n") {
+		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 func TestHeaderDoesNotShowFocusedPath(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
