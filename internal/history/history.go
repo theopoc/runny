@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/theopoc/runny/internal/core"
 )
 
 type CommandEntry struct {
@@ -14,12 +16,26 @@ type CommandEntry struct {
 }
 
 type RunEntry struct {
-	Command   string    `json:"command"`
-	Total     int       `json:"total"`
-	Succeeded int       `json:"succeeded"`
-	Failed    int       `json:"failed"`
-	Cancelled int       `json:"cancelled"`
-	Time      time.Time `json:"time"`
+	Command   string        `json:"command"`
+	Total     int           `json:"total"`
+	Succeeded int           `json:"succeeded"`
+	Failed    int           `json:"failed"`
+	Cancelled int           `json:"cancelled"`
+	Time      time.Time     `json:"time"`
+	Started   time.Time     `json:"started,omitempty"`
+	Ended     time.Time     `json:"ended,omitempty"`
+	LogID     string        `json:"log_id,omitempty"`
+	Targets   []TargetEntry `json:"targets,omitempty"`
+}
+
+type TargetEntry struct {
+	ID       string      `json:"id"`
+	RelPath  string      `json:"rel_path"`
+	Status   core.Status `json:"status"`
+	ExitCode int         `json:"exit_code"`
+	Error    string      `json:"error,omitempty"`
+	Started  time.Time   `json:"started,omitempty"`
+	Ended    time.Time   `json:"ended,omitempty"`
 }
 
 func AppendCommand(path string, entry CommandEntry) error {

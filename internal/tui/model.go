@@ -46,63 +46,77 @@ type Options struct {
 }
 
 type Model struct {
-	Command            string
-	commandCursor      int
-	commandCursorValid bool
-	commandSelection   int
-	commandSelecting   bool
-	Targets            []core.Target
-	Status             map[string]core.Status
-	Logs               map[string]string
-	liveLogTruncated   map[string]bool
-	TargetStarted      map[string]time.Time
-	History            []string
-	RunHistory         []history.RunEntry
-	Focus              Focus
-	Cursor             int
-	DirectoryOffset    int
-	HistoryPos         int
-	CommandHistoryPos  int
-	CommandDraft       string
-	Filter             string
-	ShowHelp           bool
-	ShowHistory        bool
-	ShowPalette        bool
-	ConfirmRun         bool
-	ConfirmCancelAll   bool
-	ConfirmQuit        bool
-	ConfirmQuitYes     bool
-	Zoom               bool
-	Palette            string
-	PalettePos         int
-	HistoryFilter      string
-	HistorySearching   bool
-	PreviewOffset      int
-	LogFollow          bool
-	Running            bool
-	PendingRuns        int
-	spinnerFrame       int
-	runCtx             context.Context
-	runQueue           []core.Target
-	runLogRoot         string
-	completedResults   []core.RunResult
-	RunError           string
-	Notice             string
-	Width              int
-	Height             int
-	Mode               core.ExecutionMode
-	Workers            int
-	FailFast           bool
-	SaveLogs           bool
-	DisableLogging     bool
-	LogRoot            string
-	CommandHistoryPath string
-	RunHistoryPath     string
-	cancelRun          context.CancelFunc
-	targetCancels      map[string]context.CancelFunc
-	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
-	runTracker         *runTracker
-	lifecycleCtx       context.Context
+	Command             string
+	commandCursor       int
+	commandCursorValid  bool
+	commandSelection    int
+	commandSelecting    bool
+	Targets             []core.Target
+	Status              map[string]core.Status
+	Logs                map[string]string
+	liveLogTruncated    map[string]bool
+	TargetStarted       map[string]time.Time
+	History             []string
+	RunHistory          []history.RunEntry
+	Focus               Focus
+	Cursor              int
+	DirectoryOffset     int
+	HistoryPos          int
+	HistoryTab          historyTab
+	HistoryDepth        historyDepth
+	HistoryCommandPos   int
+	HistoryTargetPos    int
+	HistoryShowAll      bool
+	HistoryLog          string
+	HistoryLogError     string
+	HistoryLogLoading   bool
+	HistoryLogOffset    int
+	HistoryDetailOffset int
+	historyLogRunID     string
+	historyLogTargetID  string
+	CommandHistoryPos   int
+	CommandDraft        string
+	Filter              string
+	ShowHelp            bool
+	ShowHistory         bool
+	ShowPalette         bool
+	ConfirmRun          bool
+	confirmRunCommand   string
+	confirmRunTargets   []core.Target
+	ConfirmCancelAll    bool
+	ConfirmQuit         bool
+	ConfirmQuitYes      bool
+	Zoom                bool
+	Palette             string
+	PalettePos          int
+	HistoryFilter       string
+	HistorySearching    bool
+	PreviewOffset       int
+	LogFollow           bool
+	Running             bool
+	PendingRuns         int
+	spinnerFrame        int
+	runCtx              context.Context
+	runQueue            []core.Target
+	runLogRoot          string
+	completedResults    []core.RunResult
+	RunError            string
+	Notice              string
+	Width               int
+	Height              int
+	Mode                core.ExecutionMode
+	Workers             int
+	FailFast            bool
+	SaveLogs            bool
+	DisableLogging      bool
+	LogRoot             string
+	CommandHistoryPath  string
+	RunHistoryPath      string
+	cancelRun           context.CancelFunc
+	targetCancels       map[string]context.CancelFunc
+	runFunc             func(context.Context, core.RunRequest) ([]core.RunResult, error)
+	runTracker          *runTracker
+	lifecycleCtx        context.Context
 }
 
 type runTracker struct {
@@ -218,6 +232,13 @@ type runOutputMsg struct {
 
 type shutdownMsg struct{}
 
+type historyLogLoadedMsg struct {
+	runID    string
+	targetID string
+	content  string
+	err      error
+}
+
 type paletteCommand struct {
 	Name        string
 	Description string
@@ -264,9 +285,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelAll()
 		return m, tea.Quit
 	}
+	if loaded, ok := msg.(historyLogLoadedMsg); ok {
+		m.applyHistoryLogLoaded(loaded)
+		return m, nil
+	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.Width = size.Width
 		m.Height = size.Height
+		if m.ShowHistory && m.HistoryDepth == historyDepthLogs {
+			m.HistoryLogOffset = min(m.HistoryLogOffset, m.maxHistoryLogOffset())
+		}
+		if m.ShowHistory && m.HistoryDepth == historyDepthTargets {
+			m.HistoryDetailOffset = min(m.HistoryDetailOffset, m.maxHistoryDetailOffset())
+		}
 		return m, nil
 	}
 	if done, ok := msg.(runDoneMsg); ok {
@@ -306,6 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowHistory = false
 		m.ShowPalette = false
 		m.ConfirmRun = false
+		m.clearConfirmedRun()
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = true
 		m.ConfirmQuitYes = true
@@ -362,8 +394,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "/":
 		m.Focus = FocusFilter
 	case "H":
-		m.ShowHistory = !m.ShowHistory
-		m.HistoryPos = 0
+		if m.ShowHistory {
+			m.ShowHistory = false
+		} else {
+			m.openHistory()
+		}
 	case "z":
 		m.Zoom = !m.Zoom
 		if m.Zoom {
@@ -668,8 +703,7 @@ func (m Model) executePaletteCommand(command string) (tea.Model, tea.Cmd) {
 		m.Focus = FocusLogs
 		m.Notice = "focused output"
 	case "history":
-		m.ShowHistory = true
-		m.HistoryPos = 0
+		m.openHistory()
 		m.Notice = "opened history"
 	case "clear-filter":
 		m.Filter = ""
@@ -689,8 +723,7 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 			m.ShowHelp = false
 		case "H":
 			m.ShowHelp = false
-			m.ShowHistory = true
-			m.HistoryPos = 0
+			m.openHistory()
 		}
 		return m, nil
 	}
@@ -699,11 +732,17 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	}
 	switch keyName {
 	case "esc":
+		if m.ConfirmRun {
+			m.clearConfirmedRun()
+		}
 		m.ConfirmRun = false
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = false
 		m.ConfirmQuitYes = false
 	case "n":
+		if m.ConfirmRun {
+			m.clearConfirmedRun()
+		}
 		m.ConfirmRun = false
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = false
@@ -716,6 +755,12 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "enter", "y":
 		if m.ConfirmRun {
 			m.ConfirmRun = false
+			if len(m.confirmRunTargets) > 0 {
+				command := m.confirmRunCommand
+				targets := append([]core.Target(nil), m.confirmRunTargets...)
+				m.clearConfirmedRun()
+				return m.beginRun(command, targets)
+			}
 			return m.startRun(true)
 		}
 		if m.ConfirmCancelAll {
@@ -744,38 +789,34 @@ func (m Model) handleHistoryKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		case "esc":
 			m.HistorySearching = false
 		case "enter":
-			if command := m.selectedHistoryCommand(); command != "" {
-				m.Command = command
-				m.moveCommandCursorToEnd()
-				m.RunError = ""
-				m.ShowHistory = false
-				m.HistorySearching = false
-				m.Focus = FocusCommand
-			} else {
-				m.RunError = "no history command matches"
+			if !m.hasHistorySelection() {
+				if m.HistoryTab == historyTabCommands {
+					m.RunError = "no history command matches"
+				} else {
+					m.RunError = "no project run matches"
+				}
+				return m, nil
 			}
+			m.HistorySearching = false
+			return m.activateHistorySelection()
 		case "ctrl+u":
 			m.HistoryFilter = ""
-			m.HistoryPos = 0
+			m.resetHistoryPositions()
 			m.RunError = ""
 		case "backspace":
 			if m.HistoryFilter != "" {
 				m.HistoryFilter = deleteLastRune(m.HistoryFilter)
-				m.HistoryPos = 0
+				m.resetHistoryPositions()
 				m.RunError = ""
 			}
 		case "up", "k":
-			if m.HistoryPos > 0 {
-				m.HistoryPos--
-			}
+			m.moveHistorySelection(-1)
 		case "down", "j":
-			if m.HistoryPos < m.selectableHistoryLen()-1 {
-				m.HistoryPos++
-			}
+			m.moveHistorySelection(1)
 		default:
 			if key.Key().Text != "" {
 				m.HistoryFilter += key.Key().Text
-				m.HistoryPos = 0
+				m.resetHistoryPositions()
 				m.RunError = ""
 			}
 		}
@@ -783,30 +824,56 @@ func (m Model) handleHistoryKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	}
 	switch keyName {
 	case "esc":
-		m.ShowHistory = false
+		if m.HistoryDepth == historyDepthLogs {
+			m.HistoryDepth = historyDepthTargets
+			m.HistoryDetailOffset = 0
+		} else if m.HistoryDepth == historyDepthTargets {
+			m.HistoryDepth = historyDepthRuns
+			m.HistoryDetailOffset = 0
+		} else {
+			m.ShowHistory = false
+		}
 	case "/":
 		m.HistorySearching = true
 	case "ctrl+u":
 		m.HistoryFilter = ""
-		m.HistoryPos = 0
+		m.resetHistoryPositions()
 		m.RunError = ""
+	case "[":
+		m.HistoryTab = historyTabRuns
+		m.HistoryDepth = historyDepthRuns
+		m.HistoryDetailOffset = 0
+	case "]":
+		m.HistoryTab = historyTabCommands
+		m.HistoryDepth = historyDepthRuns
+		m.HistoryDetailOffset = 0
 	case "up", "k":
-		if m.HistoryPos > 0 {
-			m.HistoryPos--
-		}
+		m.moveHistorySelection(-1)
 	case "down", "j":
-		if m.HistoryPos < m.selectableHistoryLen()-1 {
-			m.HistoryPos++
+		m.moveHistorySelection(1)
+	case "pageup", "pgup":
+		if m.HistoryTab == historyTabRuns && m.HistoryDepth == historyDepthTargets {
+			m.HistoryDetailOffset = min(m.maxHistoryDetailOffset(), m.HistoryDetailOffset+max(1, m.Height/2))
+		}
+	case "pagedown", "pgdown":
+		if m.HistoryTab == historyTabRuns && m.HistoryDepth == historyDepthTargets {
+			m.HistoryDetailOffset = max(0, m.HistoryDetailOffset-max(1, m.Height/2))
+		}
+	case "a":
+		if m.HistoryTab == historyTabRuns && m.HistoryDepth == historyDepthTargets {
+			m.HistoryShowAll = !m.HistoryShowAll
+			m.HistoryTargetPos = 0
+			m.HistoryDetailOffset = 0
 		}
 	case "enter":
-		if command := m.selectedHistoryCommand(); command != "" {
-			m.Command = command
-			m.moveCommandCursorToEnd()
-			m.RunError = ""
-			m.ShowHistory = false
-			m.Focus = FocusCommand
-		} else {
-			m.RunError = "no history command matches"
+		return m.activateHistorySelection()
+	case "r":
+		if m.HistoryTab == historyTabRuns {
+			return m.reuseSelectedHistoryRun()
+		}
+	case "R":
+		if m.HistoryTab == historyTabRuns {
+			m.prepareHistoricalRerun()
 		}
 	}
 	return m, nil
@@ -835,6 +902,26 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		m.Notice = ""
 		return m, nil
 	}
+	return m.beginRun(strings.TrimSpace(m.Command), targets)
+}
+
+func (m Model) beginRun(command string, targets []core.Target) (tea.Model, tea.Cmd) {
+	if m.Running {
+		m.Notice = "run already in progress"
+		return m, nil
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
+		m.Focus = FocusCommand
+		m.RunError = "command is empty; press c to edit"
+		return m, nil
+	}
+	if len(targets) == 0 {
+		m.RunError = "no selected targets"
+		m.Focus = FocusTargets
+		return m, nil
+	}
+	m.Command = command
 	m.Focus = FocusTargets
 	reqTargets := append([]core.Target(nil), targets...)
 	ctx, cancel := context.WithCancel(m.lifecycleCtx)
@@ -854,7 +941,6 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	m.completedResults = nil
 	m.RunError = ""
 	m.Notice = fmt.Sprintf("started %d target(s)", len(reqTargets))
-	command := strings.TrimSpace(m.Command)
 	m.addHistory(command)
 	m.resetCommandHistoryNavigation()
 	if m.CommandHistoryPath != "" {
@@ -915,6 +1001,9 @@ func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
 		}
 		if result.Started.IsZero() {
 			result.Started = m.TargetStarted[result.Target.ID]
+		}
+		if result.Ended.IsZero() {
+			result.Ended = time.Now()
 		}
 		m.Status[result.Target.ID] = result.Status
 		m.recordCompletedResult(result)
@@ -1097,8 +1186,34 @@ func (m Model) workerLimit() int {
 
 func (m *Model) appendRunHistory() {
 	summary := history.RunEntry{Command: m.Command, Time: time.Now()}
+	if m.runLogRoot != "" {
+		summary.LogID = filepath.Base(m.runLogRoot)
+	}
+	results := make(map[string]core.RunResult, len(m.completedResults))
 	for _, result := range m.completedResults {
+		results[result.Target.ID] = result
+	}
+	for _, target := range m.Targets {
+		result, ok := results[target.ID]
+		if !ok {
+			continue
+		}
 		summary.Total++
+		summary.Targets = append(summary.Targets, history.TargetEntry{
+			ID:       target.ID,
+			RelPath:  target.RelPath,
+			Status:   result.Status,
+			ExitCode: result.ExitCode,
+			Error:    result.Error,
+			Started:  result.Started,
+			Ended:    result.Ended,
+		})
+		if !result.Started.IsZero() && (summary.Started.IsZero() || result.Started.Before(summary.Started)) {
+			summary.Started = result.Started
+		}
+		if !result.Ended.IsZero() && (summary.Ended.IsZero() || result.Ended.After(summary.Ended)) {
+			summary.Ended = result.Ended
+		}
 		switch result.Status {
 		case core.StatusSucceeded:
 			summary.Succeeded++
@@ -1110,6 +1225,9 @@ func (m *Model) appendRunHistory() {
 	}
 	if summary.Total == 0 {
 		return
+	}
+	if !summary.Ended.IsZero() {
+		summary.Time = summary.Ended
 	}
 	if m.RunHistoryPath != "" {
 		if err := history.AppendRun(m.RunHistoryPath, summary); err != nil && m.RunError == "" {
@@ -1167,6 +1285,9 @@ func (m Model) render() string {
 
 	b.WriteString(m.renderPanelPrefix(width))
 	panels := m.renderPanelArea(width, panelHeight, leftWidth, rightWidth)
+	if m.ShowHistory && !m.ShowHelp {
+		panels = subtleStyle.Render(ansi.Strip(panels))
+	}
 	if overlay := m.renderOverlay(width, panelHeight); overlay != "" {
 		b.WriteString(placeOverlay(panels, overlay, width))
 	} else {
@@ -1187,7 +1308,18 @@ func (m Model) render() string {
 	}
 	b.WriteByte('\n')
 	b.WriteString(m.renderFooter(width))
-	return b.String()
+	rendered := b.String()
+	if m.ShowHistory && !m.ShowHelp {
+		return padRenderedHeight(rendered, width, height)
+	}
+	return rendered
+}
+
+func padRenderedHeight(rendered string, width, height int) string {
+	for strings.Count(rendered, "\n")+1 < height {
+		rendered += "\n" + strings.Repeat(" ", max(0, width))
+	}
+	return rendered
 }
 
 func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
@@ -1300,24 +1432,24 @@ func (m Model) renderTooSmall(width int, height int) string {
 }
 
 func (m Model) renderOverlay(width int, height int) string {
+	if m.ShowHistory && !m.ShowHelp {
+		return m.renderHistoryOverlay(width, height)
+	}
 	title := ""
 	var rows []string
 	switch {
 	case m.ShowHelp:
 		title = "Keymap"
 		rows = m.helpRows(width)
-	case m.ShowHistory:
-		title = "History"
-		rows = m.historyRows()
 	case m.ShowPalette:
 		title = "Command palette"
 		rows = m.paletteRows()
 	case m.ConfirmRun:
 		title = "Rerun failed"
 		rows = []string{
-			fmt.Sprintf("%d failed target(s) will run again.", m.failedCount()),
-			"command: " + truncateVisible(m.previewCommandText(), 64),
-			"targets: " + m.statusTargetSummary(core.StatusFailed, 64),
+			fmt.Sprintf("%d failed target(s) will run again.", m.confirmedRunTargetCount()),
+			"command: " + truncateVisible(m.confirmedRunCommand(), 64),
+			"targets: " + m.confirmedRunTargetSummary(64),
 			"y/enter confirm   n/esc cancel",
 		}
 	case m.ConfirmCancelAll:
@@ -2080,11 +2212,7 @@ func (m Model) renderFooter(width int) string {
 	if m.ShowHelp {
 		globalKeys = []string{"? close", "q close", "esc close", "H history"}
 	} else if m.ShowHistory {
-		globalKeys = []string{"/ search", "? keymap"}
-		contextKeys = []string{"enter reuse", "up/down choose", "ctrl+u clear", "esc close"}
-		if m.selectableHistoryLen() == 0 {
-			contextKeys = []string{"no reuse", "ctrl+u clear", "esc close"}
-		}
+		globalKeys, contextKeys = m.historyFooterKeys()
 	} else if m.ShowPalette {
 		globalKeys = []string{": command", "? keymap"}
 		contextKeys = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close"}
@@ -2486,9 +2614,11 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "history",
 			title: "History",
 			bindings: []helpBinding{
-				{"H", "open history"}, {"/", "search runs"}, {"'", "exact match"},
-				{"up/down", "choose"}, {"enter", "reuse command"}, {"ctrl+u", "clear"},
-				{"esc", "close"},
+				{"H", "open history"}, {"[/]", "switch runs/commands"},
+				{"/", "search active tab"}, {"'", "exact match"}, {"up/down", "choose"},
+				{"enter", "inspect run or logs"}, {"r", "reuse run command"},
+				{"R", "rerun historical failures"}, {"a", "failures/all targets"},
+				{"ctrl+u", "clear search"}, {"esc", "back/close"},
 			},
 		},
 		{
@@ -2632,85 +2762,6 @@ func (m Model) highlightPaletteMatch(value string) string {
 	return highlightFuzzyMatch(value, query)
 }
 
-func (m Model) historyRows() []string {
-	commands := m.visibleHistoryCommands()
-	commandTotal := m.filteredHistoryCommandCount()
-	commandTitle := fmt.Sprintf("Commands (%d/%d)", len(commands), commandTotal)
-	prompt := "/ " + m.HistoryFilter
-	if m.HistorySearching {
-		prompt += "▌"
-	}
-	searchHelp := subtleStyle.Render(" / search   ' exact   ctrl+u clear")
-	rows := []string{
-		commandPromptStyle.Render(" "+prompt+" ") + " " + searchHelp,
-		sectionStyle.Render(commandTitle),
-		subtleStyle.Render("  #  command"),
-	}
-	if len(m.History) == 0 {
-		rows = append(rows, "  No command history yet.")
-	} else if len(commands) == 0 {
-		rows = append(rows, "  No command matches.")
-	} else {
-		for i, command := range commands {
-			prefix := fmt.Sprintf("  %d  ", i+1)
-			if i == m.HistoryPos {
-				prefix = fmt.Sprintf("› %d  ", i+1)
-			}
-			line := prefix + truncateVisible(m.highlightHistoryMatch(command), 72)
-			if i == m.HistoryPos {
-				line = paletteActiveStyle.Render(padRightVisible(line, 76))
-			}
-			rows = append(rows, line)
-		}
-		if hidden := commandTotal - len(commands); hidden > 0 {
-			rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more command(s); search to narrow", hidden)))
-		}
-	}
-	runs := m.visibleRunHistory()
-	runTotal := m.filteredRunHistoryCount()
-	runTitle := fmt.Sprintf("Project runs (%d/%d)", len(runs), runTotal)
-	rows = append(rows, "", sectionStyle.Render(runTitle), subtleStyle.Render("  when     result     total  ok  fail  cancel  command"))
-	if len(m.RunHistory) == 0 {
-		rows = append(rows, "  No project runs yet.")
-	} else if len(runs) == 0 {
-		rows = append(rows, "  No project runs match.")
-	} else {
-		for i, run := range runs {
-			when := formatHistoryTime(run.Time)
-			result := padRightVisible(m.runHistoryOutcome(run), 8)
-			line := fmt.Sprintf("  %-8s %s %5d %3d %5d %7d  %s", when, result, run.Total, run.Succeeded, run.Failed, run.Cancelled, truncateVisible(m.highlightHistoryMatch(run.Command), 26))
-			if m.HistoryPos == len(commands)+i {
-				line = paletteActiveStyle.Render(padRightVisible("›"+line[1:], 76))
-			}
-			rows = append(rows, line)
-		}
-		if hidden := runTotal - len(runs); hidden > 0 {
-			rows = append(rows, subtleStyle.Render(fmt.Sprintf("  ... %d more project run(s); search to narrow", hidden)))
-		}
-	}
-	footer := "/ search   enter reuse selected command   up/down choose   esc close"
-	if len(commands)+len(runs) == 0 {
-		footer = "/ search   no command to reuse   esc close"
-	}
-	rows = append(rows, "", subtleStyle.Render(footer))
-	return rows
-}
-
-func (m Model) runHistoryOutcome(run history.RunEntry) string {
-	switch {
-	case run.Failed > 0:
-		return metricFailedStyle.Render("failed")
-	case run.Cancelled > 0:
-		return statusStyles[core.StatusCancelled].Render("cancelled")
-	case run.Total > 0 && run.Succeeded == run.Total:
-		return metricSuccessStyle.Render("ok")
-	case run.Succeeded > 0:
-		return metricSuccessStyle.Render("partial")
-	default:
-		return subtleStyle.Render("unknown")
-	}
-}
-
 func (m Model) highlightHistoryMatch(value string) string {
 	query := strings.TrimSpace(m.HistoryFilter)
 	if query == "" {
@@ -2752,81 +2803,6 @@ func formatHistoryTime(value time.Time) string {
 	default:
 		return value.Format("Jan02")
 	}
-}
-
-func (m Model) selectableHistoryLen() int {
-	return len(m.visibleHistoryCommands()) + len(m.visibleRunHistory())
-}
-
-func (m Model) clampHistoryPos() int {
-	limit := m.selectableHistoryLen()
-	if limit == 0 {
-		return 0
-	}
-	if m.HistoryPos >= limit {
-		return limit - 1
-	}
-	return m.HistoryPos
-}
-
-func (m Model) selectedHistoryCommand() string {
-	pos := m.clampHistoryPos()
-	commands := m.visibleHistoryCommands()
-	if pos < len(commands) {
-		return commands[pos]
-	}
-	runs := m.visibleRunHistory()
-	runIndex := pos - len(commands)
-	if runIndex >= 0 && runIndex < len(runs) {
-		return runs[runIndex].Command
-	}
-	return ""
-}
-
-func (m Model) visibleHistoryCommands() []string {
-	commands := make([]string, 0, len(m.History))
-	for _, command := range m.History {
-		if m.HistoryFilter == "" || filterMatches(command, m.HistoryFilter) {
-			commands = append(commands, command)
-		}
-	}
-	if len(commands) > 6 {
-		return commands[:6]
-	}
-	return commands
-}
-
-func (m Model) filteredHistoryCommandCount() int {
-	count := 0
-	for _, command := range m.History {
-		if m.HistoryFilter == "" || filterMatches(command, m.HistoryFilter) {
-			count++
-		}
-	}
-	return count
-}
-
-func (m Model) visibleRunHistory() []history.RunEntry {
-	runs := make([]history.RunEntry, 0, len(m.RunHistory))
-	for _, run := range m.RunHistory {
-		if m.HistoryFilter == "" || filterMatches(run.Command, m.HistoryFilter) {
-			runs = append(runs, run)
-		}
-	}
-	if len(runs) > 5 {
-		return runs[:5]
-	}
-	return runs
-}
-
-func (m Model) filteredRunHistoryCount() int {
-	count := 0
-	for _, run := range m.RunHistory {
-		if m.HistoryFilter == "" || filterMatches(run.Command, m.HistoryFilter) {
-			count++
-		}
-	}
-	return count
 }
 
 func (m *Model) previousCommandHistory() {

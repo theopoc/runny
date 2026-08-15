@@ -1,0 +1,22 @@
+wide:
+Project runs 1 Commands 2 / filter
+WHEN RESULT TARGETS COMMAND │ Diagnostic
+› - 1 failed 1/2 pnpm test --fil~ │ command pnpm test --filter web
+ended 2026-08-15 12:00:01
+duration 1s
+1 failed 1 ok 1 failed 0 cancelled
+logs retained
+Failed and cancelled targets (1/2)
+STATUS EXIT DURATION TARGET
+› failed 1 1s services/web
+error exit status 1
+
+compact:
+Project runs 1 Commands 2 / filter
+duration 1s
+1 failed 1 ok 1 failed 0 cancelled
+logs retained
+Failed and cancelled targets (1/2)
+STATUS EXIT DURATION TARGET
+› failed 1 1s services/web
+error exit status 1
