@@ -196,17 +196,19 @@ func TestMouseWheelMovesFocusedTaskSelectionOneVisibleTarget(t *testing.T) {
 		t.Fatalf("cursor after wheel up = %d, want previous visible target 0", model.Cursor)
 	}
 
-	targets := make([]core.Target, 8)
+	targets := make([]core.Target, 20)
 	for i := range targets {
 		targets[i] = core.Target{ID: fmt.Sprintf("target-%d", i), RelPath: fmt.Sprintf("target-%d", i)}
 	}
 	model = NewModel(Options{Targets: targets})
 	model.Height = 20
-	model.Cursor = 5
+	model.Cursor = 10
+	model.ensureDirectoryOffset()
+	initialOffset := model.DirectoryOffset
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
-	if model.Cursor != 6 || model.DirectoryOffset != 1 {
-		t.Fatalf("wheel beyond viewport = cursor %d, offset %d; want 6, 1", model.Cursor, model.DirectoryOffset)
+	if model.Cursor != 11 || model.DirectoryOffset < initialOffset {
+		t.Fatalf("wheel beyond viewport = cursor %d, offset %d; want cursor 11 and offset >= %d", model.Cursor, model.DirectoryOffset, initialOffset)
 	}
 }
 
@@ -223,22 +225,22 @@ func TestMouseWheelScrollsFocusedOutputThreeLines(t *testing.T) {
 
 	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.PreviewOffset != 56 || model.LogFollow {
-		t.Fatalf("wheel up output state = offset %d, follow %t; want 56, false", model.PreviewOffset, model.LogFollow)
+	if model.PreviewOffset != 51 || model.LogFollow {
+		t.Fatalf("wheel up output state = offset %d, follow %t; want 51, false", model.PreviewOffset, model.LogFollow)
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
-	if model.PreviewOffset != 59 {
-		t.Fatalf("wheel down output offset = %d, want 59", model.PreviewOffset)
+	if model.PreviewOffset != 54 {
+		t.Fatalf("wheel down output offset = %d, want 54", model.PreviewOffset)
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.PreviewOffset != 56 {
-		t.Fatalf("wheel up after overscroll offset = %d, want 56", model.PreviewOffset)
+	if model.PreviewOffset != 51 {
+		t.Fatalf("wheel up after overscroll offset = %d, want 51", model.PreviewOffset)
 	}
 }
 
@@ -336,7 +338,7 @@ func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
 		t.Fatalf("output click notice = %q, want unchanged", model.Notice)
 	}
 
-	updated, _ = model.Update(tea.MouseClickMsg{X: 0, Y: 21, Button: tea.MouseLeft})
+	updated, _ = model.Update(tea.MouseClickMsg{X: 0, Y: 23, Button: tea.MouseLeft})
 	model = updated.(Model)
 	if model.Focus != FocusTargets {
 		t.Fatalf("tasks border click focus = %v, want tasks", model.Focus)
@@ -357,7 +359,7 @@ func TestMouseClickIgnoresUnavailablePanes(t *testing.T) {
 		},
 		{
 			name:  "panel gap",
-			click: tea.MouseClickMsg{X: 69, Y: 10, Button: tea.MouseLeft},
+			click: tea.MouseClickMsg{X: 51, Y: 10, Button: tea.MouseLeft},
 			want:  FocusTargets,
 		},
 		{
@@ -434,32 +436,44 @@ func TestViewEnablesMouseCellMotion(t *testing.T) {
 func TestFooterIsContextual(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	tasksFooter := stripANSI(model.renderFooter(120))
-	if got := len(strings.Split(tasksFooter, "\n")); got != 3 {
-		t.Fatalf("tasks footer lines = %d, want 3:\n%s", got, tasksFooter)
+	if got := len(strings.Split(tasksFooter, "\n")); got != 1 {
+		t.Fatalf("tasks footer lines = %d, want 1:\n%s", got, tasksFooter)
 	}
 	normalizedTasksFooter := strings.Join(strings.Fields(tasksFooter), " ")
-	for _, want := range []string{"H History", "tab Panels", "z Maximize panel", "space Select", "a Select All", "←/→ Fold", "enter Run"} {
+	for _, want := range []string{"space Select", "/ Filter", "x Cancel", "tab Output", "? Help", "q Quit"} {
 		if !strings.Contains(normalizedTasksFooter, want) {
 			t.Fatalf("tasks footer should contain %q:\n%s", want, tasksFooter)
 		}
 	}
-	assertFooterColumnsAligned(t, tasksFooter)
-	for _, hidden := range []string{"tab focus", "c Command", "a Toggle", "h/l Fold"} {
+	for _, hidden := range []string{"tab focus", "c Command", "a Toggle", "h/l Fold", "a Select All", "←/→ Fold"} {
 		if strings.Contains(tasksFooter, hidden) {
 			t.Fatalf("tasks footer should not use stale label %q:\n%s", hidden, tasksFooter)
 		}
 	}
 	compactTasksFooter := stripANSI(model.renderFooter(80))
-	if got := len(strings.Split(compactTasksFooter, "\n")); got != 3 {
-		t.Fatalf("compact tasks footer lines = %d, want 3:\n%s", got, compactTasksFooter)
+	if got := len(strings.Split(compactTasksFooter, "\n")); got != 1 {
+		t.Fatalf("compact tasks footer lines = %d, want 1:\n%s", got, compactTasksFooter)
 	}
-	for _, want := range []string{"tab Output", ": Cmd", "enter Run"} {
+	for _, want := range []string{"space", "x", "tab", "?", "q"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactTasksFooter), " "), want) {
 			t.Fatalf("compact tasks footer should contain %q:\n%s", want, compactTasksFooter)
 		}
 	}
 	if got := maxLineWidth(compactTasksFooter); got > 80 {
 		t.Fatalf("compact tasks footer width = %d:\n%s", got, compactTasksFooter)
+	}
+	narrowTasksFooter := stripANSI(model.renderFooter(60))
+	normalizedNarrowFooter := strings.Join(strings.Fields(narrowTasksFooter), " ")
+	for _, want := range []string{"space Sel", "x Stop", "tab Pane", "? Help", "q Quit"} {
+		if !strings.Contains(normalizedNarrowFooter, want) {
+			t.Fatalf("narrow tasks footer should contain %q:\n%s", want, narrowTasksFooter)
+		}
+	}
+	if strings.Contains(narrowTasksFooter, "~") {
+		t.Fatalf("narrow tasks footer should not expose clipped labels:\n%s", narrowTasksFooter)
+	}
+	if got := maxLineWidth(narrowTasksFooter); got > 60 {
+		t.Fatalf("narrow tasks footer width = %d:\n%s", got, narrowTasksFooter)
 	}
 
 	model.Status["api"] = core.StatusFailed
@@ -475,23 +489,20 @@ func TestFooterIsContextual(t *testing.T) {
 	if strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "R Failed") {
 		t.Fatalf("active footer should hide rerun failed while work is active:\n%s", activeFooter)
 	}
-	if !strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "ctrl+c Confirm quit") {
-		t.Fatalf("active footer should keep stop hint visible:\n%s", activeFooter)
-	}
-	if strings.Count(strings.Join(strings.Fields(activeFooter), " "), "ctrl+c Confirm quit") != 1 {
-		t.Fatalf("active footer should show one stop hint:\n%s", activeFooter)
+	if !strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "q Quit") {
+		t.Fatalf("active footer should keep quit hint visible:\n%s", activeFooter)
 	}
 
 	filterModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	filterModel.Focus = FocusFilter
 	filterFooter := stripANSI(filterModel.renderFooter(120))
-	for _, want := range []string{"Type fuzzy", "' Exact", "ctrl+u Clear", "↑↓/nN Matches", "enter/esc Tasks"} {
+	for _, want := range []string{"type Fuzzy", "' Exact", "n/N Matches", "ctrl+u Clear", "enter/esc Tasks", "? Help"} {
 		if !strings.Contains(strings.Join(strings.Fields(filterFooter), " "), want) {
 			t.Fatalf("filter footer should contain %q:\n%s", want, filterFooter)
 		}
 	}
 	compactFilterFooter := stripANSI(filterModel.renderFooter(80))
-	for _, want := range []string{"Type fuzzy", "' Exact", "↑↓/nN", "ctrl+u Clear", "enter/esc"} {
+	for _, want := range []string{"type", "'", "n/N", "ctrl+u", "enter/esc", "?"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactFilterFooter), " "), want) {
 			t.Fatalf("compact filter footer should contain %q:\n%s", want, compactFilterFooter)
 		}
@@ -502,8 +513,8 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel.Focus = FocusTargets
 	filterModel.Filter = "api"
 	filteredTasksFooter := stripANSI(filterModel.renderFooter(120))
-	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "a Select All") {
-		t.Fatalf("filtered task footer should keep select-all label:\n%s", filteredTasksFooter)
+	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "space Select") {
+		t.Fatalf("filtered task footer should keep select label:\n%s", filteredTasksFooter)
 	}
 
 	historyModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
@@ -522,7 +533,7 @@ func TestFooterIsContextual(t *testing.T) {
 	commandModel := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	commandModel.Focus = FocusCommand
 	commandFooter := stripANSI(commandModel.renderFooter(80))
-	for _, want := range []string{"enter Run", "esc Tasks", "↑↓ Hist", "ctrl+u Clear"} {
+	for _, want := range []string{"enter", "esc", "up/down", "ctrl+u", "?", "ctrl+c"} {
 		if !strings.Contains(strings.Join(strings.Fields(commandFooter), " "), want) {
 			t.Fatalf("compact command footer should contain %q:\n%s", want, commandFooter)
 		}
@@ -534,7 +545,7 @@ func TestFooterIsContextual(t *testing.T) {
 	logsModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	logsModel.Focus = FocusLogs
 	logsFooter := stripANSI(logsModel.renderFooter(80))
-	for _, want := range []string{"pgup/pgdn Scroll", "f Tail", "tab Tasks"} {
+	for _, want := range []string{"pgup/pgdn", "f", "tab", "?", "q"} {
 		if !strings.Contains(strings.Join(strings.Fields(logsFooter), " "), want) {
 			t.Fatalf("compact logs footer should contain %q:\n%s", want, logsFooter)
 		}
@@ -616,7 +627,7 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 		"\x1b[48;2;36;47;56m",
 		"\x1b[38;2;224;224;224m",
 		"\x1b[38;2;196;181;253m",
-		"\x1b[1menter ",
+		"\x1b[1mspace",
 	} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer should contain ANSI sequence %q:\n%q", want, footer)
@@ -757,7 +768,7 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.History = []string{"go test"}
 	historyFooter := stripANSI(model.renderFooter(120))
 	normalizedHistoryFooter := normalizeFooterText(historyFooter)
-	for _, want := range []string{"enter Reuse", "up/down Choose", "esc Close", "? Keymap"} {
+	for _, want := range []string{"enter Reuse", "up/down Choose", "esc Close", "? Help"} {
 		if !strings.Contains(normalizedHistoryFooter, want) {
 			t.Fatalf("history footer should contain %q:\n%s", want, historyFooter)
 		}
@@ -987,7 +998,7 @@ func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
 		t.Fatalf("cursor = %d, want previous match from filter focus", model.Cursor)
 	}
 	footer := stripANSI(model.renderFooter(120))
-	if !strings.Contains(normalizeFooterText(footer), "↑↓/nN Matches") {
+	if !strings.Contains(normalizeFooterText(footer), "n/N Matches") {
 		t.Fatalf("filter footer should mention arrow match navigation:\n%s", footer)
 	}
 }
@@ -999,7 +1010,7 @@ func TestTargetFooterShortcutLabels(t *testing.T) {
 	}})
 	footer := stripANSI(model.renderFooter(140))
 
-	for _, want := range []string{"? Keymap", "/ Search", ": Command", "a Select All", "←/→ Fold"} {
+	for _, want := range []string{"space Select", "/ Filter", "x Cancel", "tab Output", "? Help", "q Quit"} {
 		if !strings.Contains(normalizeFooterText(footer), want) {
 			t.Fatalf("footer should contain %q:\n%s", want, footer)
 		}
@@ -1024,7 +1035,7 @@ func TestSubHeaderShowsOnlyCommandPrompt(t *testing.T) {
 	model.Filter = "api"
 
 	subheader := stripANSI(model.renderSubHeader(140))
-	for _, want := range []string{"Command", "test"} {
+	for _, want := range []string{"command ›", "test"} {
 		if !strings.Contains(subheader, want) {
 			t.Fatalf("subheader should show %q:\n%s", want, subheader)
 		}
@@ -1048,12 +1059,12 @@ func TestCommandInputStartsEmptyWithoutCursor(t *testing.T) {
 
 	rendered := model.renderSubHeader(80)
 	plain := stripANSI(rendered)
-	for _, want := range []string{"Command", "┌", "│", "└"} {
+	for _, want := range []string{"command ›", "(not set)", "scope 1 targets"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command input should show %q:\n%s", want, plain)
 		}
 	}
-	for _, hidden := range []string{"▌", "<type command", ">"} {
+	for _, hidden := range []string{"▌", "<type command", "┌", "│", "└"} {
 		if strings.Contains(plain, hidden) {
 			t.Fatalf("empty unfocused command input should hide %q:\n%s", hidden, plain)
 		}
@@ -1118,10 +1129,72 @@ func TestHeaderDoesNotShowFocusedPath(t *testing.T) {
 	if strings.Contains(header, "path") || strings.Contains(header, "api/cmd") {
 		t.Fatalf("header should not show focused path:\n%s", header)
 	}
-	for _, want := range []string{"runny", "mode", "workers", "targets"} {
+	for _, want := range []string{"runny", "parallel×auto", "2 selected", "0 run", "0 fail"} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("header should keep %q:\n%s", want, header)
 		}
+	}
+}
+
+func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
+	model := NewModel(Options{Command: "pnpm test", Workers: 4, Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Status["api"] = core.StatusRunning
+	model.Status["web"] = core.StatusFailed
+
+	header := strings.Join(strings.Fields(stripANSI(model.renderHeader(120))), " ")
+	for _, want := range []string{"runny", "parallel×4", "2 selected", "1 run", "0 queue", "0 ok", "1 fail"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("compact header should contain %q:\n%s", want, header)
+		}
+	}
+	for _, unwanted := range []string{"mode parallel", "workers 4", "targets 2"} {
+		if strings.Contains(header, unwanted) {
+			t.Fatalf("compact header should not contain widget label %q:\n%s", unwanted, header)
+		}
+	}
+
+	command := stripANSI(model.renderSubHeader(120))
+	if strings.Count(command, "\n") != 0 || !strings.Contains(command, "command › pnpm test") || !strings.Contains(command, "scope 2 targets · workers 4") {
+		t.Fatalf("unfocused command should use one contextual row:\n%s", command)
+	}
+
+	footer := strings.Join(strings.Fields(stripANSI(model.renderFooter(120))), " ")
+	if strings.Count(stripANSI(model.renderFooter(120)), "\n") != 0 {
+		t.Fatalf("footer should use one row:\n%s", footer)
+	}
+	for _, want := range []string{"space Select", "/ Filter", "x Cancel", "tab Output", "? Help", "q Quit"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("compact footer should contain %q:\n%s", want, footer)
+		}
+	}
+}
+
+func TestOperatorLayoutPlacesRunSummaryBelowPanelsAndFitsWindow(t *testing.T) {
+	model := NewModel(Options{Command: "pnpm test", Workers: 4, Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "worker", RelPath: "worker", Selected: true},
+		{ID: "docs", RelPath: "docs", Selected: true},
+	}})
+	model.Status["api"] = core.StatusRunning
+	model.Status["web"] = core.StatusQueued
+	model.Status["worker"] = core.StatusSucceeded
+	model.Status["docs"] = core.StatusFailed
+	model, _ = updateWindowSize(model, 120, 32)
+
+	view := stripANSI(model.View().Content)
+	lines := strings.Split(view, "\n")
+	if len(lines) != 32 {
+		t.Fatalf("operator layout lines = %d, want 32:\n%s", len(lines), view)
+	}
+	summary := "● 1 running · ◌ 1 queued · ✓ 1 ok · ✕ 1 failed"
+	summaryIndex := strings.Index(view, summary)
+	panelsIndex := strings.LastIndex(view, "╯")
+	if summaryIndex < 0 || panelsIndex < 0 || summaryIndex < panelsIndex {
+		t.Fatalf("run summary should sit below panels:\n%s", view)
 	}
 }
 
@@ -1401,25 +1474,25 @@ func TestDirectoryPanelShowsNoTargetsOnboarding(t *testing.T) {
 }
 
 func TestDirectoryPanelScrollsToCursor(t *testing.T) {
-	targets := make([]core.Target, 0, 12)
-	for i := 0; i < 12; i++ {
+	targets := make([]core.Target, 0, 14)
+	for i := 0; i < 14; i++ {
 		id := "svc-" + string(rune('a'+i))
 		targets = append(targets, core.Target{ID: id, RelPath: id, Selected: true})
 	}
 	model := NewModel(Options{Command: "test", Targets: targets})
 	model, _ = updateWindowSize(model, 80, 20)
-	for i := 0; i < 9; i++ {
+	for i := 0; i < 11; i++ {
 		model, _ = updateSpecialKey(model, tea.KeyDown)
 	}
 
 	view := stripANSI(model.render())
-	if strings.Contains(view, "›") || !strings.Contains(view, "svc-j") {
+	if !strings.Contains(view, "› [x]") || !strings.Contains(view, "svc-l") {
 		t.Fatalf("directory panel should scroll focused row into view:\n%s", view)
 	}
 	if strings.Contains(view, "svc-a") {
 		t.Fatalf("directory panel should scroll past first rows:\n%s", view)
 	}
-	for _, want := range []string{"showing", "of 12", "↑", "↓"} {
+	for _, want := range []string{"showing", "of 14", "↑", "↓"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("directory panel should show scroll marker %q:\n%s", want, view)
 		}
@@ -1547,17 +1620,21 @@ func TestTargetRowsKeepSelectionHighlightUnderFocus(t *testing.T) {
 	if !strings.Contains(focusedSelected, "\x1b[1;") && !strings.Contains(focusedSelected, "\x1b[1m") {
 		t.Fatalf("focused selected target should keep selected emphasis:\n%q", focusedSelected)
 	}
-	if !strings.Contains(unfocusedSelected, "\x1b[1;") && !strings.Contains(unfocusedSelected, "\x1b[1m") {
-		t.Fatalf("unfocused selected target should keep selected emphasis:\n%q", unfocusedSelected)
+	if unfocusedSelected == stripANSI(unfocusedSelected) || !strings.Contains(stripANSI(unfocusedSelected), "[x]") {
+		t.Fatalf("unfocused selected target should keep explicit selected marker:\n%q", unfocusedSelected)
 	}
 }
 
 func TestNavigationHighlightDiffersFromSelectionHighlight(t *testing.T) {
-	selectedModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	selectedModel := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web"},
+	}})
+	selectedModel.Cursor = 1
 
 	selected := selectedModel.renderTargetRow(0, selectedModel.Targets[0], 70)
-	if rowSelectedStyle.GetBackground() != runnyTheme.bgSelection {
-		t.Fatalf("selected highlight should keep purple background")
+	if strings.Contains(selected, ansiBackgroundHex(primaryAccentHex)) {
+		t.Fatalf("selection should not paint the full row background:\n%q", selected)
 	}
 	if rowActiveStyle.GetBackground() != runnyTheme.bgFocus {
 		t.Fatalf("navigation highlight should use blue background")
@@ -1583,24 +1660,20 @@ func TestFoldKeysDoNotAddMarkerToLeafTarget(t *testing.T) {
 	}
 }
 
-func TestSelectedTargetRowsDoNotRenderSelectionMarkers(t *testing.T) {
+func TestTargetRowsRenderIndependentCursorAndSelectionMarkers(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: false},
 	}})
-	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
+	model.Cursor = 0
+	selected := stripANSI(model.renderTargetRow(0, model.Targets[0], 70))
+	unselected := stripANSI(model.renderTargetRow(1, model.Targets[1], 70))
 
-	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, "📁 api") || strings.Contains(line, "📁 web") {
-			statusIndex := strings.LastIndex(line, "○ idle")
-			if statusIndex < 0 {
-				t.Fatalf("target row should keep status text:\n%s", line)
-			}
-			beforeStatus := line[:statusIndex]
-			if strings.Contains(beforeStatus, "●") || strings.Contains(beforeStatus, "○") {
-				t.Fatalf("target row should not render selection marker:\n%s", line)
-			}
-		}
+	if !strings.Contains(selected, "› [x]") {
+		t.Fatalf("focused selected row should show cursor and selection independently:\n%s", selected)
+	}
+	if !strings.Contains(unselected, "  [ ]") || strings.Contains(unselected, "›") {
+		t.Fatalf("unfocused unselected row should show empty selection only:\n%s", unselected)
 	}
 }
 
@@ -1774,6 +1847,65 @@ func TestModelCommandPaletteCancelsSelectedTarget(t *testing.T) {
 	}
 	if model.Status["api"] != core.StatusCancelled {
 		t.Fatalf("status = %s, want cancelled", model.Status["api"])
+	}
+}
+
+func TestCancelSelectedRequiresConfirmationForMultipleActiveTargets(t *testing.T) {
+	model := NewModel(Options{Command: "sleep 10", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "docs", RelPath: "docs", Selected: false},
+	}})
+	cancelled := map[string]bool{}
+	model.Running = true
+	model.PendingRuns = 3
+	for _, target := range model.Targets {
+		model.Status[target.ID] = core.StatusRunning
+		id := target.ID
+		model.targetCancels[id] = func() { cancelled[id] = true }
+	}
+
+	model, _ = updateKey(model, "x")
+	if len(cancelled) != 0 {
+		t.Fatalf("x should wait for confirmation, cancelled = %#v", cancelled)
+	}
+	view := stripANSI(model.View().Content)
+	for _, want := range []string{"Cancel selected", "2 selected active target(s)", "targets: api, web", "y/enter confirm", "n/esc cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("selected cancellation confirmation should contain %q:\n%s", want, view)
+		}
+	}
+
+	model, _ = updateKey(model, "y")
+	if !cancelled["api"] || !cancelled["web"] || cancelled["docs"] {
+		t.Fatalf("confirmation should cancel selected active targets only: %#v", cancelled)
+	}
+	if model.Status["docs"] != core.StatusRunning {
+		t.Fatalf("unselected target status = %s, want running", model.Status["docs"])
+	}
+}
+
+func TestCancelSelectedConfirmationNeverFallsBackAfterAsyncCompletion(t *testing.T) {
+	model := NewModel(Options{Command: "sleep 10", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "docs", RelPath: "docs"},
+	}})
+	docsCancelled := false
+	model.Running = true
+	model.Status["api"] = core.StatusRunning
+	model.Status["web"] = core.StatusRunning
+	model.Status["docs"] = core.StatusRunning
+	model.targetCancels["docs"] = func() { docsCancelled = true }
+
+	model, _ = updateKey(model, "x")
+	model.Status["api"] = core.StatusSucceeded
+	model.Status["web"] = core.StatusSucceeded
+	model.Cursor = 2
+	model, _ = updateKey(model, "y")
+
+	if docsCancelled || model.Status["docs"] != core.StatusRunning {
+		t.Fatalf("stale selected confirmation must not cancel focused unselected target: cancelled=%v status=%s", docsCancelled, model.Status["docs"])
 	}
 }
 
@@ -1999,17 +2131,27 @@ func TestQuitConfirmationUsesTabSelectedButtons(t *testing.T) {
 	}
 }
 
-func TestQDoesNotQuitFromMainScreen(t *testing.T) {
+func TestQQuitsWhenIdleAndConfirmsWhileRunIsActive(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	updated, cmd := updateKey(model, "q")
 	model = updated
-
-	if cmd != nil {
-		t.Fatal("q should not quit from main screen")
+	if cmd == nil {
+		t.Fatal("q should quit immediately while idle")
 	}
 	if model.ConfirmQuit {
-		t.Fatal("q should not open quit confirmation")
+		t.Fatal("idle q should not open quit confirmation")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("q command = %T, want tea.QuitMsg", cmd())
+	}
+
+	model = NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Running = true
+	model.Status["api"] = core.StatusRunning
+	model, cmd = updateKey(model, "q")
+	if cmd != nil || !model.ConfirmQuit {
+		t.Fatalf("active q should open quit confirmation, cmd=%v confirm=%v", cmd, model.ConfirmQuit)
 	}
 }
 
@@ -2026,12 +2168,12 @@ func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 		t.Fatal("view should use alt screen")
 	}
 	plain := stripANSI(view.Content)
-	for _, want := range []string{"Keymap", ": palette", "H history", "del/x cancel selected"} {
+	for _, want := range []string{"Keymap", ": palette", "H history", "q quit", "del/x cancel selected"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view content should contain %q:\n%s", want, plain)
 		}
 	}
-	for _, want := range []string{"Runs and status", "▶ running", "… queued", "! failed", "× cancelled"} {
+	for _, want := range []string{"Runs and status", "spinner running", "◌ queued", "✕ failed", "– cancelled"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("help should contain status legend %q:\n%s", want, plain)
 		}
@@ -2168,9 +2310,7 @@ func TestPaletteOverlayPreservesPanelBorderColumns(t *testing.T) {
 	model.ShowPalette = true
 	model, _ = updateWindowSize(model, 120, 33)
 
-	panelHeight := 24
-	leftWidth := 69
-	rightWidth := 47
+	panelHeight, leftWidth, rightWidth := model.panelDimensions(120, 33)
 	overlay := model.renderOverlay(120, panelHeight)
 	backgroundLines := strings.Split(stripANSI(model.renderPanelArea(120, panelHeight, leftWidth, rightWidth)), "\n")
 	composedLines := strings.Split(stripANSI(placeOverlay(
@@ -2209,7 +2349,7 @@ func TestOverlaysStayBoundedAtMinimumSize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			model := base
 			tc.setup(&model)
-			model, _ = updateWindowSize(model, 80, 20)
+			model, _ = updateWindowSize(model, 60, 20)
 			view := stripANSI(model.View().Content)
 			if !strings.Contains(view, tc.want) {
 				t.Fatalf("overlay should contain %q:\n%s", tc.want, view)
@@ -2217,7 +2357,7 @@ func TestOverlaysStayBoundedAtMinimumSize(t *testing.T) {
 			if lines := strings.Count(view, "\n") + 1; lines > 20 {
 				t.Fatalf("%s overlay should fit minimum height, lines = %d:\n%s", tc.name, lines, view)
 			}
-			if got := maxLineWidth(view); got > 80 {
+			if got := maxLineWidth(view); got > 60 {
 				t.Fatalf("%s overlay max width = %d:\n%s", tc.name, got, view)
 			}
 		})
@@ -2229,7 +2369,7 @@ func TestViewShowsMinimumSizeGate(t *testing.T) {
 		width  int
 		height int
 	}{
-		{79, 24},
+		{59, 24},
 		{100, 19},
 	} {
 		model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
@@ -2279,7 +2419,7 @@ func TestViewBeautifulDashboardGolden(t *testing.T) {
 }
 
 func TestViewResponsiveWidths(t *testing.T) {
-	for _, width := range []int{80, 100, 120} {
+	for _, width := range []int{60, 80, 100, 120} {
 		model := NewModel(Options{Command: "go test ./...", Targets: []core.Target{
 			{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/internal/very-long-child-name"}},
 			{ID: "api/internal/very-long-child-name", RelPath: "api/internal/very-long-child-name", ParentID: "api", Depth: 2, Selected: true},
@@ -2294,16 +2434,64 @@ func TestViewResponsiveWidths(t *testing.T) {
 	}
 }
 
+func TestOperatorLayoutUsesSinglePaneAtSixtyColumns(t *testing.T) {
+	model := NewModel(Options{Command: "go test ./...", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Logs["api"] = "live output\n"
+	model.Status["api"] = core.StatusRunning
+	model, _ = updateWindowSize(model, 60, 24)
+
+	tasks := stripANSI(model.View().Content)
+	if strings.Contains(tasks, "terminal too small") || !strings.Contains(tasks, "Tasks") || strings.Contains(tasks, "Output —") {
+		t.Fatalf("60-column tasks view should use one usable pane:\n%s", tasks)
+	}
+	if got := maxLineWidth(tasks); got > 60 {
+		t.Fatalf("60-column tasks width = %d:\n%s", got, tasks)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyTab)
+	output := stripANSI(model.View().Content)
+	if !strings.Contains(output, "Output — api [RUN]") || strings.Contains(output, "Tasks") {
+		t.Fatalf("Tab should switch 60-column view to Output:\n%s", output)
+	}
+
+	model, _ = updateWindowSize(model, 59, 24)
+	if view := stripANSI(model.View().Content); !strings.Contains(view, "need at least 60x20") {
+		t.Fatalf("59 columns should show minimum-size gate:\n%s", view)
+	}
+}
+
+func TestOperatorLayoutSplitsTasksAndOutputFortyTwoFiftyEight(t *testing.T) {
+	panelHeight, tasksWidth, outputWidth := panelDimensionsForInput(120, 32, 1)
+	if panelHeight <= 0 {
+		t.Fatalf("panel height = %d, want positive", panelHeight)
+	}
+	if tasksWidth != 50 || outputWidth != 66 {
+		t.Fatalf("panel widths = %d/%d, want 50/66 for 42/58 split", tasksWidth, outputWidth)
+	}
+}
+
+func TestOperatorLayoutBreakpointUsesSinglePaneBelowOneHundred(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model, _ = updateWindowSize(model, 99, 24)
+	if view := stripANSI(model.View().Content); strings.Contains(view, "Output —") {
+		t.Fatalf("99 columns should use single-pane tasks view:\n%s", view)
+	}
+	model, _ = updateWindowSize(model, 100, 24)
+	if view := stripANSI(model.View().Content); !strings.Contains(view, "Output —") {
+		t.Fatalf("100 columns should restore split view:\n%s", view)
+	}
+}
+
 func TestOutputPanelShowsOnlyCommandOutput(t *testing.T) {
 	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusFailed
 	model.Logs["api"] = "ok line\nexit status 1\n"
 	model.TargetStarted["api"] = time.Date(2026, 7, 3, 14, 5, 6, 0, time.Local)
 	model, _ = updateWindowSize(model, 90, 24)
-	view := model.renderLogPanel(40, 16)
+	view := model.renderLogPanel(72, 16)
 	rendered := strings.Join(view, "\n")
 	plain := stripANSI(rendered)
-	for _, want := range []string{"Output", "ok line", "exit status 1"} {
+	for _, want := range []string{"Output — api [FAIL] · follow:on · 2 lines", "ok line", "exit status 1"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("output panel should contain %q:\n%s", want, plain)
 		}
@@ -2471,21 +2659,34 @@ func TestRunningDashboardAndTaskActivityIndicators(t *testing.T) {
 	model.Status["web"] = core.StatusQueued
 	model.Status["worker"] = core.StatusFailed
 	dashboard := stripANSI(model.renderDashboard(120))
-	if !strings.Contains(dashboard, "running 1/3") {
-		t.Fatalf("dashboard should show running progress:\n%s", dashboard)
-	}
-	if !strings.Contains(dashboard, "1/3 33%") {
-		t.Fatalf("dashboard should show progress percent:\n%s", dashboard)
+	for _, want := range []string{"● 1 running", "◌ 1 queued", "✓ 0 ok", "✕ 1 failed", "follow:on"} {
+		if !strings.Contains(dashboard, want) {
+			t.Fatalf("dashboard should show %q:\n%s", want, dashboard)
+		}
 	}
 	rows := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
-	for _, want := range []string{"▶", "…", "!"} {
+	for _, want := range []string{"[x]", "running", "queued", "failed"} {
 		if !strings.Contains(rows, want) {
 			t.Fatalf("task rows should contain activity marker %q:\n%s", want, rows)
 		}
 	}
 }
 
-func TestDashboardProgressUsesSelectedTargetsOnly(t *testing.T) {
+func TestStatusRailPersistsWhileNoticeIsVisible(t *testing.T) {
+	model := NewModel(Options{Command: "go test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Status["api"] = core.StatusRunning
+	model.Notice = "started 1 target(s)"
+	model, _ = updateWindowSize(model, 80, 24)
+
+	view := stripANSI(model.View().Content)
+	for _, want := range []string{"●1", "◌0", "✓0", "✕0", "INFO started 1 target(s)", "follow:on"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("status rail should retain %q while notice is visible:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardShowsStatusCountsWithoutProgressChrome(t *testing.T) {
 	targets := make([]core.Target, 0, 24)
 	for i := 0; i < 24; i++ {
 		id := "target-" + strconv.Itoa(i)
@@ -2497,11 +2698,11 @@ func TestDashboardProgressUsesSelectedTargetsOnly(t *testing.T) {
 	}
 
 	dashboard := stripANSI(model.renderDashboard(120))
-	if !strings.Contains(dashboard, "9/9 100%") {
-		t.Fatalf("dashboard progress should use selected targets only:\n%s", dashboard)
+	if !strings.Contains(dashboard, "✓ 9 ok") || !strings.Contains(dashboard, "follow:on") {
+		t.Fatalf("dashboard should show status count and follow mode:\n%s", dashboard)
 	}
-	if strings.Contains(dashboard, "9/24 37%") {
-		t.Fatalf("dashboard progress should not use total discovered targets:\n%s", dashboard)
+	if strings.Contains(dashboard, "%") || strings.Contains(dashboard, "progress") {
+		t.Fatalf("dashboard should omit progress chrome:\n%s", dashboard)
 	}
 }
 
@@ -2907,14 +3108,14 @@ func TestModelRunErrorsGuideNextAction(t *testing.T) {
 	}
 }
 
-func TestMessageBarsAreFullWidthAndStyled(t *testing.T) {
+func TestStatusRailMessagesAreBoundedAndStyled(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model, _ = updateWindowSize(model, 80, 24)
 	model.RunError = "command is empty; press c to edit"
 	view := model.View().Content
 	plain := stripANSI(view)
-	if !strings.Contains(plain, "ERROR  command is empty; press c to edit") {
-		t.Fatalf("error bar missing:\n%s", plain)
+	if !strings.Contains(plain, "ERROR command is empty; press c to edit") {
+		t.Fatalf("error status missing:\n%s", plain)
 	}
 	if !strings.Contains(view, "\x1b[") {
 		t.Fatal("error bar should be styled")
@@ -2927,8 +3128,8 @@ func TestMessageBarsAreFullWidthAndStyled(t *testing.T) {
 	model.Notice = "workers set to 2"
 	view = model.View().Content
 	plain = stripANSI(view)
-	if !strings.Contains(plain, "INFO  workers set to 2") {
-		t.Fatalf("notice bar missing:\n%s", plain)
+	if !strings.Contains(plain, "INFO workers set to 2") {
+		t.Fatalf("notice status missing:\n%s", plain)
 	}
 	if got := maxLineWidth(view); got > 80 {
 		t.Fatalf("notice view width = %d:\n%s", got, plain)
@@ -2938,8 +3139,8 @@ func TestMessageBarsAreFullWidthAndStyled(t *testing.T) {
 	model.Notice = "run complete: 0 ok, 1 failed, 0 cancelled · press R to rerun failed"
 	view = model.View().Content
 	plain = stripANSI(view)
-	if !strings.Contains(plain, "WARN  run complete: 0 ok, 1 failed") {
-		t.Fatalf("failed completion should render warning bar:\n%s", plain)
+	if !strings.Contains(plain, "WARN run complete: 0 ok, 1 failed") {
+		t.Fatalf("failed completion should render warning status:\n%s", plain)
 	}
 	if got := maxLineWidth(view); got > 80 {
 		t.Fatalf("warning view width = %d:\n%s", got, plain)
@@ -2949,8 +3150,8 @@ func TestMessageBarsAreFullWidthAndStyled(t *testing.T) {
 	model.Notice = "run complete: 0 ok, 0 failed, 1 cancelled"
 	view = model.View().Content
 	plain = stripANSI(view)
-	if !strings.Contains(plain, "WARN  run complete: 0 ok, 0 failed, 1 cancelled") {
-		t.Fatalf("cancelled completion should render warning bar:\n%s", plain)
+	if !strings.Contains(plain, "WARN run complete: 0 ok, 0 failed, 1 cancelled") {
+		t.Fatalf("cancelled completion should render warning status:\n%s", plain)
 	}
 }
 
@@ -3050,6 +3251,10 @@ func TestModelCancelsSelectedQueuedTargets(t *testing.T) {
 	model.Targets[0].Selected = false
 
 	model, _ = updateKey(model, "delete")
+	if model.Status["web"] != core.StatusQueued || model.Status["worker"] != core.StatusQueued {
+		t.Fatalf("multi-target cancellation should wait for confirmation: %#v", model.Status)
+	}
+	model, _ = updateKey(model, "y")
 	if model.Status["api"] != core.StatusRunning {
 		t.Fatalf("active unselected target should keep running: %#v", model.Status)
 	}
@@ -3397,7 +3602,7 @@ func TestHistoryEnterNoMatchKeepsOverlayOpen(t *testing.T) {
 		t.Fatalf("run error = %q", model.RunError)
 	}
 	view := stripANSI(model.View().Content)
-	for _, want := range []string{"History", "No command matches.", "No project runs match.", "ERROR  no history command matches"} {
+	for _, want := range []string{"History", "No command matches.", "No project runs match.", "ERROR no history command matches"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("history no-match view should contain %q:\n%s", want, view)
 		}

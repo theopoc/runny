@@ -140,7 +140,8 @@ exclude:
 | `esc` | Leave filter focus |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
-| `del`, `x` | Cancel selected running or queued runs, or focused run |
+| `del`, `x` | Cancel selected running or queued runs, or focused run; multiple selected active runs require confirmation |
+| `q` | Quit immediately when idle; ask for confirmation while runs are active |
 | `R` | Rerun all failed with confirmation |
 | `pageup`, `pagedown` | Scroll output |
 | Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |
