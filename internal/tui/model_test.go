@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -510,13 +511,19 @@ func TestFooterIsContextual(t *testing.T) {
 	historyModel.ShowHistory = true
 	emptyHistoryFooter := stripANSI(historyModel.renderFooter(120))
 	normalizedEmptyHistoryFooter := strings.Join(strings.Fields(emptyHistoryFooter), " ")
-	if !strings.Contains(normalizedEmptyHistoryFooter, "No reuse") || strings.Contains(normalizedEmptyHistoryFooter, "enter Reuse") {
+	if !strings.Contains(normalizedEmptyHistoryFooter, "No run") || strings.Contains(normalizedEmptyHistoryFooter, "enter Inspect") {
 		t.Fatalf("empty history footer should not promise reuse:\n%s", emptyHistoryFooter)
 	}
 	historyModel.History = []string{"go test"}
+	historyModel.HistoryTab = historyTabCommands
 	historyFooter := stripANSI(historyModel.renderFooter(120))
 	if !strings.Contains(strings.Join(strings.Fields(historyFooter), " "), "enter Reuse") {
 		t.Fatalf("history footer should expose reuse when selectable:\n%s", historyFooter)
+	}
+	for _, line := range strings.Split(stripANSIForWidth(historyModel.renderFooter(140)), "\n") {
+		if got := lipgloss.Width(line); got != 140 {
+			t.Fatalf("history footer line width = %d, want 140:\n%s", got, line)
+		}
 	}
 
 	commandModel := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
@@ -683,7 +690,7 @@ func TestHelpMentionsPaletteCommands(t *testing.T) {
 func TestHelpMentionsHistoryKeys(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	help := stripANSI(strings.Join(model.helpRows(), "\n"))
-	for _, want := range []string{"H open history", "/ search runs", "' exact match", "enter reuse command"} {
+	for _, want := range []string{"H open history", "[/] switch runs/commands", "/ search active tab", "enter inspect run or logs", "R rerun historical failures"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help should mention history key %q:\n%s", want, help)
 		}
@@ -755,9 +762,10 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.ShowPalette = false
 	model.ShowHistory = true
 	model.History = []string{"go test"}
+	model.RunHistory = []history.RunEntry{{Command: "go test", Total: 1}}
 	historyFooter := stripANSI(model.renderFooter(120))
 	normalizedHistoryFooter := normalizeFooterText(historyFooter)
-	for _, want := range []string{"enter Reuse", "up/down Choose", "esc Close", "? Keymap"} {
+	for _, want := range []string{"enter Inspect", "r Reuse", "R Rerun failed"} {
 		if !strings.Contains(normalizedHistoryFooter, want) {
 			t.Fatalf("history footer should contain %q:\n%s", want, historyFooter)
 		}
@@ -831,6 +839,7 @@ func TestQuestionMarkOpensHelpOverPaletteAndEscReturnsToPalette(t *testing.T) {
 func TestHelpOverHistoryDoesNotTriggerHiddenHistoryActions(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.History = []string{"go test ./...", "pnpm test"}
+	model.RunHistory = []history.RunEntry{{Command: "go test ./...", Total: 1}, {Command: "pnpm test", Total: 1}}
 	model, _ = updateKey(model, "H")
 	model, _ = updateSpecialKey(model, tea.KeyDown)
 	if model.HistoryPos != 1 {
@@ -3195,6 +3204,7 @@ func TestModelHistoryAndRerunFailed(t *testing.T) {
 	if !model.ShowHistory {
 		t.Fatal("history should open")
 	}
+	model, _ = updateKey(model, "]")
 	model, _ = updateSpecialKey(model, tea.KeyDown)
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
 	if model.Command != "pnpm test" {
@@ -3251,7 +3261,8 @@ func TestModelPersistsHistory(t *testing.T) {
 		},
 	})
 	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		result := core.RunResult{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n"}
+		started := time.Date(2026, time.August, 15, 8, 0, 0, 0, time.UTC)
+		result := core.RunResult{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n", Started: started, Ended: started.Add(time.Second)}
 		if req.Targets[0].ID == "web" {
 			result.Status = core.StatusFailed
 			result.Error = "exit status 1"
@@ -3280,6 +3291,15 @@ func TestModelPersistsHistory(t *testing.T) {
 	if len(runs) != 1 || runs[0].Succeeded != 1 || runs[0].Failed != 1 || runs[0].Total != 2 {
 		t.Fatalf("runs = %#v", runs)
 	}
+	if len(runs[0].Targets) != 2 || runs[0].Targets[0].ID != "api" || runs[0].Targets[1].ID != "web" {
+		t.Fatalf("run targets = %#v", runs[0].Targets)
+	}
+	if runs[0].Targets[1].Status != core.StatusFailed || runs[0].Targets[1].Error != "exit status 1" {
+		t.Fatalf("failed target = %#v", runs[0].Targets[1])
+	}
+	if runs[0].Started.IsZero() || runs[0].Ended.Sub(runs[0].Started) != time.Second {
+		t.Fatalf("run timing = %s..%s", runs[0].Started, runs[0].Ended)
+	}
 }
 
 func TestModelHistoryOverlayShowsProjectRuns(t *testing.T) {
@@ -3295,7 +3315,7 @@ func TestModelHistoryOverlayShowsProjectRuns(t *testing.T) {
 	})
 	model, _ = updateKey(model, "H")
 	view := stripANSI(model.View().Content)
-	for _, want := range []string{"Project runs (1/1)", "when", "go test"} {
+	for _, want := range []string{"Project runs 1", "WHEN", "go test"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("history overlay should contain %q:\n%s", want, view)
 		}
@@ -3308,15 +3328,14 @@ func TestHistoryOverlayCanReuseProjectRunCommand(t *testing.T) {
 	model.RunHistory = []history.RunEntry{{Command: "pnpm test", Total: 3, Succeeded: 2, Failed: 1}}
 
 	model, _ = updateKey(model, "H")
-	model, _ = updateSpecialKey(model, tea.KeyDown)
-	if model.HistoryPos != 1 {
+	if model.HistoryPos != 0 {
 		t.Fatalf("history pos = %d, want first project run", model.HistoryPos)
 	}
-	view := strings.Join(model.historyRows(), "\n")
+	view := model.renderHistoryOverlay(120, 24)
 	if !strings.Contains(stripANSI(view), "›") || !strings.Contains(view, "\x1b[") {
 		t.Fatalf("selected project run should be highlighted:\n%s", view)
 	}
-	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	model, _ = updateKey(model, "r")
 	if model.Command != "pnpm test" {
 		t.Fatalf("command = %q, want selected project run command", model.Command)
 	}
@@ -3353,14 +3372,14 @@ func TestHistoryOverlaySupportsFuzzySearch(t *testing.T) {
 		t.Fatal("/ should enable history search")
 	}
 	model = typeText(model, "pt")
-	view := strings.Join(model.historyRows(), "\n")
+	view := model.renderHistoryOverlay(120, 24)
 	plain := stripANSI(view)
-	for _, want := range []string{"/ pt", "Commands (1/1)", "pnpm lint", "Project runs (1/1)", "pnpm test"} {
+	for _, want := range []string{"/ pt", "Commands 1/3", "Project runs 1/2", "pnpm test"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("history search should contain %q:\n%s", want, plain)
 		}
 	}
-	if strings.Contains(plain, "terraform plan") || strings.Contains(plain, "docker build") {
+	if strings.Contains(plain, "terraform plan") || strings.Contains(plain, "docker build") || strings.Contains(plain, "pnpm lint") {
 		t.Fatalf("history search should hide non-matches:\n%s", plain)
 	}
 	if !strings.Contains(view, "\x1b[") {
@@ -3372,10 +3391,10 @@ func TestHistoryOverlaySupportsFuzzySearch(t *testing.T) {
 		t.Fatalf("ctrl+u should clear history search, filter/pos = %q/%d", model.HistoryFilter, model.HistoryPos)
 	}
 	model.HistoryFilter = "'pt"
-	if commands := model.visibleHistoryCommands(); len(commands) != 0 {
+	if commands := model.filteredHistoryCommands(); len(commands) != 0 {
 		t.Fatalf("exact history search should not fuzzy match commands: %#v", commands)
 	}
-	if runs := model.visibleRunHistory(); len(runs) != 0 {
+	if runs := model.filteredHistoryRuns(); len(runs) != 0 {
 		t.Fatalf("exact history search should not fuzzy match runs: %#v", runs)
 	}
 }
@@ -3393,11 +3412,11 @@ func TestHistoryEnterNoMatchKeepsOverlayOpen(t *testing.T) {
 	if !model.ShowHistory || !model.HistorySearching {
 		t.Fatal("no-match enter should keep history search open")
 	}
-	if model.RunError != "no history command matches" {
+	if model.RunError != "no project run matches" {
 		t.Fatalf("run error = %q", model.RunError)
 	}
 	view := stripANSI(model.View().Content)
-	for _, want := range []string{"History", "No command matches.", "No project runs match.", "ERROR  no history command matches"} {
+	for _, want := range []string{"History", "Commands 0", "No project runs match.", "ERROR  no project run matches"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("history no-match view should contain %q:\n%s", want, view)
 		}
@@ -3409,64 +3428,429 @@ func TestHistoryEnterNoMatchKeepsOverlayOpen(t *testing.T) {
 	}
 }
 
-func TestHistoryRowsAreScannableAndHighlightSelection(t *testing.T) {
+func TestHistoryTabsAreScannableAndHighlightSelection(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.History = []string{"go test ./...", "pnpm test"}
-	model.HistoryPos = 1
+	model.HistoryCommandPos = 1
 	model.RunHistory = []history.RunEntry{
 		{Command: "go test ./...", Total: 3, Succeeded: 2, Failed: 1},
 		{Command: "pnpm test", Total: 2, Succeeded: 2},
 		{Command: "sleep 10", Total: 1, Cancelled: 1},
 	}
-	rows := strings.Join(model.historyRows(), "\n")
-	plain := stripANSI(rows)
-	for _, want := range []string{"Commands (2/2)", "#  command", "› 2", "Project runs (3/3)", "result", "failed", "ok", "cancelled"} {
+	model.ShowHistory = true
+	runs := model.renderHistoryOverlay(120, 24)
+	plain := stripANSI(runs)
+	for _, want := range []string{"Commands 2", "Project runs 3", "RESULT", "failed", "ok", "cancelled"} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("history rows should contain %q:\n%s", want, plain)
+			t.Fatalf("run tab should contain %q:\n%s", want, plain)
 		}
 	}
-	if !strings.Contains(rows, "\x1b[") {
-		t.Fatalf("selected history row and outcomes should be styled:\n%s", rows)
+	model.HistoryTab = historyTabCommands
+	commands := model.renderHistoryOverlay(120, 24)
+	for _, want := range []string{"#   COMMAND", "› 2", "pnpm test"} {
+		if !strings.Contains(stripANSI(commands), want) {
+			t.Fatalf("command tab should contain %q:\n%s", want, stripANSI(commands))
+		}
+	}
+	if !strings.Contains(runs, "\x1b[") || !strings.Contains(commands, "\x1b[") {
+		t.Fatal("selected rows and outcomes should be styled")
 	}
 }
 
-func TestHistoryRowsShowVisibleTotalsWhenTruncated(t *testing.T) {
+func TestHistoryUsesProjectRunsTabAndRestoresTabCursors(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	model.History = []string{"cmd-1", "cmd-2", "cmd-3", "cmd-4", "cmd-5", "cmd-6", "cmd-7"}
+	model.History = []string{"go test ./...", "pnpm test"}
 	model.RunHistory = []history.RunEntry{
-		{Command: "run-1", Total: 1},
-		{Command: "run-2", Total: 1},
-		{Command: "run-3", Total: 1},
-		{Command: "run-4", Total: 1},
-		{Command: "run-5", Total: 1},
-		{Command: "run-6", Total: 1},
+		{Command: "go test ./...", Total: 1, Succeeded: 1},
+		{Command: "pnpm test", Total: 1, Failed: 1},
 	}
-	rows := stripANSI(strings.Join(model.historyRows(), "\n"))
-	for _, want := range []string{"Commands (6/7)", "... 1 more command(s)", "Project runs (5/6)", "... 1 more project run(s)"} {
-		if !strings.Contains(rows, want) {
-			t.Fatalf("history rows should show visible total %q:\n%s", want, rows)
+
+	model, _ = updateKey(model, "H")
+	if model.HistoryTab != historyTabRuns || model.HistoryDepth != historyDepthRuns {
+		t.Fatalf("history state = tab %v depth %v", model.HistoryTab, model.HistoryDepth)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyDown)
+	if model.HistoryPos != 1 {
+		t.Fatalf("run cursor = %d, want 1", model.HistoryPos)
+	}
+	model, _ = updateKey(model, "]")
+	if model.HistoryTab != historyTabCommands || model.HistoryCommandPos != 0 {
+		t.Fatalf("commands state = tab %v cursor %d", model.HistoryTab, model.HistoryCommandPos)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyDown)
+	model, _ = updateKey(model, "[")
+	if model.HistoryTab != historyTabRuns || model.HistoryPos != 1 || model.HistoryCommandPos != 1 {
+		t.Fatalf("restored state = tab %v run %d command %d", model.HistoryTab, model.HistoryPos, model.HistoryCommandPos)
+	}
+}
+
+func TestHistoryRunDiagnosticDefaultsToFailedAndCancelledTargets(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.RunHistory = []history.RunEntry{{
+		Command: "go test ./...",
+		Total:   3,
+		Targets: []history.TargetEntry{
+			{ID: "api", RelPath: "api", Status: core.StatusSucceeded},
+			{ID: "web", RelPath: "services/web", Status: core.StatusFailed, Error: "exit status 1"},
+			{ID: "docs", RelPath: "docs", Status: core.StatusCancelled},
+		},
+	}}
+
+	model, _ = updateKey(model, "H")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.HistoryDepth != historyDepthTargets {
+		t.Fatalf("history depth = %v, want targets", model.HistoryDepth)
+	}
+	visible := model.visibleHistoryTargets()
+	if len(visible) != 2 || visible[0].ID != "web" || visible[1].ID != "docs" {
+		t.Fatalf("visible targets = %#v", visible)
+	}
+	model, _ = updateKey(model, "a")
+	if visible := model.visibleHistoryTargets(); len(visible) != 3 {
+		t.Fatalf("all targets = %#v", visible)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	if model.HistoryDepth != historyDepthRuns || !model.ShowHistory {
+		t.Fatalf("back state = depth %v show %v", model.HistoryDepth, model.ShowHistory)
+	}
+}
+
+func TestHistoryResponsiveMasterDetailAndDrillDown(t *testing.T) {
+	base := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	base.RunHistory = []history.RunEntry{{
+		Command: "go test ./...",
+		Total:   2,
+		Failed:  1,
+		Targets: []history.TargetEntry{{ID: "web", RelPath: "services/web", Status: core.StatusFailed, Error: "exit status 1"}},
+	}}
+	base.ShowHistory = true
+
+	wide, _ := updateWindowSize(base, 140, 40)
+	wideView := stripANSI(wide.View().Content)
+	if got := strings.Count(wide.View().Content, "\n") + 1; got != 40 {
+		t.Fatalf("wide history height = %d, want 40:\n%s", got, wideView)
+	}
+	for _, want := range []string{"Project runs 1", "Commands 0", "TARGETS", "Diagnostic", "services/web"} {
+		if !strings.Contains(wideView, want) {
+			t.Fatalf("wide history missing %q:\n%s", want, wideView)
+		}
+	}
+
+	standard, _ := updateWindowSize(base, 100, 30)
+	standardView := stripANSI(standard.View().Content)
+	if strings.Contains(standardView, "services/web") {
+		t.Fatalf("standard list should hide target detail before drill-down:\n%s", standardView)
+	}
+	standard, _ = updateSpecialKey(standard, tea.KeyEnter)
+	if view := stripANSI(standard.View().Content); !strings.Contains(view, "Failed and cancelled targets") || !strings.Contains(view, "services/web") {
+		t.Fatalf("standard diagnostic missing target detail:\n%s", view)
+	}
+
+	minimum, _ := updateWindowSize(base, 80, 20)
+	minimumView := stripANSI(minimum.View().Content)
+	if got := maxLineWidth(minimumView); got > 80 {
+		t.Fatalf("minimum history width = %d:\n%s", got, minimumView)
+	}
+	if got := strings.Count(minimumView, "\n") + 1; got > 20 {
+		t.Fatalf("minimum history height = %d:\n%s", got, minimumView)
+	}
+	minimum, _ = updateSpecialKey(minimum, tea.KeyEnter)
+	minimumDiagnostic := stripANSI(minimum.View().Content)
+	for _, want := range []string{"Failed and cancelled targets", "services/web", "exit status 1"} {
+		if !strings.Contains(minimumDiagnostic, want) {
+			t.Fatalf("minimum diagnostic missing %q:\n%s", want, minimumDiagnostic)
+		}
+	}
+	minimum, _ = updateSpecialKey(minimum, tea.KeyPgUp)
+	minimumMetadata := stripANSI(minimum.View().Content)
+	for _, want := range []string{"command  go test ./...", "1 failed", "logs     unavailable"} {
+		if !strings.Contains(minimumMetadata, want) {
+			t.Fatalf("minimum metadata page missing %q:\n%s", want, minimumMetadata)
 		}
 	}
 }
 
-func TestHistoryRowsEmptyFooterDoesNotPromiseReuse(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	rows := stripANSI(strings.Join(model.historyRows(), "\n"))
-	for _, want := range []string{"No command history yet.", "No project runs yet.", "no command to reuse"} {
-		if !strings.Contains(rows, want) {
-			t.Fatalf("empty history should contain %q:\n%s", want, rows)
-		}
+func TestHistoryDiagnosticOverlayGolden(t *testing.T) {
+	started := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.Local)
+	ended := started.Add(1250 * time.Millisecond)
+	model := NewModel(Options{Command: "echo current", Targets: []core.Target{{ID: "web", RelPath: "services/web", Selected: true}}})
+	model.ShowHistory = true
+	model.History = []string{"go test ./...", "pnpm test"}
+	model.RunHistory = []history.RunEntry{{
+		Started:   started,
+		Ended:     ended,
+		Command:   "pnpm test --filter web",
+		LogID:     "run-1",
+		Total:     2,
+		Succeeded: 1,
+		Failed:    1,
+		Targets: []history.TargetEntry{
+			{ID: "api", RelPath: "services/api", Status: core.StatusSucceeded, ExitCode: 0, Started: started, Ended: ended},
+			{ID: "web", RelPath: "services/web", Status: core.StatusFailed, ExitCode: 1, Error: "exit status 1", Started: started, Ended: ended},
+		},
+	}}
+
+	wide := normalizeHistoryGolden(model.renderHistoryOverlay(120, 16))
+	model.HistoryDepth = historyDepthTargets
+	compact := normalizeHistoryGolden(model.renderHistoryOverlay(80, 11))
+	got := "wide:\n" + wide + "\n\ncompact:\n" + compact
+	want, err := os.ReadFile("testdata/TestHistoryDiagnosticOverlayGolden.golden")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(rows, "enter reuse selected command") {
-		t.Fatalf("empty history should not promise command reuse:\n%s", rows)
+	wantText := strings.TrimSpace(string(want))
+	gotText := strings.TrimSpace(got)
+	if gotText != wantText {
+		index := 0
+		for index < len(gotText) && index < len(wantText) && gotText[index] == wantText[index] {
+			index++
+		}
+		start := max(0, index-24)
+		endGot := min(len(gotText), index+48)
+		endWant := min(len(wantText), index+48)
+		t.Fatalf("golden mismatch at byte %d (got %d bytes, want %d): got %q want %q\n--- got ---\n%s\n--- want ---\n%s", index, len(gotText), len(wantText), gotText[start:endGot], wantText[start:endWant], got, want)
+	}
+}
+
+func TestHistoryOverlayKeepsDefaultBackgroundOutsideHighlights(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	rendered := renderHistoryRow("command  echo ok", 72)
+	if byteIndex := strings.Index(rendered, "\x1b[48;"); byteIndex >= 0 {
+		t.Fatalf("ordinary history row paints dark background at byte %d: %q", byteIndex, rendered)
+	}
+}
+
+func TestHistoryDiagnosticWithoutColor(t *testing.T) {
+	if os.Getenv("RUNNY_NO_COLOR_TEST") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestHistoryDiagnosticWithoutColor$")
+		cmd.Env = append(os.Environ(), "RUNNY_NO_COLOR_TEST=1", "NO_COLOR=1")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("no-color subprocess: %v\n%s", err, output)
+		}
+		return
 	}
 
-	model.History = []string{"go test"}
-	model.RunHistory = []history.RunEntry{{Command: "go test", Total: 1}}
-	model.HistoryFilter = "zzzz"
-	rows = stripANSI(strings.Join(model.historyRows(), "\n"))
-	if !strings.Contains(rows, "no command to reuse") {
-		t.Fatalf("no-match history should not promise command reuse:\n%s", rows)
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "web", RelPath: "web", Selected: true}}})
+	model.ShowHistory = true
+	model.RunHistory = []history.RunEntry{{
+		Command: "pnpm test", Total: 1, Failed: 1,
+		Targets: []history.TargetEntry{{ID: "web", RelPath: "web", Status: core.StatusFailed, ExitCode: 1}},
+	}}
+	rendered := model.renderHistoryOverlay(120, 16)
+	if strings.Contains(rendered, "\x1b[38;") || strings.Contains(rendered, "\x1b[48;") {
+		t.Fatalf("no-color history contains color SGR: %q", rendered)
+	}
+	for _, want := range []string{"›", "1 failed", "web"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("no-color history missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func normalizeHistoryGolden(rendered string) string {
+	lines := []string{}
+	for _, line := range strings.Split(stripANSI(rendered), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "╭") || strings.HasPrefix(line, "╰") {
+			continue
+		}
+		line = strings.Trim(line, "│ ")
+		if line == "" {
+			continue
+		}
+		lines = append(lines, strings.Join(strings.Fields(line), " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestHistoryRerunFailedConfirmsHistoricalCommandAndTargets(t *testing.T) {
+	model := NewModel(Options{Command: "echo current", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "services/web", Selected: true},
+	}})
+	model.RunHistory = []history.RunEntry{{
+		Command: "pnpm test",
+		Total:   2,
+		Failed:  1,
+		Targets: []history.TargetEntry{
+			{ID: "api", RelPath: "api", Status: core.StatusSucceeded},
+			{ID: "web", RelPath: "services/web", Status: core.StatusFailed},
+		},
+	}}
+
+	model, _ = updateKey(model, "H")
+	model, _ = updateKey(model, "R")
+	if model.ShowHistory || !model.ConfirmRun {
+		t.Fatalf("history/confirm = %v/%v", model.ShowHistory, model.ConfirmRun)
+	}
+	if model.Command != "echo current" {
+		t.Fatalf("command changed before confirmation = %q", model.Command)
+	}
+	confirm := stripANSI(model.View().Content)
+	for _, want := range []string{"Rerun failed", "1 failed target(s)", "command: pnpm test", "targets: services/web"} {
+		if !strings.Contains(confirm, want) {
+			t.Fatalf("historical confirmation missing %q:\n%s", want, confirm)
+		}
+	}
+
+	var request core.RunRequest
+	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
+		request = req
+		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded}}, nil
+	}
+	model, cmd := updateKey(model, "y")
+	if cmd == nil {
+		t.Fatal("historical confirmation should start run")
+	}
+	if model.Command != "pnpm test" {
+		t.Fatalf("confirmed command = %q", model.Command)
+	}
+	model = applyCmd(t, model, cmd)
+	if request.Command != "pnpm test" || len(request.Targets) != 1 || request.Targets[0].ID != "web" {
+		t.Fatalf("historical request = %#v", request)
+	}
+}
+
+func TestHistoryLoadsPersistedTargetLogAsynchronously(t *testing.T) {
+	root := t.TempDir()
+	runID := "20260815T080000.000000000Z"
+	logPath := filepath.Join(root, runID, "services", "web.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("line one\nline two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Options{Command: "echo ok", LogRoot: root, Targets: []core.Target{{ID: "web", RelPath: "services/web", Selected: true}}})
+	model.RunHistory = []history.RunEntry{{
+		Command: "pnpm test",
+		Total:   1,
+		Failed:  1,
+		LogID:   runID,
+		Targets: []history.TargetEntry{{ID: "services/web", RelPath: "services/web", Status: core.StatusFailed}},
+	}}
+
+	model, _ = updateKey(model, "H")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	model, cmd := updateSpecialKey(model, tea.KeyEnter)
+	if model.HistoryDepth != historyDepthLogs || !model.HistoryLogLoading || cmd == nil {
+		t.Fatalf("log loading state = depth %v loading %v cmd %v", model.HistoryDepth, model.HistoryLogLoading, cmd != nil)
+	}
+	updated, _ := model.Update(cmd())
+	model = updated.(Model)
+	if model.HistoryLogLoading || model.HistoryLogError != "" || model.HistoryLog != "line one\nline two\n" {
+		t.Fatalf("loaded log = loading %v error %q content %q", model.HistoryLogLoading, model.HistoryLogError, model.HistoryLog)
+	}
+	if view := stripANSI(model.renderHistoryOverlay(100, 20)); !strings.Contains(view, "Logs · services/web") || !strings.Contains(view, "line two") {
+		t.Fatalf("log viewport missing content:\n%s", view)
+	}
+	model, _ = updateKey(model, "a")
+	if model.HistoryShowAll || model.HistoryDepth != historyDepthLogs || model.HistoryLog != "line one\nline two\n" {
+		t.Fatalf("a should not mutate log selection: showAll=%v depth=%v content=%q", model.HistoryShowAll, model.HistoryDepth, model.HistoryLog)
+	}
+}
+
+func TestHistoryLogWithoutPersistenceExplainsUnavailableOutput(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "web", RelPath: "web", Selected: true}}})
+	model.RunHistory = []history.RunEntry{{
+		Command: "pnpm test",
+		Total:   1,
+		Failed:  1,
+		Targets: []history.TargetEntry{{ID: "web", RelPath: "web", Status: core.StatusFailed}},
+	}}
+
+	model, _ = updateKey(model, "H")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	model, cmd := updateSpecialKey(model, tea.KeyEnter)
+	if cmd != nil || model.HistoryDepth != historyDepthLogs || model.HistoryLogError == "" {
+		t.Fatalf("unavailable state = depth %v error %q cmd %v", model.HistoryDepth, model.HistoryLogError, cmd != nil)
+	}
+	if view := stripANSI(model.renderHistoryOverlay(100, 20)); !strings.Contains(view, "--save-logs") {
+		t.Fatalf("unavailable viewport should explain persistence:\n%s", view)
+	}
+}
+
+func TestHistoryLogEmptyReadErrorAndBackStack(t *testing.T) {
+	root := t.TempDir()
+	runID := "run"
+	logPath := filepath.Join(root, runID, "web.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Options{Command: "echo ok", LogRoot: root, Targets: []core.Target{{ID: "web", RelPath: "web", Selected: true}}})
+	model.RunHistory = []history.RunEntry{{
+		Command: "pnpm test", Total: 1, Failed: 1, LogID: runID,
+		Targets: []history.TargetEntry{{ID: "web", RelPath: "web", Status: core.StatusFailed}},
+	}}
+	model, _ = updateKey(model, "H")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	model, cmd := updateSpecialKey(model, tea.KeyEnter)
+	updated, _ := model.Update(cmd())
+	model = updated.(Model)
+	if view := stripANSI(model.renderHistoryOverlay(100, 20)); !strings.Contains(view, "(empty log)") {
+		t.Fatalf("empty log state missing:\n%s", view)
+	}
+
+	if err := os.Remove(logPath); err != nil {
+		t.Fatal(err)
+	}
+	model.HistoryDepth = historyDepthTargets
+	model, cmd = updateSpecialKey(model, tea.KeyEnter)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if model.HistoryLogError == "" || !strings.Contains(model.HistoryLogError, "logs unavailable") {
+		t.Fatalf("read error = %q", model.HistoryLogError)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	if model.HistoryDepth != historyDepthTargets || !model.ShowHistory {
+		t.Fatalf("log back state = %v/%v", model.HistoryDepth, model.ShowHistory)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	if model.HistoryDepth != historyDepthRuns || !model.ShowHistory {
+		t.Fatalf("target back state = %v/%v", model.HistoryDepth, model.ShowHistory)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	if model.ShowHistory {
+		t.Fatal("run back should close history")
+	}
+}
+
+func TestHistoryLegacyRunExplainsMissingTargetDetails(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "web", RelPath: "web", Selected: true}}})
+	model.RunHistory = []history.RunEntry{{Command: "legacy command", Total: 1, Failed: 1}}
+	model, _ = updateWindowSize(model, 100, 30)
+	model, _ = updateKey(model, "H")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if view := stripANSI(model.View().Content); !strings.Contains(view, "target details unavailable for legacy run") {
+		t.Fatalf("legacy explanation missing:\n%s", view)
+	}
+}
+
+func TestHistoryLogOffsetClampsAtEndAndAfterResize(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "web", RelPath: "web", Selected: true}}})
+	model.ShowHistory = true
+	model.HistoryDepth = historyDepthLogs
+	model.HistoryLog = strings.Repeat("line\n", 20)
+	model, _ = updateWindowSize(model, 80, 20)
+	for range 100 {
+		model.moveHistorySelection(1)
+	}
+	if model.HistoryLogOffset != model.maxHistoryLogOffset() {
+		t.Fatalf("log offset = %d, max = %d", model.HistoryLogOffset, model.maxHistoryLogOffset())
+	}
+	before := model.HistoryLogOffset
+	model.moveHistorySelection(-1)
+	if model.HistoryLogOffset != before-1 {
+		t.Fatalf("up from end offset = %d, want %d", model.HistoryLogOffset, before-1)
+	}
+	model, _ = updateWindowSize(model, 140, 40)
+	if model.HistoryLogOffset != 0 {
+		t.Fatalf("resized log offset = %d, want 0", model.HistoryLogOffset)
 	}
 }
 
