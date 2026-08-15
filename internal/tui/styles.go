@@ -74,9 +74,9 @@ var (
 	selectedStyle           = lipgloss.NewStyle().Foreground(runnyTheme.success)
 	unselectedStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	rowActiveStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgFocus).Bold(true)
-	rowSelectedStyle        = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection).Bold(true)
+	rowSelectedStyle        = lipgloss.NewStyle()
 	rowActiveSelectedStyle  = rowActiveStyle
-	rowPartialStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgElevated).Bold(true)
+	rowPartialStyle         = lipgloss.NewStyle()
 	rowRunningStyle         = lipgloss.NewStyle()
 	metricIdleStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	metricQueuedStyle       = lipgloss.NewStyle().Foreground(runnyTheme.info)
@@ -115,13 +115,11 @@ var (
 		core.StatusCancelled: lipgloss.NewStyle().Foreground(runnyTheme.fgDefault),
 		core.StatusSkipped:   lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 	}
-	dashboardWidgetStyle = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault).Background(runnyTheme.bgElevated)
-	dashboardLabelStyle  = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted).Background(runnyTheme.bgElevated)
-	folderIconStyle      = lipgloss.NewStyle().Foreground(runnyTheme.info).Bold(true)
-	folderPathStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	folderNameStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
-	treeGuideStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	statusHeaderStyle    = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
+	folderIconStyle   = lipgloss.NewStyle().Foreground(runnyTheme.info).Bold(true)
+	folderPathStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	folderNameStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
+	treeGuideStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	statusHeaderStyle = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 )
 
 func tuiColor(value string) color.Color {

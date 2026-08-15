@@ -138,8 +138,8 @@ func TestCommandInputCollapsesOutsideFocusAndExpandsAgain(t *testing.T) {
 	model.Focus = FocusTargets
 
 	collapsed := stripANSI(model.renderSubHeader(80))
-	if lines := strings.Split(collapsed, "\n"); len(lines) != 3 {
-		t.Fatalf("unfocused command box height = %d, want 3:\n%s", len(lines), collapsed)
+	if lines := strings.Split(collapsed, "\n"); len(lines) != 1 {
+		t.Fatalf("unfocused command row height = %d, want 1:\n%s", len(lines), collapsed)
 	}
 
 	model.Focus = FocusCommand

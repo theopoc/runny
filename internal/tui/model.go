@@ -46,77 +46,78 @@ type Options struct {
 }
 
 type Model struct {
-	Command             string
-	commandCursor       int
-	commandCursorValid  bool
-	commandSelection    int
-	commandSelecting    bool
-	Targets             []core.Target
-	Status              map[string]core.Status
-	Logs                map[string]string
-	liveLogTruncated    map[string]bool
-	TargetStarted       map[string]time.Time
-	History             []string
-	RunHistory          []history.RunEntry
-	Focus               Focus
-	Cursor              int
-	DirectoryOffset     int
-	HistoryPos          int
-	HistoryTab          historyTab
-	HistoryDepth        historyDepth
-	HistoryCommandPos   int
-	HistoryTargetPos    int
-	HistoryShowAll      bool
-	HistoryLog          string
-	HistoryLogError     string
-	HistoryLogLoading   bool
-	HistoryLogOffset    int
-	HistoryDetailOffset int
-	historyLogRunID     string
-	historyLogTargetID  string
-	CommandHistoryPos   int
-	CommandDraft        string
-	Filter              string
-	ShowHelp            bool
-	ShowHistory         bool
-	ShowPalette         bool
-	ConfirmRun          bool
-	confirmRunCommand   string
-	confirmRunTargets   []core.Target
-	ConfirmCancelAll    bool
-	ConfirmQuit         bool
-	ConfirmQuitYes      bool
-	Zoom                bool
-	Palette             string
-	PalettePos          int
-	HistoryFilter       string
-	HistorySearching    bool
-	PreviewOffset       int
-	LogFollow           bool
-	Running             bool
-	PendingRuns         int
-	spinnerFrame        int
-	runCtx              context.Context
-	runQueue            []core.Target
-	runLogRoot          string
-	completedResults    []core.RunResult
-	RunError            string
-	Notice              string
-	Width               int
-	Height              int
-	Mode                core.ExecutionMode
-	Workers             int
-	FailFast            bool
-	SaveLogs            bool
-	DisableLogging      bool
-	LogRoot             string
-	CommandHistoryPath  string
-	RunHistoryPath      string
-	cancelRun           context.CancelFunc
-	targetCancels       map[string]context.CancelFunc
-	runFunc             func(context.Context, core.RunRequest) ([]core.RunResult, error)
-	runTracker          *runTracker
-	lifecycleCtx        context.Context
+	Command               string
+	commandCursor         int
+	commandCursorValid    bool
+	commandSelection      int
+	commandSelecting      bool
+	Targets               []core.Target
+	Status                map[string]core.Status
+	Logs                  map[string]string
+	liveLogTruncated      map[string]bool
+	TargetStarted         map[string]time.Time
+	History               []string
+	RunHistory            []history.RunEntry
+	Focus                 Focus
+	Cursor                int
+	DirectoryOffset       int
+	HistoryPos            int
+	HistoryTab            historyTab
+	HistoryDepth          historyDepth
+	HistoryCommandPos     int
+	HistoryTargetPos      int
+	HistoryShowAll        bool
+	HistoryLog            string
+	HistoryLogError       string
+	HistoryLogLoading     bool
+	HistoryLogOffset      int
+	HistoryDetailOffset   int
+	historyLogRunID       string
+	historyLogTargetID    string
+	CommandHistoryPos     int
+	CommandDraft          string
+	Filter                string
+	ShowHelp              bool
+	ShowHistory           bool
+	ShowPalette           bool
+	ConfirmRun            bool
+	confirmRunCommand     string
+	confirmRunTargets     []core.Target
+	ConfirmCancelSelected bool
+	ConfirmCancelAll      bool
+	ConfirmQuit           bool
+	ConfirmQuitYes        bool
+	Zoom                  bool
+	Palette               string
+	PalettePos            int
+	HistoryFilter         string
+	HistorySearching      bool
+	PreviewOffset         int
+	LogFollow             bool
+	Running               bool
+	PendingRuns           int
+	spinnerFrame          int
+	runCtx                context.Context
+	runQueue              []core.Target
+	runLogRoot            string
+	completedResults      []core.RunResult
+	RunError              string
+	Notice                string
+	Width                 int
+	Height                int
+	Mode                  core.ExecutionMode
+	Workers               int
+	FailFast              bool
+	SaveLogs              bool
+	DisableLogging        bool
+	LogRoot               string
+	CommandHistoryPath    string
+	RunHistoryPath        string
+	cancelRun             context.CancelFunc
+	targetCancels         map[string]context.CancelFunc
+	runFunc               func(context.Context, core.RunRequest) ([]core.RunResult, error)
+	runTracker            *runTracker
+	lifecycleCtx          context.Context
 }
 
 type runTracker struct {
@@ -338,6 +339,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowPalette = false
 		m.ConfirmRun = false
 		m.clearConfirmedRun()
+		m.ConfirmCancelSelected = false
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = true
 		m.ConfirmQuitYes = true
@@ -347,7 +349,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowHelp = !m.ShowHelp
 		return m, nil
 	}
-	if m.ShowHelp || m.ShowHistory || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit {
+	if m.ShowHelp || m.ShowHistory || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit {
 		return m.handleOverlayKey(keyName, key)
 	}
 	if m.ShowPalette {
@@ -362,6 +364,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch keyName {
 	case "esc":
 		return m, nil
+	case "q":
+		if m.hasActiveRuns() {
+			m.ConfirmQuit = true
+			m.ConfirmQuitYes = true
+			return m, nil
+		}
+		return m, tea.Quit
 	case ":":
 		m.ShowPalette = true
 		m.Palette = ""
@@ -439,7 +448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
-	if m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit {
+	if m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit {
 		return
 	}
 
@@ -736,6 +745,7 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 			m.clearConfirmedRun()
 		}
 		m.ConfirmRun = false
+		m.ConfirmCancelSelected = false
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = false
 		m.ConfirmQuitYes = false
@@ -744,6 +754,7 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 			m.clearConfirmedRun()
 		}
 		m.ConfirmRun = false
+		m.ConfirmCancelSelected = false
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = false
 		m.ConfirmQuitYes = false
@@ -762,6 +773,11 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 				return m.beginRun(command, targets)
 			}
 			return m.startRun(true)
+		}
+		if m.ConfirmCancelSelected {
+			m.ConfirmCancelSelected = false
+			m.cancelSelectedImmediate()
+			return m, nil
 		}
 		if m.ConfirmCancelAll {
 			m.ConfirmCancelAll = false
@@ -1268,7 +1284,7 @@ func (m Model) View() tea.View {
 func (m Model) render() string {
 	var b strings.Builder
 	width := m.Width
-	if width > 0 && width < 80 {
+	if width > 0 && width < 60 {
 		return m.renderTooSmall(width, m.Height)
 	}
 	if width == 0 {
@@ -1293,19 +1309,8 @@ func (m Model) render() string {
 	} else {
 		b.WriteString(panels)
 	}
-	if m.RunError != "" {
-		b.WriteString("\n")
-		b.WriteString(m.renderMessageBar(width, "ERROR", m.RunError, errorBarStyle))
-	} else if m.Notice != "" {
-		b.WriteString("\n")
-		label := "INFO"
-		style := noticeBarStyle
-		if strings.HasPrefix(m.Notice, "run complete:") && m.completionNeedsAttention() {
-			label = "WARN"
-			style = warningBarStyle
-		}
-		b.WriteString(m.renderMessageBar(width, label, m.Notice, style))
-	}
+	b.WriteString("\n")
+	b.WriteString(m.renderDashboard(width))
 	b.WriteByte('\n')
 	b.WriteString(m.renderFooter(width))
 	rendered := b.String()
@@ -1328,9 +1333,9 @@ func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rig
 
 func panelDimensionsForInput(width int, height int, inputRows int) (panelHeight int, leftWidth int, rightWidth int) {
 	panelHeight = panelHeightForInput(height, inputRows)
-	leftWidth = width * 58 / 100
-	if leftWidth < 50 {
-		leftWidth = 50
+	leftWidth = width * 42 / 100
+	if leftWidth < 36 {
+		leftWidth = 36
 	}
 	rightWidth = width - leftWidth - 4
 	if rightWidth < 32 {
@@ -1341,11 +1346,16 @@ func panelDimensionsForInput(width int, height int, inputRows int) (panelHeight 
 }
 
 func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
-	return panelDimensionsForInput(width, height, m.commandInputVisibleRows(width))
+	inputRows := m.commandInputVisibleRows(width)
+	panelHeight, leftWidth, rightWidth = panelDimensionsForInput(width, height, inputRows)
+	if m.Focus != FocusCommand && m.Focus != FocusFilter && !m.ShowPalette {
+		panelHeight = max(10, height-4)
+	}
+	return panelHeight, leftWidth, rightWidth
 }
 
 func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
-	if m.Width < 80 || m.Height < 20 || m.hasOverlay() {
+	if m.Width < 60 || m.Height < 20 || m.hasOverlay() {
 		return 0, false
 	}
 	panelHeight, leftWidth, rightWidth := m.panelDimensions(m.Width, m.Height)
@@ -1375,13 +1385,12 @@ func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 func (m Model) renderPanelPrefix(width int) string {
 	return strings.Join([]string{
 		m.renderHeader(width),
-		m.renderDashboard(width),
 		m.renderSubHeader(width),
 	}, "\n") + "\n"
 }
 
 func (m Model) hasOverlay() bool {
-	return m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelAll || m.ConfirmQuit
+	return m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit
 }
 
 func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightWidth int) string {
@@ -1395,11 +1404,6 @@ func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightW
 	left := m.renderDirectoryPanel(leftWidth, panelHeight)
 	right := m.renderLogPanel(rightWidth, panelHeight)
 	return joinPanels(left, right)
-}
-
-func (m Model) renderMessageBar(width int, label string, message string, style lipgloss.Style) string {
-	text := fmt.Sprintf(" %s  %s", label, message)
-	return style.Render(padRightVisible(truncateVisible(text, width), width))
 }
 
 func (m Model) completionNeedsAttention() bool {
@@ -1417,7 +1421,7 @@ func (m Model) renderTooSmall(width int, height int) string {
 	rows := []string{
 		runnyBadgeStyle.Render("runny"),
 		"terminal too small",
-		fmt.Sprintf("need at least 80x20, got %dx%d", width, height),
+		fmt.Sprintf("need at least 60x20, got %dx%d", width, height),
 		"resize terminal to continue",
 	}
 	lines := make([]string, 0, height)
@@ -1450,6 +1454,14 @@ func (m Model) renderOverlay(width int, height int) string {
 			fmt.Sprintf("%d failed target(s) will run again.", m.confirmedRunTargetCount()),
 			"command: " + truncateVisible(m.confirmedRunCommand(), 64),
 			"targets: " + m.confirmedRunTargetSummary(64),
+			"y/enter confirm   n/esc cancel",
+		}
+	case m.ConfirmCancelSelected:
+		title = "Cancel selected"
+		rows = []string{
+			fmt.Sprintf("%d selected active target(s) will be cancelled.", m.selectedActiveCount()),
+			"scope: selected running and queued targets only",
+			"targets: " + m.selectedActiveTargetSummary(64),
 			"y/enter confirm   n/esc cancel",
 		}
 	case m.ConfirmCancelAll:
@@ -1492,101 +1504,74 @@ func (m Model) renderQuitChoices() string {
 }
 
 func (m Model) renderHeader(width int) string {
+	stats := m.statusCounts()
+	mode := string(m.mode())
+	if m.mode() == core.ModeParallel {
+		mode += "×" + m.workersLabel()
+	}
 	segments := []string{
 		runnyBadgeStyle.Render("runny"),
-		m.dashboardWidget("mode", string(m.mode()), subtleStyle),
-		m.dashboardWidget("workers", m.workersLabel(), subtleStyle),
-		m.dashboardWidget("targets", fmt.Sprintf("%d", len(m.Targets)), subtleStyle),
+		subtleStyle.Render(mode),
+		fmt.Sprintf("%d selected", m.selectedCount()),
+		metricRunningStyle.Render(fmt.Sprintf("%d run", stats[core.StatusRunning])),
+		metricQueuedStyle.Render(fmt.Sprintf("%d queue", stats[core.StatusQueued])),
+		metricSuccessStyle.Render(fmt.Sprintf("%d ok", stats[core.StatusSucceeded])),
+		metricFailedStyle.Render(fmt.Sprintf("%d fail", stats[core.StatusFailed])),
 	}
-	line := " " + strings.Join(segments, subtleStyle.Render(" "))
+	line := " " + strings.Join(segments, subtleStyle.Render(" · "))
 	return headerStyle.Render(padRightVisible(truncateVisible(line, width), width))
 }
 
 func (m Model) renderDashboard(width int) string {
 	stats := m.statusCounts()
-	active := stats[core.StatusRunning] + stats[core.StatusQueued]
-	done, total := m.progressCounts()
-	progressWidth := 14
-	if width >= 140 {
-		progressWidth = 18
-	} else if width < 96 {
-		progressWidth = 10
-	}
-	progress := m.progressBar(done, total, progressWidth)
-	stateLabel := m.executionState()
-	if m.Running {
-		stateLabel = fmt.Sprintf("running %d/%d", done, total)
-	}
-	chips := []string{
-		m.dashboardWidget("active", fmt.Sprintf("%d", active), metricRunningStyle),
-		m.dashboardWidget("queue", fmt.Sprintf("%d", stats[core.StatusQueued]), metricQueuedStyle),
-		m.dashboardWidget("ok", fmt.Sprintf("%d", stats[core.StatusSucceeded]), metricSuccessStyle),
-		m.dashboardWidget("failed", fmt.Sprintf("%d", stats[core.StatusFailed]), metricFailedStyle),
-		m.dashboardWidget("progress", fmt.Sprintf("%s %d/%d %s", progress, done, total, m.progressPercent(done, total)), subtleStyle),
-	}
-	if width >= 120 {
-		chips = append(chips, m.dashboardWidget("idle", fmt.Sprintf("%d", stats[core.StatusIdle]), metricIdleStyle))
-	}
-	if m.Running || width >= 100 {
-		chips = append([]string{m.dashboardWidget("state", stateLabel, subtleStyle)}, chips...)
-	}
-	line := strings.Join(chips, subtleStyle.Render(" "))
-	return padRightVisible(truncateVisible(line, width), width)
-}
-
-func (m Model) progressCounts() (int, int) {
-	doneStatuses := map[core.Status]bool{
-		core.StatusSucceeded: true,
-		core.StatusFailed:    true,
-		core.StatusCancelled: true,
-	}
-	if m.Running || len(m.completedResults) > 0 {
-		completed := map[string]bool{}
-		for _, result := range m.completedResults {
-			if doneStatuses[result.Status] {
-				completed[result.Target.ID] = true
-			}
+	compact := width < 100 || m.RunError != "" || m.Notice != ""
+	segments := []string{}
+	if compact {
+		segments = []string{
+			metricRunningStyle.Render(fmt.Sprintf("●%d", stats[core.StatusRunning])),
+			metricQueuedStyle.Render(fmt.Sprintf("◌%d", stats[core.StatusQueued])),
+			metricSuccessStyle.Render(fmt.Sprintf("✓%d", stats[core.StatusSucceeded])),
+			metricFailedStyle.Render(fmt.Sprintf("✕%d", stats[core.StatusFailed])),
 		}
-		if len(completed) == 0 {
-			for _, target := range m.Targets {
-				if target.Selected && doneStatuses[m.Status[target.ID]] {
-					completed[target.ID] = true
-				}
-			}
-		}
-		active := 0
-		for _, status := range m.Status {
-			if status == core.StatusRunning || status == core.StatusQueued {
-				active++
-			}
-		}
-		total := len(completed) + active
-		if total > 0 {
-			return len(completed), total
+	} else {
+		segments = []string{
+			metricRunningStyle.Render(fmt.Sprintf("● %d running", stats[core.StatusRunning])),
+			metricQueuedStyle.Render(fmt.Sprintf("◌ %d queued", stats[core.StatusQueued])),
+			metricSuccessStyle.Render(fmt.Sprintf("✓ %d ok", stats[core.StatusSucceeded])),
+			metricFailedStyle.Render(fmt.Sprintf("✕ %d failed", stats[core.StatusFailed])),
 		}
 	}
-
-	done := 0
-	total := 0
-	for _, target := range m.Targets {
-		if !target.Selected {
-			continue
+	if m.RunError != "" {
+		segments = append(segments, errorBarStyle.Render("ERROR "+m.RunError))
+	} else if m.Notice != "" {
+		label := "INFO"
+		style := noticeBarStyle
+		if strings.HasPrefix(m.Notice, "run complete:") && m.completionNeedsAttention() {
+			label = "WARN"
+			style = warningBarStyle
 		}
-		total++
-		if doneStatuses[m.Status[target.ID]] {
-			done++
-		}
+		segments = append(segments, style.Render(label+" "+m.Notice))
 	}
-	return done, total
-}
-
-func (m Model) dashboardWidget(label string, value string, valueStyle lipgloss.Style) string {
-	valueStyle = valueStyle.Background(runnyTheme.bgElevated)
-	text := " " + dashboardLabelStyle.Render(label+" ") + valueStyle.Render(value) + " "
-	return dashboardWidgetStyle.Render(text)
+	left := " " + strings.Join(segments, subtleStyle.Render(" · "))
+	right := subtleStyle.Render("follow:" + ternary(m.LogFollow, "on", "off"))
+	rightWidth := lipgloss.Width(right)
+	leftWidth := max(1, width-rightWidth-2)
+	return padRightVisible(truncateVisible(left, leftWidth), leftWidth) + "  " + right
 }
 
 func (m Model) renderSubHeader(width int) string {
+	if m.Focus != FocusCommand && m.Focus != FocusFilter && !m.ShowPalette {
+		command := strings.TrimSpace(m.Command)
+		if command == "" {
+			command = "(not set)"
+		}
+		left := commandPromptStyle.Render("command ›") + " " + command
+		right := subtleStyle.Render(fmt.Sprintf("scope %d targets · workers %s", m.selectedCount(), m.workersLabel()))
+		rightWidth := min(lipgloss.Width(right), max(0, width/2))
+		right = truncateVisible(right, rightWidth)
+		leftWidth := max(1, width-rightWidth-2)
+		return padRightVisible(truncateVisible(left, leftWidth), leftWidth) + "  " + right
+	}
 	return strings.Join(m.commandInputBoxLines(width), "\n")
 }
 
@@ -1772,16 +1757,15 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	active := index == m.Cursor
 	status := m.Status[target.ID]
 	partial := !target.Selected && m.targetHasSelectedDescendant(target)
-	activity := " "
-	switch status {
-	case core.StatusQueued:
-		activity = targetRowInlineStyle(subtleStyle, status).Render("…")
-	case core.StatusRunning:
-		activity = targetRowInlineStyle(metricRunningStyle, status).Render("▶")
-	case core.StatusCancelled:
-		activity = targetRowInlineStyle(subtleStyle, status).Render("×")
-	case core.StatusFailed:
-		activity = targetRowInlineStyle(metricFailedStyle, status).Render("!")
+	cursor := " "
+	if active {
+		cursor = "›"
+	}
+	selection := unselectedStyle.Render("[ ]")
+	if target.Selected {
+		selection = selectedStyle.Render("[x]")
+	} else if partial {
+		selection = sectionStyle.Render("[-]")
 	}
 	fold := " "
 	if len(target.Children) > 0 && target.Folded && m.Filter == "" {
@@ -1792,12 +1776,11 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	name := m.renderTargetName(target)
 	statusText := m.renderRowStatus(status, active)
 	if active || target.Selected || partial {
-		activity = m.activitySymbol(status)
 		fold = m.foldSymbol(target)
 		name = m.renderTargetNamePlain(target)
 		statusText = padRightVisible(m.statusLabel(status), 12)
 	}
-	left := "  " + activity + " " + fold + "  " + name
+	left := cursor + " " + selection + " " + fold + " " + name
 	row := fixedStatusJoin(left, statusText, width)
 	if active {
 		if target.Selected || partial {
@@ -1819,21 +1802,6 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 
 func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
 	return style
-}
-
-func (m Model) activitySymbol(status core.Status) string {
-	switch status {
-	case core.StatusQueued:
-		return "…"
-	case core.StatusRunning:
-		return "▶"
-	case core.StatusCancelled:
-		return "×"
-	case core.StatusFailed:
-		return "!"
-	default:
-		return " "
-	}
 }
 
 func (m Model) foldSymbol(target core.Target) string {
@@ -2034,11 +2002,38 @@ func splitTargetPath(value string) (string, string) {
 
 func (m Model) renderLogPanel(width int, height int) []string {
 	lines := []string{}
+	title := "Output"
 	if len(m.Targets) > 0 && m.Cursor >= 0 && m.Cursor < len(m.Targets) {
 		target := m.Targets[m.Cursor]
 		lines = append(lines, m.renderOutputLines(target.ID, height)...)
+		title = fmt.Sprintf(
+			"Output — %s [%s] · follow:%s · %d lines",
+			target.RelPath,
+			outputStatusLabel(m.Status[target.ID]),
+			ternary(m.LogFollow, "on", "off"),
+			outputLineCount(m.Logs[target.ID]),
+		)
 	}
-	return boxLines(width, height, "Output", lines, m.Focus == FocusLogs)
+	return boxLines(width, height, title, lines, m.Focus == FocusLogs)
+}
+
+func outputStatusLabel(status core.Status) string {
+	switch status {
+	case core.StatusQueued:
+		return "QUEUE"
+	case core.StatusRunning:
+		return "RUN"
+	case core.StatusSucceeded:
+		return "OK"
+	case core.StatusFailed:
+		return "FAIL"
+	case core.StatusCancelled:
+		return "CANCEL"
+	case core.StatusSkipped:
+		return "SKIP"
+	default:
+		return "IDLE"
+	}
 }
 
 func (m Model) previewCommandText() string {
@@ -2189,93 +2184,40 @@ func (m Model) hiddenByFold(target core.Target) bool {
 }
 
 func (m Model) renderFooter(width int) string {
-	activeStopHint := "ctrl+c quit"
-	if width >= 110 {
-		activeStopHint = "ctrl+c confirm quit"
-	}
-	zoomLabel := "z maximize"
-	if m.Zoom {
-		zoomLabel = "z split"
-	}
-	globalKeys := []string{"? help", "/ search", ": cmd", "H hist", zoomLabel}
-	contextKeys := []string{}
-	statusKeys := []string{}
-	if width < 110 && m.hasActiveRuns() {
-		globalKeys = []string{"? help", "/ search", ": cmd", "H hist"}
-	}
-	if width >= 110 {
-		if !m.Zoom {
-			zoomLabel = "z maximize panel"
-		}
-		globalKeys = []string{"? keymap", "/ search", ": command", "H history", "tab panels", zoomLabel}
-	}
+	hints := []string{}
 	if m.ShowHelp {
-		globalKeys = []string{"? close", "q close", "esc close", "H history"}
+		hints = []string{"? close", "q close", "esc close", "H history"}
 	} else if m.ShowHistory {
-		globalKeys, contextKeys = m.historyFooterKeys()
+		_, hints = m.historyFooterKeys()
 	} else if m.ShowPalette {
-		globalKeys = []string{": command", "? keymap"}
-		contextKeys = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close"}
+		hints = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close", "? help"}
 	} else if m.ConfirmRun {
-		globalKeys = []string{"? keymap"}
-		contextKeys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+		hints = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+	} else if m.ConfirmCancelSelected {
+		hints = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
 	} else if m.ConfirmCancelAll {
-		globalKeys = []string{"? keymap"}
-		contextKeys = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
+		hints = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
 	} else if m.ConfirmQuit {
-		globalKeys = []string{"? keymap"}
-		contextKeys = []string{"tab switch", "enter choose", "y yes", "n no", "esc cancel"}
-	}
-	if m.hasActiveRuns() {
-		statusKeys = append(statusKeys, activeStopHint)
-	}
-	if !m.ShowHelp && !m.ShowHistory && !m.ShowPalette && !m.ConfirmRun && !m.ConfirmCancelAll && !m.ConfirmQuit {
+		hints = []string{"tab switch", "enter choose", "y yes", "n no", "esc cancel"}
+	} else {
 		switch m.Focus {
 		case FocusCommand:
-			if width >= 110 {
-				contextKeys = []string{"enter run", "esc tasks", "up/down hist", "backspace edit"}
-			} else {
-				globalKeys = []string{"? help", "H hist"}
-				contextKeys = []string{"enter run", "esc tasks", "↑↓ hist", "ctrl+u clear"}
-			}
+			hints = []string{"enter run", "esc tasks", "up/down history", "ctrl+u clear", "? help", "ctrl+c quit"}
 		case FocusFilter:
-			if width >= 110 {
-				globalKeys = []string{"? keymap", "H history"}
-				if m.hasActiveRuns() {
-					statusKeys = append(statusKeys, activeStopHint)
-				}
-				contextKeys = []string{"type fuzzy", "' exact", "↑↓/nN matches", "ctrl+u clear", "enter/esc tasks"}
-			} else {
-				globalKeys = []string{"? help", "H hist"}
-				contextKeys = []string{"type fuzzy", "' exact", "↑↓/nN", "ctrl+u clear", "enter/esc"}
-			}
+			hints = []string{"type fuzzy", "' exact", "n/N matches", "ctrl+u clear", "enter/esc tasks", "? help"}
 		case FocusLogs:
-			if width >= 110 {
-				contextKeys = []string{"pgup/pgdn scroll", "f tail", "tab tasks"}
-			} else {
-				globalKeys = []string{"? help", "H hist"}
-				contextKeys = []string{"pgup/pgdn scroll", "f tail", "tab tasks"}
-			}
+			hints = []string{"pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 		default:
-			if width >= 110 {
-				contextKeys = []string{"space select", "a Select All", "←/→ fold", "enter run", "del/x cancel"}
-			} else {
-				globalKeys = []string{"? help", "H hist"}
-				contextKeys = []string{"space select", "tab output", ": cmd", "enter run", "del/x cancel"}
+			hints = []string{"space select", "/ filter", "x cancel", "tab output", "? help", "q quit"}
+			if width < 100 {
+				hints = []string{"space sel", "x stop", "tab pane", "? help", "q quit"}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
-				statusKeys = append(statusKeys, "R failed")
+				hints = append([]string{"R failed"}, hints...)
 			}
 		}
 	}
-	if !m.hasActiveRuns() {
-		statusKeys = append(statusKeys, "ctrl+c quit")
-	}
-	hints := make([]string, 0, len(globalKeys)+len(contextKeys)+len(statusKeys))
-	hints = append(hints, globalKeys...)
-	hints = append(hints, contextKeys...)
-	hints = append(hints, statusKeys...)
-	return renderFooterHintGrid(hints, width, 3)
+	return renderFooterHintGrid(hints, width, 1)
 }
 
 type footerHint struct {
@@ -2326,7 +2268,7 @@ func parseFooterHint(hint string) footerHint {
 	if !ok {
 		return footerHint{key: hint}
 	}
-	if key == "no" || key == "type" {
+	if key == "no" {
 		return footerHint{label: titleFooterLabel(hint)}
 	}
 	return footerHint{key: key, label: titleFooterLabel(label)}
@@ -2415,13 +2357,10 @@ func stripANSIForWidth(value string) string {
 }
 
 func (m Model) compactMode(width int) bool {
-	return width < 96
+	return width < 100
 }
 
 func (m Model) singlePanelWidth(width int) int {
-	if width <= 80 {
-		return width - 1
-	}
 	return width
 }
 
@@ -2489,20 +2428,6 @@ func (m Model) selectedCount() int {
 	return selected
 }
 
-func (m Model) executionState() string {
-	if m.Running {
-		return "running"
-	}
-	if m.failedCount() > 0 {
-		return "failed"
-	}
-	stats := m.statusCounts()
-	if len(m.Targets) > 0 && stats[core.StatusSucceeded] == len(m.Targets) {
-		return "succeeded"
-	}
-	return "ready"
-}
-
 func (m Model) statusLabel(status core.Status) string {
 	if status == "" {
 		status = core.StatusIdle
@@ -2527,36 +2452,6 @@ func (m Model) statusLabel(status core.Status) string {
 	}
 }
 
-func (m Model) progressBar(done int, total int, width int) string {
-	if total <= 0 || width <= 0 {
-		return strings.Repeat("░", max(0, width))
-	}
-	if done < 0 {
-		done = 0
-	}
-	if done > total {
-		done = total
-	}
-	filled := done * width / total
-	if done > 0 && filled == 0 {
-		filled = 1
-	}
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-}
-
-func (m Model) progressPercent(done int, total int) string {
-	if total <= 0 {
-		return "0%"
-	}
-	if done < 0 {
-		done = 0
-	}
-	if done > total {
-		done = total
-	}
-	return fmt.Sprintf("%d%%", done*100/total)
-}
-
 func (m Model) helpRows(width ...int) []string {
 	columns := 3
 	if len(width) > 0 && width[0] < 96 {
@@ -2567,7 +2462,7 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "global",
 			title: "Global",
 			bindings: []helpBinding{
-				{"?", "keymap"}, {"/", "filter"}, {":", "palette"}, {"H", "history"},
+				{"?", "keymap"}, {"/", "filter"}, {":", "palette"}, {"H", "history"}, {"q", "quit"},
 				{"tab", "tasks/output"}, {"z", "maximize panel / split"}, {"esc", "close mode"},
 				{"ctrl+c", "confirm quit"},
 			},
@@ -2595,8 +2490,8 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "runs",
 			title: "Runs and status",
 			bindings: []helpBinding{
-				{"R", "rerun failed"}, {"▶", "running"}, {"…", "queued"}, {"✓", "ok"},
-				{"!", "failed"}, {"×", "cancelled"},
+				{"R", "rerun failed"}, {"spinner", "running"}, {"◌", "queued"}, {"✓", "ok"},
+				{"✕", "failed"}, {"–", "cancelled"},
 			},
 		},
 		{
@@ -2690,7 +2585,7 @@ func (m Model) activeHelpSectionID() string {
 		return "palette"
 	case m.ShowHistory:
 		return "history"
-	case m.ConfirmRun || m.ConfirmCancelAll || m.hasActiveRuns():
+	case m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.hasActiveRuns():
 		return "runs"
 	case m.Focus == FocusCommand || m.Focus == FocusFilter:
 		return "input"
@@ -2716,7 +2611,7 @@ func (m Model) paletteRows() []string {
 		helpText = fmt.Sprintf("%d fuzzy match(es)   enter %s   esc close   ↑↓ choose", len(matches), selected)
 	}
 	rows := []string{commandPromptStyle.Render(" : " + input + " ")}
-	panelHeight, _, _ := m.panelDimensions(max(80, m.Width), m.Height)
+	panelHeight, _, _ := m.panelDimensions(max(60, m.Width), m.Height)
 	compact := m.Height > 0 && panelHeight-2 < len(matches)+3
 	if !compact {
 		rows = append(rows, subtleStyle.Render(helpText), "")
@@ -2943,6 +2838,31 @@ func (m *Model) setFolded(folded bool) {
 }
 
 func (m *Model) cancelSelectedOrFocused() {
+	if m.selectedActiveCount() > 1 {
+		m.ConfirmCancelSelected = true
+		m.Notice = ""
+		m.RunError = ""
+		return
+	}
+	m.cancelSelectedOrFocusedImmediate()
+}
+
+func (m *Model) cancelSelectedOrFocusedImmediate() {
+	cancelled := m.cancelSelectedActive()
+	if cancelled == 0 && len(m.Targets) > 0 {
+		m.ensureCursorVisible()
+		if m.cancelTarget(m.Targets[m.Cursor]) {
+			cancelled++
+		}
+	}
+	m.setCancellationNotice(cancelled)
+}
+
+func (m *Model) cancelSelectedImmediate() {
+	m.setCancellationNotice(m.cancelSelectedActive())
+}
+
+func (m *Model) cancelSelectedActive() int {
 	cancelled := 0
 	for _, target := range m.Targets {
 		if target.Selected {
@@ -2951,12 +2871,10 @@ func (m *Model) cancelSelectedOrFocused() {
 			}
 		}
 	}
-	if cancelled == 0 && len(m.Targets) > 0 {
-		m.ensureCursorVisible()
-		if m.cancelTarget(m.Targets[m.Cursor]) {
-			cancelled++
-		}
-	}
+	return cancelled
+}
+
+func (m *Model) setCancellationNotice(cancelled int) {
 	if cancelled > 0 {
 		m.Notice = fmt.Sprintf("cancelled %d target(s)", cancelled)
 		m.RunError = ""
@@ -3073,6 +2991,17 @@ func (m Model) activeCount() int {
 	return count
 }
 
+func (m Model) selectedActiveCount() int {
+	count := 0
+	for _, target := range m.Targets {
+		status := m.Status[target.ID]
+		if target.Selected && (status == core.StatusRunning || status == core.StatusQueued) {
+			count++
+		}
+	}
+	return count
+}
+
 func (m Model) statusCount(want core.Status) int {
 	count := 0
 	for _, status := range m.Status {
@@ -3085,6 +3014,24 @@ func (m Model) statusCount(want core.Status) int {
 
 func (m Model) activeTargetSummary(width int) string {
 	return m.statusTargetSummary(core.StatusRunning, width, core.StatusQueued)
+}
+
+func (m Model) selectedActiveTargetSummary(width int) string {
+	names := make([]string, 0, len(m.Targets))
+	for _, target := range m.Targets {
+		status := m.Status[target.ID]
+		if target.Selected && (status == core.StatusRunning || status == core.StatusQueued) {
+			names = append(names, target.RelPath)
+		}
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	summary := strings.Join(names, ", ")
+	if len(names) > 3 {
+		summary = strings.Join(names[:3], ", ") + fmt.Sprintf(", +%d more", len(names)-3)
+	}
+	return truncateVisible(summary, width)
 }
 
 func (m Model) statusTargetSummary(status core.Status, width int, extra ...core.Status) string {
@@ -3234,15 +3181,26 @@ func outputLines(output string) []string {
 	return strings.Split(output, "\n")
 }
 
+func outputLineCount(output string) int {
+	output = strings.TrimRight(output, "\n")
+	if output == "" {
+		return 0
+	}
+	return strings.Count(output, "\n") + 1
+}
+
 func panelHeightForWindow(height int) int {
-	return panelHeightForInput(height, 1)
+	if height < 20 {
+		height = 20
+	}
+	return max(10, height-4)
 }
 
 func panelHeightForInput(height int, inputRows int) int {
 	if height < 20 {
 		height = 20
 	}
-	return max(10, height-9-max(0, inputRows-1))
+	return max(10, height-5-max(1, inputRows))
 }
 
 func (m *Model) ensureCursorVisible() {
@@ -3306,7 +3264,7 @@ func (m *Model) ensureDirectoryOffset() {
 }
 
 func (m Model) directoryViewportRows() int {
-	panelHeight, _, _ := m.panelDimensions(max(80, m.Width), m.Height)
+	panelHeight, _, _ := m.panelDimensions(max(60, m.Width), m.Height)
 	return max(1, panelHeight-5)
 }
 
