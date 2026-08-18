@@ -439,8 +439,12 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(tasksFooter, "\n")); got != 1 {
 		t.Fatalf("tasks footer lines = %d, want 1:\n%s", got, tasksFooter)
 	}
+	wantTasksFooter := "[space] Select  [/] Filter  [x] Cancel  [tab] Output  [?] Help  [q] Quit"
+	if got := strings.TrimSpace(tasksFooter); got != wantTasksFooter {
+		t.Fatalf("tasks footer = %q, want %q", got, wantTasksFooter)
+	}
 	normalizedTasksFooter := strings.Join(strings.Fields(tasksFooter), " ")
-	for _, want := range []string{"space Select", "/ Filter", "x Cancel", "tab Output", "? Help", "q Quit"} {
+	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizedTasksFooter, want) {
 			t.Fatalf("tasks footer should contain %q:\n%s", want, tasksFooter)
 		}
@@ -454,17 +458,19 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(compactTasksFooter, "\n")); got != 1 {
 		t.Fatalf("compact tasks footer lines = %d, want 1:\n%s", got, compactTasksFooter)
 	}
-	for _, want := range []string{"space", "x", "tab", "?", "q"} {
-		if !strings.Contains(strings.Join(strings.Fields(compactTasksFooter), " "), want) {
-			t.Fatalf("compact tasks footer should contain %q:\n%s", want, compactTasksFooter)
-		}
+	if got := strings.TrimSpace(compactTasksFooter); got != wantTasksFooter {
+		t.Fatalf("80-column tasks footer = %q, want %q", got, wantTasksFooter)
 	}
 	if got := maxLineWidth(compactTasksFooter); got > 80 {
 		t.Fatalf("compact tasks footer width = %d:\n%s", got, compactTasksFooter)
 	}
 	narrowTasksFooter := stripANSI(model.renderFooter(60))
 	normalizedNarrowFooter := strings.Join(strings.Fields(narrowTasksFooter), " ")
-	for _, want := range []string{"space Sel", "x Stop", "tab Pane", "? Help", "q Quit"} {
+	wantNarrowFooter := "[space] Sel  [x] Stop  [tab] Pane  [?] Help  [q] Quit"
+	if got := strings.TrimSpace(narrowTasksFooter); got != wantNarrowFooter {
+		t.Fatalf("60-column tasks footer = %q, want %q", got, wantNarrowFooter)
+	}
+	for _, want := range []string{"[space] Sel", "[x] Stop", "[tab] Pane", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizedNarrowFooter, want) {
 			t.Fatalf("narrow tasks footer should contain %q:\n%s", want, narrowTasksFooter)
 		}
@@ -478,7 +484,7 @@ func TestFooterIsContextual(t *testing.T) {
 
 	model.Status["api"] = core.StatusFailed
 	failedFooter := stripANSI(model.renderFooter(120))
-	if !strings.Contains(strings.Join(strings.Fields(failedFooter), " "), "R Failed") {
+	if !strings.Contains(strings.Join(strings.Fields(failedFooter), " "), "[R] Failed") {
 		t.Fatalf("failed footer should expose rerun failed shortcut:\n%s", failedFooter)
 	}
 
@@ -486,23 +492,23 @@ func TestFooterIsContextual(t *testing.T) {
 	model.Targets = append(model.Targets, core.Target{ID: "web", RelPath: "web", Selected: true})
 	model.Status["web"] = core.StatusFailed
 	activeFooter := stripANSI(model.renderFooter(120))
-	if strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "R Failed") {
+	if strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "[R] Failed") {
 		t.Fatalf("active footer should hide rerun failed while work is active:\n%s", activeFooter)
 	}
-	if !strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "q Quit") {
+	if !strings.Contains(strings.Join(strings.Fields(activeFooter), " "), "[q] Quit") {
 		t.Fatalf("active footer should keep quit hint visible:\n%s", activeFooter)
 	}
 
 	filterModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	filterModel.Focus = FocusFilter
 	filterFooter := stripANSI(filterModel.renderFooter(120))
-	for _, want := range []string{"type Fuzzy", "' Exact", "n/N Matches", "ctrl+u Clear", "enter/esc Tasks", "? Help"} {
+	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[n/N] Matches", "[ctrl+u] Clear", "[enter/esc] Tasks", "[?] Help"} {
 		if !strings.Contains(strings.Join(strings.Fields(filterFooter), " "), want) {
 			t.Fatalf("filter footer should contain %q:\n%s", want, filterFooter)
 		}
 	}
 	compactFilterFooter := stripANSI(filterModel.renderFooter(80))
-	for _, want := range []string{"type", "'", "n/N", "ctrl+u", "enter/esc", "?"} {
+	for _, want := range []string{"[type]", "[']", "[n/N]", "[ctrl+u]", "[enter/esc]", "[?]"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactFilterFooter), " "), want) {
 			t.Fatalf("compact filter footer should contain %q:\n%s", want, compactFilterFooter)
 		}
@@ -513,7 +519,7 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel.Focus = FocusTargets
 	filterModel.Filter = "api"
 	filteredTasksFooter := stripANSI(filterModel.renderFooter(120))
-	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "space Select") {
+	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "[space] Select") {
 		t.Fatalf("filtered task footer should keep select label:\n%s", filteredTasksFooter)
 	}
 
@@ -521,12 +527,12 @@ func TestFooterIsContextual(t *testing.T) {
 	historyModel.ShowHistory = true
 	emptyHistoryFooter := stripANSI(historyModel.renderFooter(120))
 	normalizedEmptyHistoryFooter := strings.Join(strings.Fields(emptyHistoryFooter), " ")
-	if !strings.Contains(normalizedEmptyHistoryFooter, "No reuse") || strings.Contains(normalizedEmptyHistoryFooter, "enter Reuse") {
+	if !strings.Contains(normalizedEmptyHistoryFooter, "No reuse") || strings.Contains(normalizedEmptyHistoryFooter, "[enter] Reuse") {
 		t.Fatalf("empty history footer should not promise reuse:\n%s", emptyHistoryFooter)
 	}
 	historyModel.History = []string{"go test"}
 	historyFooter := stripANSI(historyModel.renderFooter(120))
-	if !strings.Contains(strings.Join(strings.Fields(historyFooter), " "), "enter Reuse") {
+	if !strings.Contains(strings.Join(strings.Fields(historyFooter), " "), "[enter] Reuse") {
 		t.Fatalf("history footer should expose reuse when selectable:\n%s", historyFooter)
 	}
 
@@ -627,11 +633,21 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 		"\x1b[48;2;36;47;56m",
 		"\x1b[38;2;224;224;224m",
 		"\x1b[38;2;196;181;253m",
-		"\x1b[1mspace",
+		"\x1b[1m[space]",
 	} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer should contain ANSI sequence %q:\n%q", want, footer)
 		}
+	}
+}
+
+func TestFooterBracketsRemainVisibleWithoutColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	footer := strings.TrimSpace(model.renderFooter(80))
+	want := "[space] Select  [/] Filter  [x] Cancel  [tab] Output  [?] Help  [q] Quit"
+	if footer != want {
+		t.Fatalf("plain footer = %q, want %q", footer, want)
 	}
 }
 
@@ -744,12 +760,12 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.ShowHelp = true
 	helpFooter := stripANSI(model.renderFooter(120))
 	normalizedHelpFooter := normalizeFooterText(helpFooter)
-	for _, want := range []string{"? Close", "esc Close", "H History"} {
+	for _, want := range []string{"[?] Close", "[esc] Close", "[H] History"} {
 		if !strings.Contains(normalizedHelpFooter, want) {
 			t.Fatalf("help footer should contain %q:\n%s", want, helpFooter)
 		}
 	}
-	if strings.Contains(normalizedHelpFooter, "space Select") {
+	if strings.Contains(normalizedHelpFooter, "[space] Select") {
 		t.Fatalf("help footer should not show task actions:\n%s", helpFooter)
 	}
 
@@ -757,7 +773,7 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.ShowPalette = true
 	paletteFooter := stripANSI(model.renderFooter(120))
 	normalizedPaletteFooter := normalizeFooterText(paletteFooter)
-	for _, want := range []string{"enter Choose", "up/down Choose", "ctrl+u Clear", "esc Close"} {
+	for _, want := range []string{"[enter] Choose", "[up/down] Choose", "[ctrl+u] Clear", "[esc] Close"} {
 		if !strings.Contains(normalizedPaletteFooter, want) {
 			t.Fatalf("palette footer should contain %q:\n%s", want, paletteFooter)
 		}
@@ -768,7 +784,7 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.History = []string{"go test"}
 	historyFooter := stripANSI(model.renderFooter(120))
 	normalizedHistoryFooter := normalizeFooterText(historyFooter)
-	for _, want := range []string{"enter Reuse", "up/down Choose", "esc Close", "? Help"} {
+	for _, want := range []string{"[enter] Reuse", "[up/down] Choose", "[esc] Close", "[?] Help"} {
 		if !strings.Contains(normalizedHistoryFooter, want) {
 			t.Fatalf("history footer should contain %q:\n%s", want, historyFooter)
 		}
@@ -778,7 +794,7 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.ConfirmCancelAll = true
 	cancelFooter := stripANSI(model.renderFooter(120))
 	normalizedCancelFooter := normalizeFooterText(cancelFooter)
-	for _, want := range []string{"y Confirm", "enter Confirm", "n Cancel", "esc Cancel"} {
+	for _, want := range []string{"[y] Confirm", "[enter] Confirm", "[n] Cancel", "[esc] Cancel"} {
 		if !strings.Contains(normalizedCancelFooter, want) {
 			t.Fatalf("cancel-all footer should contain %q:\n%s", want, cancelFooter)
 		}
@@ -788,7 +804,7 @@ func TestFooterReflectsActiveOverlay(t *testing.T) {
 	model.ConfirmQuit = true
 	quitFooter := stripANSI(model.renderFooter(120))
 	normalizedQuitFooter := normalizeFooterText(quitFooter)
-	for _, want := range []string{"tab Switch", "enter Choose", "y Yes", "n No", "esc Cancel"} {
+	for _, want := range []string{"[tab] Switch", "[enter] Choose", "[y] Yes", "[n] No", "[esc] Cancel"} {
 		if !strings.Contains(normalizedQuitFooter, want) {
 			t.Fatalf("quit footer should contain %q:\n%s", want, quitFooter)
 		}
@@ -998,7 +1014,7 @@ func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
 		t.Fatalf("cursor = %d, want previous match from filter focus", model.Cursor)
 	}
 	footer := stripANSI(model.renderFooter(120))
-	if !strings.Contains(normalizeFooterText(footer), "n/N Matches") {
+	if !strings.Contains(normalizeFooterText(footer), "[n/N] Matches") {
 		t.Fatalf("filter footer should mention arrow match navigation:\n%s", footer)
 	}
 }
@@ -1010,7 +1026,7 @@ func TestTargetFooterShortcutLabels(t *testing.T) {
 	}})
 	footer := stripANSI(model.renderFooter(140))
 
-	for _, want := range []string{"space Select", "/ Filter", "x Cancel", "tab Output", "? Help", "q Quit"} {
+	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizeFooterText(footer), want) {
 			t.Fatalf("footer should contain %q:\n%s", want, footer)
 		}
@@ -1165,7 +1181,7 @@ func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
 	if strings.Count(stripANSI(model.renderFooter(120)), "\n") != 0 {
 		t.Fatalf("footer should use one row:\n%s", footer)
 	}
-	for _, want := range []string{"space Select", "/ Filter", "x Cancel", "tab Output", "? Help", "q Quit"} {
+	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("compact footer should contain %q:\n%s", want, footer)
 		}
@@ -2450,7 +2466,7 @@ func TestOperatorLayoutUsesSinglePaneAtSixtyColumns(t *testing.T) {
 
 	model, _ = updateSpecialKey(model, tea.KeyTab)
 	output := stripANSI(model.View().Content)
-	if !strings.Contains(output, "Output — api [RUN]") || strings.Contains(output, "Tasks") {
+	if !strings.Contains(output, "Output — api [RUN]") || strings.Contains(output, "╔═ Tasks") {
 		t.Fatalf("Tab should switch 60-column view to Output:\n%s", output)
 	}
 

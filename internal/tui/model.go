@@ -2079,8 +2079,9 @@ func (m Model) renderFooter(width int) string {
 		case FocusLogs:
 			hints = []string{"pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 		default:
-			hints = []string{"space select", "/ filter", "x cancel", "tab output", "? help", "q quit"}
-			if width < 100 {
+			fullHints := []string{"space select", "/ filter", "x cancel", "tab output", "? help", "q quit"}
+			hints = fullHints
+			if footerHintContentWidth(fullHints) > width {
 				hints = []string{"space sel", "x stop", "tab pane", "? help", "q quit"}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
@@ -2107,18 +2108,7 @@ func renderFooterHintGrid(rawHints []string, width int, rows int) string {
 	if len(hints) == 0 {
 		return strings.Repeat(" ", width)
 	}
-	keyWidth := 0
-	labelWidth := 0
-	for _, hint := range hints {
-		keyWidth = max(keyWidth, lipgloss.Width(hint.key))
-		labelWidth = max(labelWidth, lipgloss.Width(hint.label))
-	}
 	columns := (len(hints) + rows - 1) / rows
-	cellWidth := keyWidth + 1 + labelWidth
-	totalWidth := 1 + columns*cellWidth + max(0, columns-1)*2
-	if totalWidth > width && columns > 1 {
-		cellWidth = max(1, (width-1-max(0, columns-1)*2)/columns)
-	}
 	lines := make([]string, 0, rows)
 	for row := 0; row < rows; row++ {
 		cells := make([]footerHint, 0, columns)
@@ -2129,9 +2119,34 @@ func renderFooterHintGrid(rawHints []string, width int, rows int) string {
 			}
 			cells = append(cells, hints[index])
 		}
-		lines = append(lines, styleFooterHintCells(cells, width, keyWidth, labelWidth, cellWidth))
+		lines = append(lines, styleFooterHintCells(cells, width))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func footerHintContentWidth(rawHints []string) int {
+	cells := make([]footerHint, 0, len(rawHints))
+	for _, hint := range rawHints {
+		cells = append(cells, parseFooterHint(hint))
+	}
+	return footerHintCellsWidth(cells)
+}
+
+func footerHintCellsWidth(cells []footerHint) int {
+	width := 1
+	for i, cell := range cells {
+		if i > 0 {
+			width += 2
+		}
+		if cell.key != "" {
+			width += lipgloss.Width(footerShortcutToken(cell.key))
+			if cell.label != "" {
+				width++
+			}
+		}
+		width += lipgloss.Width(cell.label)
+	}
+	return width
 }
 
 func parseFooterHint(hint string) footerHint {
@@ -2152,14 +2167,14 @@ func titleFooterLabel(label string) string {
 	return strings.ToUpper(label[:1]) + label[1:]
 }
 
-func styleFooterHintCells(cells []footerHint, width int, keyWidth int, labelWidth int, cellWidth int) string {
+func styleFooterHintCells(cells []footerHint, width int) string {
 	if len(cells) == 0 {
 		return strings.Repeat(" ", width)
 	}
 	if noColorEnabled() {
-		return plainFooterHintCells(cells, width, keyWidth, labelWidth, cellWidth)
+		return plainFooterHintCells(cells, width)
 	}
-	labelCellWidth := max(0, cellWidth-keyWidth-1)
+	labelWidths := fitFooterLabelWidths(cells, width)
 	var b strings.Builder
 	background := ansiBackgroundHex(footerBackgroundHex)
 	labelStyle := ansiForegroundHex(footerLabelHex)
@@ -2174,15 +2189,17 @@ func styleFooterHintCells(cells []footerHint, width int, keyWidth int, labelWidt
 		if cell.key != "" {
 			b.WriteString(shortcutStyle)
 			b.WriteString("\x1b[1m")
-			b.WriteString(padRightVisible(cell.key, keyWidth))
+			b.WriteString(footerShortcutToken(cell.key))
 			b.WriteString("\x1b[22m")
-		} else {
-			b.WriteString(strings.Repeat(" ", keyWidth))
 		}
-		b.WriteString(labelStyle)
-		b.WriteByte(' ')
-		label := truncateVisible(cell.label, labelCellWidth)
-		b.WriteString(padRightVisible(label, labelCellWidth))
+		label := truncateVisible(cell.label, labelWidths[i])
+		if label != "" {
+			if cell.key != "" {
+				b.WriteByte(' ')
+			}
+			b.WriteString(labelStyle)
+			b.WriteString(label)
+		}
 	}
 	missing := width - lipgloss.Width(stripANSIForWidth(b.String()))
 	if missing > 0 {
@@ -2192,19 +2209,61 @@ func styleFooterHintCells(cells []footerHint, width int, keyWidth int, labelWidt
 	return b.String()
 }
 
-func plainFooterHintCells(cells []footerHint, width int, keyWidth int, labelWidth int, cellWidth int) string {
-	labelCellWidth := max(0, cellWidth-keyWidth-1)
+func plainFooterHintCells(cells []footerHint, width int) string {
+	labelWidths := fitFooterLabelWidths(cells, width)
 	var b strings.Builder
 	b.WriteByte(' ')
 	for i, cell := range cells {
 		if i > 0 {
 			b.WriteString("  ")
 		}
-		label := truncateVisible(cell.label, labelCellWidth)
-		text := padRightVisible(cell.key, keyWidth) + " " + padRightVisible(label, labelCellWidth)
-		b.WriteString(truncateVisible(text, cellWidth))
+		if cell.key != "" {
+			b.WriteString(footerShortcutToken(cell.key))
+		}
+		label := truncateVisible(cell.label, labelWidths[i])
+		if label != "" {
+			if cell.key != "" {
+				b.WriteByte(' ')
+			}
+			b.WriteString(label)
+		}
 	}
 	return padRightVisible(truncateVisible(b.String(), width), width)
+}
+
+func footerShortcutToken(key string) string {
+	return "[" + key + "]"
+}
+
+func fitFooterLabelWidths(cells []footerHint, width int) []int {
+	labelWidths := make([]int, len(cells))
+	fixedWidth := 1 + max(0, len(cells)-1)*2
+	totalLabelWidth := 0
+	for i, cell := range cells {
+		if cell.key != "" {
+			fixedWidth += lipgloss.Width(footerShortcutToken(cell.key))
+			if cell.label != "" {
+				fixedWidth++
+			}
+		}
+		labelWidths[i] = lipgloss.Width(cell.label)
+		totalLabelWidth += labelWidths[i]
+	}
+	availableLabelWidth := max(0, width-fixedWidth)
+	for totalLabelWidth > availableLabelWidth {
+		longest := -1
+		for i, labelWidth := range labelWidths {
+			if labelWidth > 0 && (longest == -1 || labelWidth > labelWidths[longest]) {
+				longest = i
+			}
+		}
+		if longest == -1 {
+			break
+		}
+		labelWidths[longest]--
+		totalLabelWidth--
+	}
+	return labelWidths
 }
 
 func stripANSIForWidth(value string) string {
