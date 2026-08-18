@@ -23,4 +23,4 @@ command › pnpm test                                                   scope 3 
 ║                                        ║  │                                                    │
 ╚════════════════════════════════════════╝  ╰────────────────────────────────────────────────────╯
  ● 1 running · ◌ 1 queued · ✓ 0 ok · ✕ 1 failed                                            follow:on
- space Select  /     Filter  x     Cancel  tab   Output  ?     Help    q     Quit
+ [space] Select  [/] Filter  [x] Cancel  [tab] Output  [?] Help  [q] Quit
