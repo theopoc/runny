@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/theopoc/runny/compare/v0.3.0...v0.4.0) (2026-08-20)
+
+
+### Features
+
+* **tui:** add history diagnostics ([#51](https://github.com/theopoc/runny/issues/51)) ([d445e78](https://github.com/theopoc/runny/commit/d445e788002df31c1317444458d984f855251a3c))
+
+
+### Bug Fixes
+
+* **tui:** wrap focused command input responsively ([#49](https://github.com/theopoc/runny/issues/49)) ([a30ad2e](https://github.com/theopoc/runny/commit/a30ad2e5bb2514a1e82af32abca4b484b96cdbfa))
+
 ## [0.3.0](https://github.com/theopoc/runny/compare/v0.2.0...v0.3.0) (2026-08-14)
 
 
