@@ -50,7 +50,7 @@ var runnyTheme = tuiTheme{
 	bgSurface:      tuiColor("#191D2B"),
 	bgElevated:     tuiColor("#252A3A"),
 	bgHelper:       tuiColor(footerBackgroundHex),
-	bgFocus:        tuiColor("#60A5FA"),
+	bgFocus:        tuiColor(primaryAccentHex),
 	bgSelection:    tuiColor("#A78BFA"),
 	bgRunning:      tuiColor("#1E3144"),
 	accentPrimary:  tuiColor(primaryAccentHex),

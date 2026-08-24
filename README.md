@@ -128,7 +128,8 @@ exclude:
 | `a` | Select all visible directories |
 | `A` | Deselect all visible directories |
 | `/` | Focus filter/search |
-| `:` | Open command palette |
+| `:` | Open command overlay |
+| `ctrl+p` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
 | `up`, `k` | Move cursor up |
@@ -141,7 +142,7 @@ exclude:
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
 | `del`, `x` | Cancel selected running or queued runs, or focused run; multiple selected active runs require confirmation |
-| `q` | Quit immediately when idle; ask for confirmation while runs are active |
+| `q` | Confirm quit with Yes/No |
 | `R` | Rerun all failed with confirmation |
 | `pageup`, `pagedown` | Scroll output |
 | Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |

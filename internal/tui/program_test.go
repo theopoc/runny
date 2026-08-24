@@ -74,7 +74,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	program.Send(tea.KeyPressMsg(tea.Key{Code: '/'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Text: "w"}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	program.Send(tea.KeyPressMsg(tea.Key{Text: ":"}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	for _, char := range "workers 1" {
 		program.Send(tea.KeyPressMsg(tea.Key{Text: string(char)}))
 	}
