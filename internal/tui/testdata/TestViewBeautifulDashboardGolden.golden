@@ -1,5 +1,4 @@
  runny · parallel×auto · 3 selected · 1 run · 1 queue · 0 ok · 1 fail
-command › pnpm test                                                   scope 3 targets · workers auto
 ╔═ Tasks ════════════════════════════════╗  ╭─ Output — api [RUN] · follow:on · 0 lines ─────────╮
 ║ DIRECTORY                 STATUS       ║  │                                                    │
 ║ showing 1-4 of 4 •                     ║  │                                                    │
@@ -21,6 +20,7 @@ command › pnpm test                                                   scope 3 
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
+║                                        ║  │                                                    │
 ╚════════════════════════════════════════╝  ╰────────────────────────────────────────────────────╯
  ● 1 running · ◌ 1 queued · ✓ 0 ok · × 1 failed                                            follow:on
- [:] Command  [space] Select  [/] Filter  [x] Cancel  [tab] Output  [?] Help  [q] Quit
+ [:] Command  [space] Select  [/] Filter  [o] Options  [x] Cancel  [tab] Output  [?] Help  [q] Quit

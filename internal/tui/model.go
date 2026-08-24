@@ -81,6 +81,9 @@ type Model struct {
 	ShowHistory           bool
 	ShowCommand           bool
 	ShowPalette           bool
+	ShowOptions           bool
+	OptionsTab            int
+	OptionsPos            int
 	ConfirmRun            bool
 	confirmRunCommand     string
 	confirmRunTargets     []core.Target
@@ -251,6 +254,7 @@ type paletteCommand struct {
 var paletteCommands = []paletteCommand{
 	{Name: "run", Description: "run selected targets"},
 	{Name: "command", Description: "edit command input"},
+	{Name: "options", Description: "open session options"},
 	{Name: "failed", Description: "select failed targets"},
 	{Name: "rerun-failed", Description: "rerun failed targets with confirmation"},
 	{Name: "cancel", Description: "cancel selected running or queued targets"},
@@ -342,6 +346,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowHelp = false
 		m.ShowHistory = false
 		m.ShowPalette = false
+		m.ShowOptions = false
 		m.ConfirmRun = false
 		m.clearConfirmedRun()
 		m.ConfirmCancelSelected = false
@@ -354,7 +359,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowHelp = !m.ShowHelp
 		return m, nil
 	}
-	if m.ShowHelp || m.ShowHistory || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit {
+	if m.ShowHelp || m.ShowHistory || m.ShowOptions || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit {
 		return m.handleOverlayKey(keyName, key)
 	}
 	if m.ShowPalette {
@@ -379,6 +384,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ShowPalette = true
 		m.Palette = ""
 		m.PalettePos = 0
+	case "o":
+		m.ShowOptions = true
+		m.normalizeOptionsSelection()
 	case "enter":
 		return m.startRun(false)
 	case "up", "k":
@@ -449,7 +457,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
-	if m.ShowHelp || m.ShowHistory || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit {
+	if m.ShowHelp || m.ShowHistory || m.ShowOptions || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit {
 		return
 	}
 
@@ -704,6 +712,10 @@ func (m Model) executePaletteCommand(command string) (tea.Model, tea.Cmd) {
 		m.selectFailedTargets()
 	case "command":
 		m.openCommandOverlay()
+	case "options":
+		m.ShowOptions = true
+		m.OptionsTab = 0
+		m.OptionsPos = 0
 	case "rerun-failed":
 		if !m.hasActiveRuns() && m.failedCount() > 0 {
 			m.ConfirmRun = true
@@ -778,6 +790,9 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	}
 	if m.ShowHistory {
 		return m.handleHistoryKey(keyName, key)
+	}
+	if m.ShowOptions {
+		return m.handleOptionsKey(keyName)
 	}
 	switch keyName {
 	case "esc":
@@ -1390,7 +1405,7 @@ func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidt
 	inputRows := 1
 	panelHeight, leftWidth, rightWidth = panelDimensionsForInput(width, height, inputRows)
 	if m.Focus != FocusFilter {
-		panelHeight = max(10, height-4)
+		panelHeight = max(10, height-3)
 	}
 	return panelHeight, leftWidth, rightWidth
 }
@@ -1424,14 +1439,15 @@ func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 }
 
 func (m Model) renderPanelPrefix(width int) string {
-	return strings.Join([]string{
-		m.renderHeader(width),
-		m.renderSubHeader(width),
-	}, "\n") + "\n"
+	rows := []string{m.renderHeader(width)}
+	if filter := m.renderSubHeader(width); filter != "" {
+		rows = append(rows, filter)
+	}
+	return strings.Join(rows, "\n") + "\n"
 }
 
 func (m Model) hasOverlay() bool {
-	return m.ShowHelp || m.ShowHistory || m.ShowCommand || m.ShowPalette || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit
+	return m.ShowHelp || m.ShowHistory || m.ShowCommand || m.ShowPalette || m.ShowOptions || m.ConfirmRun || m.ConfirmCancelSelected || m.ConfirmCancelAll || m.ConfirmQuit
 }
 
 func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightWidth int) string {
@@ -1489,6 +1505,8 @@ func (m Model) renderOverlay(width int, height int) string {
 	case m.ShowPalette:
 		title = "Command palette"
 		rows = m.paletteRows()
+	case m.ShowOptions:
+		return m.renderOptionsOverlay(width, height)
 	case m.ConfirmRun:
 		title = "Rerun failed"
 		rows = []string{
@@ -1645,16 +1663,7 @@ func (m Model) renderDashboard(width int) string {
 
 func (m Model) renderSubHeader(width int) string {
 	if m.Focus != FocusFilter {
-		command := strings.TrimSpace(m.Command)
-		if command == "" {
-			command = "(not set)"
-		}
-		left := commandPromptStyle.Render("command ›") + " " + command
-		right := subtleStyle.Render(fmt.Sprintf("scope %d targets · workers %s", m.selectedCount(), m.workersLabel()))
-		rightWidth := min(lipgloss.Width(right), max(0, width/2))
-		right = truncateVisible(right, rightWidth)
-		leftWidth := max(1, width-rightWidth-2)
-		return padRightVisible(truncateVisible(left, leftWidth), leftWidth) + "  " + right
+		return ""
 	}
 	return strings.Join(m.commandInputBoxLines(width), "\n")
 }
@@ -2222,6 +2231,11 @@ func (m Model) renderFooter(width int) string {
 		_, hints = m.historyFooterKeys()
 	} else if m.ShowPalette {
 		hints = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close", "? help"}
+	} else if m.ShowOptions {
+		hints = []string{"space/enter toggle", "left/right category", "up/down choose", "esc/o close", "? help"}
+		if width < 70 {
+			hints = []string{"space toggle", "right next", "esc close", "? help"}
+		}
 	} else if m.ConfirmRun {
 		hints = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
 	} else if m.ConfirmCancelSelected {
@@ -2245,13 +2259,13 @@ func (m Model) renderFooter(width int) string {
 		case FocusLogs:
 			hints = []string{": command", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 		default:
-			fullHints := []string{": command", "space select", "/ filter", "x cancel", "tab output", "? help", "q quit"}
+			fullHints := []string{": command", "space select", "/ filter", "o options", "x cancel", "tab output", "? help", "q quit"}
 			hints = fullHints
 			if footerHintContentWidth(fullHints) > width {
-				hints = []string{": cmd", "space sel", "x stop", "tab pane", "? help", "q quit"}
+				hints = []string{": cmd", "space sel", "o opts", "x stop", "tab pane", "? help", "q quit"}
 			}
 			if width < 70 {
-				hints = []string{": cmd", "space sel", "tab pane", "? help", "q quit"}
+				hints = []string{": cmd", "space sel", "o op", "tab out", "? help", "q quit"}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
 				hints = append([]string{"R failed"}, hints...)
@@ -2559,9 +2573,18 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "global",
 			title: "Global",
 			bindings: []helpBinding{
-				{"?", "keymap"}, {"/", "filter"}, {":", "run command"}, {"ctrl+p", "palette"}, {"H", "history"}, {"q", "quit"},
+				{"?", "keymap"}, {"/", "filter"}, {":", "run command"}, {"o", "options"}, {"ctrl+p", "palette"}, {"H", "history"}, {"q", "quit"},
 				{"tab", "tasks/output"}, {"z", "maximize panel / split"}, {"esc", "close mode"},
 				{"ctrl+c", "confirm quit"},
+			},
+		},
+		{
+			id:    "options",
+			title: "Options",
+			bindings: []helpBinding{
+				{"o", "open/close"}, {"left/right", "category"}, {"h/l", "category"},
+				{"1/2/3", "category"}, {"up/down", "choose"}, {"j/k", "choose"},
+				{"space/enter", "toggle"}, {"esc", "close"},
 			},
 		},
 		{
@@ -2595,7 +2618,7 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "palette",
 			title: "Palette",
 			bindings: []helpBinding{
-				{"run", "run"}, {"workers N|auto", "workers"}, {"serial", "serial"},
+				{"run", "run"}, {"options", "session options"}, {"workers N|auto", "workers"}, {"serial", "serial"},
 				{"parallel", "parallel"}, {"failed", "select failed"},
 				{"rerun-failed", "rerun failed"}, {"cancel", "cancel target"},
 				{"cancel-all", "cancel active"}, {"history", "history"},
@@ -2678,6 +2701,8 @@ type helpBinding struct {
 
 func (m Model) activeHelpSectionID() string {
 	switch {
+	case m.ShowOptions:
+		return "options"
 	case m.ShowPalette:
 		return "palette"
 	case m.ShowHistory:
@@ -3290,7 +3315,7 @@ func panelHeightForWindow(height int) int {
 	if height < 20 {
 		height = 20
 	}
-	return max(10, height-4)
+	return max(10, height-3)
 }
 
 func panelHeightForInput(height int, inputRows int) int {

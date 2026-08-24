@@ -129,6 +129,7 @@ exclude:
 | `A` | Deselect all visible directories |
 | `/` | Focus filter/search |
 | `:` | Open command overlay |
+| `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `esc` closes |
 | `ctrl+p` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
@@ -149,7 +150,9 @@ exclude:
 | `f` | Toggle output tail mode |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
-Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+
+Session options include serial execution, fail-fast behavior, output capture, persisted logs, output following, and pane maximization. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
 
 ## Development
 

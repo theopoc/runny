@@ -153,20 +153,18 @@ func TestCommandInputGrowthKeepsViewWithinTerminalHeight(t *testing.T) {
 	}
 }
 
-func TestCommandInputStaysCompactBehindOverlay(t *testing.T) {
+func TestCommandInputRowStaysHiddenBehindOverlay(t *testing.T) {
 	model := NewModel(Options{Command: strings.Repeat("command-", 20)})
 	model, _ = updateWindowSize(model, 80, 24)
 	model.Focus = FocusTargets
 
-	collapsed := stripANSI(model.renderSubHeader(80))
-	if lines := strings.Split(collapsed, "\n"); len(lines) != 1 {
-		t.Fatalf("unfocused command row height = %d, want 1:\n%s", len(lines), collapsed)
+	if collapsed := model.renderSubHeader(80); collapsed != "" {
+		t.Fatalf("unfocused command row should be hidden: %q", collapsed)
 	}
 
 	model.openCommandOverlay()
-	background := stripANSI(model.renderSubHeader(80))
-	if lines := strings.Split(background, "\n"); len(lines) != 1 {
-		t.Fatalf("command row behind overlay height = %d, want 1:\n%s", len(lines), background)
+	if background := model.renderSubHeader(80); background != "" {
+		t.Fatalf("command row behind overlay should be hidden: %q", background)
 	}
 	overlay := stripANSI(model.renderCommandOverlay(80, 20))
 	if !strings.Contains(overlay, "Run command") {
