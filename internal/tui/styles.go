@@ -14,14 +14,8 @@ type tuiTheme struct {
 	fgMuted        color.Color
 	fgEmphasis     color.Color
 	fgInverse      color.Color
-	bgBase         color.Color
-	bgCommand      color.Color
-	bgSurface      color.Color
-	bgElevated     color.Color
-	bgHelper       color.Color
 	bgFocus        color.Color
 	bgSelection    color.Color
-	bgRunning      color.Color
 	accentPrimary  color.Color
 	accentShortcut color.Color
 	accentWarm     color.Color
@@ -33,11 +27,9 @@ type tuiTheme struct {
 }
 
 const (
-	noticeForegroundHex = "#FFFFFF"
-	primaryAccentHex    = "#A78BFA"
-	footerLabelHex      = "#e0e0e0"
-	footerBackgroundHex = "#242f38"
-	footerShortcutHex   = "#C4B5FD"
+	primaryAccentHex  = "#A78BFA"
+	footerLabelHex    = "#e0e0e0"
+	footerShortcutHex = "#C4B5FD"
 )
 
 var runnyTheme = tuiTheme{
@@ -45,14 +37,8 @@ var runnyTheme = tuiTheme{
 	fgMuted:        tuiColor(footerLabelHex),
 	fgEmphasis:     tuiColor("#F8FAFC"),
 	fgInverse:      tuiColor("#111827"),
-	bgBase:         tuiColor("#10131F"),
-	bgCommand:      tuiColor("#05070D"),
-	bgSurface:      tuiColor("#191D2B"),
-	bgElevated:     tuiColor("#252A3A"),
-	bgHelper:       tuiColor(footerBackgroundHex),
 	bgFocus:        tuiColor(primaryAccentHex),
 	bgSelection:    tuiColor("#A78BFA"),
-	bgRunning:      tuiColor("#1E3144"),
 	accentPrimary:  tuiColor(primaryAccentHex),
 	accentShortcut: tuiColor(footerShortcutHex),
 	accentWarm:     tuiColor("#FBBF24"),
@@ -65,7 +51,7 @@ var runnyTheme = tuiTheme{
 
 var (
 	runnyBadgeStyle         = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
-	headerStyle             = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSurface)
+	headerStyle             = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	subtleStyle             = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	panelStyle              = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
 	panelActiveStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand)
@@ -83,15 +69,15 @@ var (
 	metricRunningStyle      = lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true)
 	metricSuccessStyle      = lipgloss.NewStyle().Foreground(runnyTheme.success).Bold(true)
 	metricFailedStyle       = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	commandPromptStyle      = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Background(runnyTheme.bgCommand).Bold(true)
+	commandPromptStyle      = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 	commandDisplayStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 	commandInputStyle       = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand)
 	commandSelectionStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection)
 	commandInputTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
 	commandInputBorderStyle = lipgloss.NewStyle().
 				Foreground(runnyTheme.accentCommand)
-	matchStyle         = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.warning).Bold(true)
-	overlayTitleStyle  = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSelection).Bold(true)
+	matchStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.warning).Bold(true)
+	overlayTitleStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 	sectionStyle       = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 	helpKeyStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Bold(true)
 	helpDescStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
@@ -103,9 +89,9 @@ var (
 	logErrorStyle      = lipgloss.NewStyle().Foreground(runnyTheme.error)
 	logInfoStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
 	noticeStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary)
-	errorBarStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.error).Bold(true)
-	warningBarStyle    = lipgloss.NewStyle().Foreground(runnyTheme.bgBase).Background(runnyTheme.warning).Bold(true)
-	noticeBarStyle     = lipgloss.NewStyle().Foreground(tuiColor(noticeForegroundHex)).Background(runnyTheme.accentPrimary).Bold(true)
+	errorBarStyle      = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
+	warningBarStyle    = lipgloss.NewStyle().Foreground(runnyTheme.warning).Bold(true)
+	noticeBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
 	statusStyles       = map[core.Status]lipgloss.Style{
 		core.StatusIdle:      lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 		core.StatusQueued:    lipgloss.NewStyle().Foreground(runnyTheme.info),

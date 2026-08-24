@@ -2345,10 +2345,8 @@ func styleFooterHintCells(cells []footerHint, width int) string {
 	}
 	labelWidths := fitFooterLabelWidths(cells, width)
 	var b strings.Builder
-	background := ansiBackgroundHex(footerBackgroundHex)
 	labelStyle := ansiForegroundHex(footerLabelHex)
 	shortcutStyle := ansiForegroundHex(footerShortcutHex)
-	b.WriteString(background)
 	b.WriteString(labelStyle)
 	b.WriteByte(' ')
 	for i, cell := range cells {

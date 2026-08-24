@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -691,13 +692,12 @@ func footerTextColumn(line string, text string) int {
 	return lipgloss.Width(line[:index])
 }
 
-func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
+func TestFooterShortcutColorsUseTrueColorAndInheritedBackground(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	footer := model.renderFooter(80)
 
 	for _, want := range []string{
-		"\x1b[48;2;36;47;56m",
 		"\x1b[38;2;224;224;224m",
 		"\x1b[38;2;196;181;253m",
 		"\x1b[1m[space]",
@@ -705,6 +705,87 @@ func TestFooterShortcutColorsUseTrueColorAndHelperBackground(t *testing.T) {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer should contain ANSI sequence %q:\n%q", want, footer)
 		}
+	}
+	if containsANSIBackground(footer) {
+		t.Fatalf("footer should inherit terminal background:\n%q", footer)
+	}
+}
+
+func TestNonSelectionChromeInheritsTerminalBackground(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	styles := map[string]lipgloss.Style{
+		"header":          headerStyle,
+		"command prompt":  commandPromptStyle,
+		"overlay title":   overlayTitleStyle,
+		"error message":   errorBarStyle,
+		"warning message": warningBarStyle,
+		"notice message":  noticeBarStyle,
+		"running row":     rowRunningStyle,
+	}
+	for name, style := range styles {
+		background := style.GetBackground()
+		if _, inherited := background.(lipgloss.NoColor); !inherited {
+			t.Errorf("%s defines explicit background %T %v", name, background, background)
+		}
+	}
+
+	model := NewModel(Options{Command: "echo ok"})
+	model.Width = 100
+	model.Height = 24
+
+	views := map[string]string{
+		"header":          model.renderHeader(100),
+		"command row":     model.renderSubHeader(100),
+		"footer":          model.renderFooter(100),
+		"command overlay": model.renderCommandOverlay(100, 20),
+	}
+	model.RunError = "boom"
+	views["error message"] = model.renderDashboard(100)
+	model.RunError = ""
+	model.Notice = "saved"
+	views["notice message"] = model.renderDashboard(100)
+
+	for name, rendered := range views {
+		if containsANSIBackground(rendered) {
+			t.Errorf("%s paints ANSI background: %q", name, rendered)
+		}
+	}
+}
+
+var ansiSGRPattern = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
+
+func containsANSIBackground(value string) bool {
+	for _, match := range ansiSGRPattern.FindAllStringSubmatch(value, -1) {
+		for _, parameter := range strings.Split(match[1], ";") {
+			code, err := strconv.Atoi(parameter)
+			if err != nil {
+				continue
+			}
+			if code == 48 || code >= 40 && code <= 47 || code >= 100 && code <= 107 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestContainsANSIBackground(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "foreground", value: "\x1b[38;2;196;181;253mtext\x1b[0m"},
+		{name: "basic", value: "\x1b[44mtext\x1b[0m", want: true},
+		{name: "bright", value: "\x1b[104mtext\x1b[0m", want: true},
+		{name: "indexed", value: "\x1b[48;5;17mtext\x1b[0m", want: true},
+		{name: "true color with bold", value: "\x1b[1;48;2;1;2;3mtext\x1b[0m", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := containsANSIBackground(test.value); got != test.want {
+				t.Fatalf("containsANSIBackground() = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -715,21 +796,6 @@ func TestFooterBracketsRemainVisibleWithoutColor(t *testing.T) {
 	want := "[:] Cmd  [space] Sel  [x] Stop  [tab] Pane  [?] Help  [q] Quit"
 	if footer != want {
 		t.Fatalf("plain footer = %q, want %q", footer, want)
-	}
-}
-
-func TestNoticeBarUsesPurpleBackgroundAndWhiteText(t *testing.T) {
-	if noticeForegroundHex != "#FFFFFF" {
-		t.Fatalf("notice foreground = %q, want white", noticeForegroundHex)
-	}
-	if primaryAccentHex != "#A78BFA" {
-		t.Fatalf("notice background = %q, want purple", primaryAccentHex)
-	}
-}
-
-func TestRunningRowsUseWhiteTextOnNaturalBackground(t *testing.T) {
-	if noticeForegroundHex != "#FFFFFF" {
-		t.Fatalf("running foreground = %q, want white", noticeForegroundHex)
 	}
 }
 

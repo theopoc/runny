@@ -28,7 +28,7 @@ For visible TUI work, combine automated tests with real terminal inspection. Use
 
 ## TUI Visual Styling
 
-Keep panel contents, focused labels, and command text on the terminal's inherited default background. Communicate focus with border color, foreground accents, and bold text. Reserve explicit backgrounds or reverse video for the cursor and genuine row or text selections; treat opaque black rectangles behind labels or command text as visual regressions.
+Render all TUI chrome, panel contents, focused labels, command text, status messages, overlays, and footer hints with foreground-only ANSI styling on the terminal's inherited default background. Communicate focus with border color, foreground accents, and bold text. Reserve explicit backgrounds or reverse video for cursor cells and genuine row or text selections. Keep a rendered-ANSI regression test that rejects background-color SGR sequences on every non-selection path, then inspect normal and narrow layouts in Ghostty; any opaque rectangle behind ordinary text is a release-blocking visual regression.
 
 ## Commit & Pull Request Guidelines
 
