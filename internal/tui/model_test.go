@@ -282,22 +282,22 @@ func TestMouseWheelScrollsFocusedOutputThreeLines(t *testing.T) {
 
 	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.PreviewOffset != 50 || model.LogFollow {
-		t.Fatalf("wheel up output state = offset %d, follow %t; want 50, false", model.PreviewOffset, model.LogFollow)
+	if model.PreviewOffset != 49 || model.LogFollow {
+		t.Fatalf("wheel up output state = offset %d, follow %t; want 49, false", model.PreviewOffset, model.LogFollow)
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
-	if model.PreviewOffset != 53 {
-		t.Fatalf("wheel down output offset = %d, want 53", model.PreviewOffset)
+	if model.PreviewOffset != 52 {
+		t.Fatalf("wheel down output offset = %d, want 52", model.PreviewOffset)
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.PreviewOffset != 50 {
-		t.Fatalf("wheel up after overscroll offset = %d, want 50", model.PreviewOffset)
+	if model.PreviewOffset != 49 {
+		t.Fatalf("wheel up after overscroll offset = %d, want 49", model.PreviewOffset)
 	}
 }
 
@@ -384,7 +384,7 @@ func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
 	model.Cursor = 1
 	model.Notice = "keep me"
 
-	updated, _ := model.Update(tea.MouseClickMsg{X: 71, Y: 5, Button: tea.MouseLeft})
+	updated, _ := model.Update(tea.MouseClickMsg{X: 71, Y: 0, Button: tea.MouseLeft})
 	model = updated.(Model)
 	if model.Focus != FocusLogs {
 		t.Fatalf("output border click focus = %v, want output", model.Focus)
@@ -400,6 +400,24 @@ func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
 	model = updated.(Model)
 	if model.Focus != FocusTargets {
 		t.Fatalf("tasks border click focus = %v, want tasks", model.Focus)
+	}
+}
+
+func TestPaneFocusAccountsForOptionalFilterRow(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+	model.Width = 120
+	model.Height = 26
+
+	if focus, hit := model.paneFocusAt(1, 0); !hit || focus != FocusTargets {
+		t.Fatalf("top row without header = (%v, %t), want tasks hit", focus, hit)
+	}
+
+	model.Focus = FocusFilter
+	if _, hit := model.paneFocusAt(1, 0); hit {
+		t.Fatal("filter row should not hit background panel")
+	}
+	if focus, hit := model.paneFocusAt(1, 3); !hit || focus != FocusTargets {
+		t.Fatalf("first panel row below filter = (%v, %t), want tasks hit", focus, hit)
 	}
 }
 
@@ -715,7 +733,6 @@ func TestFooterShortcutColorsUseTrueColorAndInheritedBackground(t *testing.T) {
 func TestNonSelectionChromeInheritsTerminalBackground(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	styles := map[string]lipgloss.Style{
-		"header":          headerStyle,
 		"command prompt":  commandPromptStyle,
 		"overlay title":   overlayTitleStyle,
 		"error message":   errorBarStyle,
@@ -736,7 +753,6 @@ func TestNonSelectionChromeInheritsTerminalBackground(t *testing.T) {
 	model.Focus = FocusFilter
 
 	views := map[string]string{
-		"header":          model.renderHeader(100),
 		"filter row":      model.renderSubHeader(100),
 		"footer":          model.renderFooter(100),
 		"command overlay": model.renderCommandOverlay(100, 20),
@@ -1246,24 +1262,6 @@ func TestFilterInputDisplayGolden(t *testing.T) {
 	}
 }
 
-func TestHeaderDoesNotShowFocusedPath(t *testing.T) {
-	model := NewModel(Options{Command: "test", Targets: []core.Target{
-		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
-		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
-	}})
-	model.Cursor = 1
-
-	header := stripANSI(model.renderHeader(140))
-	if strings.Contains(header, "path") || strings.Contains(header, "api/cmd") {
-		t.Fatalf("header should not show focused path:\n%s", header)
-	}
-	for _, want := range []string{"runny", "parallel×auto", "2 selected", "0 run", "0 fail"} {
-		if !strings.Contains(header, want) {
-			t.Fatalf("header should keep %q:\n%s", want, header)
-		}
-	}
-}
-
 func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
 	model := NewModel(Options{Command: "pnpm test", Workers: 4, Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
@@ -1272,20 +1270,8 @@ func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
 	model.Status["api"] = core.StatusRunning
 	model.Status["web"] = core.StatusFailed
 
-	header := strings.Join(strings.Fields(stripANSI(model.renderHeader(120))), " ")
-	for _, want := range []string{"runny", "parallel×4", "2 selected", "1 run", "0 queue", "0 ok", "1 fail"} {
-		if !strings.Contains(header, want) {
-			t.Fatalf("compact header should contain %q:\n%s", want, header)
-		}
-	}
-	for _, unwanted := range []string{"mode parallel", "workers 4", "targets 2"} {
-		if strings.Contains(header, unwanted) {
-			t.Fatalf("compact header should not contain widget label %q:\n%s", unwanted, header)
-		}
-	}
-
-	if prefix := stripANSI(model.renderPanelPrefix(120)); strings.Contains(prefix, "command ›") {
-		t.Fatalf("operator chrome should omit unused command row:\n%s", prefix)
+	if prefix := model.renderPanelPrefix(120); prefix != "" {
+		t.Fatalf("operator chrome should omit top header, got %q", prefix)
 	}
 
 	footer := strings.Join(strings.Fields(stripANSI(model.renderFooter(120))), " ")
@@ -1601,25 +1587,25 @@ func TestDirectoryPanelShowsNoTargetsOnboarding(t *testing.T) {
 }
 
 func TestDirectoryPanelScrollsToCursor(t *testing.T) {
-	targets := make([]core.Target, 0, 14)
-	for i := 0; i < 14; i++ {
+	targets := make([]core.Target, 0, 18)
+	for i := 0; i < 18; i++ {
 		id := "svc-" + string(rune('a'+i))
 		targets = append(targets, core.Target{ID: id, RelPath: id, Selected: true})
 	}
 	model := NewModel(Options{Command: "test", Targets: targets})
 	model, _ = updateWindowSize(model, 80, 20)
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 14; i++ {
 		model, _ = updateSpecialKey(model, tea.KeyDown)
 	}
 
 	view := stripANSI(model.render())
-	if !strings.Contains(view, "› [x]") || !strings.Contains(view, "svc-m") {
+	if !strings.Contains(view, "› [●]") || !strings.Contains(view, "svc-o") {
 		t.Fatalf("directory panel should scroll focused row into view:\n%s", view)
 	}
 	if strings.Contains(view, "svc-a") {
 		t.Fatalf("directory panel should scroll past first rows:\n%s", view)
 	}
-	for _, want := range []string{"showing", "of 14", "↑", "↓"} {
+	for _, want := range []string{"showing", "of 18", "↑", "↓"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("directory panel should show scroll marker %q:\n%s", want, view)
 		}
@@ -1695,8 +1681,9 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	if headerIndex < 0 || statusIndex < 0 || lipgloss.Width(header[:headerIndex]) != lipgloss.Width(row[:statusIndex]) {
 		t.Fatalf("status column header=%d row=%d\n%s\n%s", headerIndex, statusIndex, header, row)
 	}
-	if strings.Contains(row[:statusIndex], "●") || strings.Contains(row[:statusIndex], "○") {
-		t.Fatalf("target row should not include selection marker before status:\n%s", row)
+	prefix := strings.Replace(row[:statusIndex], "[●]", "", 1)
+	if strings.Contains(prefix, "●") || strings.Contains(prefix, "○") {
+		t.Fatalf("target row should not include status marker before status column:\n%s", row)
 	}
 }
 
@@ -1747,8 +1734,16 @@ func TestTargetRowsKeepSelectionHighlightUnderFocus(t *testing.T) {
 	if !strings.Contains(focusedSelected, "\x1b[1;") && !strings.Contains(focusedSelected, "\x1b[1m") {
 		t.Fatalf("focused selected target should keep selected emphasis:\n%q", focusedSelected)
 	}
-	if unfocusedSelected == stripANSI(unfocusedSelected) || !strings.Contains(stripANSI(unfocusedSelected), "[x]") {
+	if unfocusedSelected == stripANSI(unfocusedSelected) || !strings.Contains(stripANSI(unfocusedSelected), "[●]") {
 		t.Fatalf("unfocused selected target should keep explicit selected marker:\n%q", unfocusedSelected)
+	}
+	if !noColorEnabled() {
+		if selectedStyle.GetForeground() != runnyTheme.fgEmphasis {
+			t.Fatalf("selected marker foreground = %v, want white emphasis %v", selectedStyle.GetForeground(), runnyTheme.fgEmphasis)
+		}
+		if selectedStyle.GetForeground() == runnyTheme.success {
+			t.Fatal("selected marker should not use success green")
+		}
 	}
 }
 
@@ -1799,7 +1794,7 @@ func TestTargetRowsRenderIndependentCursorAndSelectionMarkers(t *testing.T) {
 	selected := stripANSI(model.renderTargetRow(0, model.Targets[0], 70))
 	unselected := stripANSI(model.renderTargetRow(1, model.Targets[1], 70))
 
-	if !strings.Contains(selected, "› [x]") {
+	if !strings.Contains(selected, "› [●]") {
 		t.Fatalf("focused selected row should show cursor and selection independently:\n%s", selected)
 	}
 	if !strings.Contains(unselected, "  [ ]") || strings.Contains(unselected, "›") {
@@ -2808,7 +2803,7 @@ func TestRunningDashboardAndTaskActivityIndicators(t *testing.T) {
 		}
 	}
 	rows := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
-	for _, want := range []string{"[x]", "running", "queued", "failed"} {
+	for _, want := range []string{"[●]", "running", "queued", "failed"} {
 		if !strings.Contains(rows, want) {
 			t.Fatalf("task rows should contain activity marker %q:\n%s", want, rows)
 		}

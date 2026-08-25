@@ -51,13 +51,12 @@ var runnyTheme = tuiTheme{
 
 var (
 	runnyBadgeStyle         = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
-	headerStyle             = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	subtleStyle             = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	panelStyle              = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
 	panelActiveStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand)
 	panelTitleStyle         = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
 	panelInactiveTitle      = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.fgMuted)
-	selectedStyle           = lipgloss.NewStyle().Foreground(runnyTheme.success)
+	selectedStyle           = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	unselectedStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	rowActiveStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgFocus).Bold(true)
 	rowSelectedStyle        = lipgloss.NewStyle()

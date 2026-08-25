@@ -152,7 +152,7 @@ exclude:
 
 Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
-Session options include serial execution, fail-fast behavior, output capture, persisted logs, output following, and pane maximization. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
+Session options include serial execution, fail-fast behavior, output capture, persisted logs, and output following. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
 
 ## Development
 

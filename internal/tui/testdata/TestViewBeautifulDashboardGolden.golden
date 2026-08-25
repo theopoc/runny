@@ -1,11 +1,11 @@
- runny · parallel×auto · 3 selected · 1 run · 1 queue · 0 ok · 1 fail
 ╔═ Tasks ════════════════════════════════╗  ╭─ Output — api [RUN] · follow:on · 0 lines ─────────╮
 ║ DIRECTORY                 STATUS       ║  │                                                    │
 ║ showing 1-4 of 4 •                     ║  │                                                    │
-║ › [x] − 📂 api            ⠋ running    ║  │                                                    │
-║   [x]   └─ 📁 api/cmd     ◌ queued     ║  │                                                    │
+║ › [●] − 📂 api            ⠋ running    ║  │                                                    │
+║   [●]   └─ 📁 api/cmd     ◌ queued     ║  │                                                    │
 ║   [ ]   📁 web            ○ skipped    ║  │                                                    │
-║   [x]   📁 worker         ✕ failed     ║  │                                                    │
+║   [●]   📁 worker         ✕ failed     ║  │                                                    │
+║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │

@@ -61,6 +61,24 @@ func TestOptionsScreenNavigationCategoriesBoundsAndEscape(t *testing.T) {
 	}
 }
 
+func TestOptionsOverlayVimNavigationMovesTabsAndSelection(t *testing.T) {
+	model := NewModel(Options{})
+	model.ShowOptions = true
+
+	model, _ = updateKey(model, "l")
+	if model.OptionsTab != 1 || model.OptionsPos != int(optionCaptureOutput) {
+		t.Fatalf("l selection = tab %d pos %d, want logging/capture", model.OptionsTab, model.OptionsPos)
+	}
+	model, _ = updateKey(model, "j")
+	if model.OptionsTab != 1 || model.OptionsPos != int(optionSaveLogs) {
+		t.Fatalf("j selection = tab %d pos %d, want logging/save logs", model.OptionsTab, model.OptionsPos)
+	}
+	model, _ = updateKey(model, "h")
+	if model.OptionsTab != 0 || model.OptionsPos != int(optionSerial) {
+		t.Fatalf("h selection = tab %d pos %d, want execution/serial", model.OptionsTab, model.OptionsPos)
+	}
+}
+
 func TestPaletteCanOpenOptionsOverlay(t *testing.T) {
 	model := NewModel(Options{})
 	model, _ = runPaletteCommand(model, "options")
@@ -110,12 +128,12 @@ func TestOptionsOverlayRendersCompactResponsiveInheritedBackground(t *testing.T)
 	for _, width := range []int{60, 100} {
 		rendered := model.renderOptionsOverlay(width, 17)
 		plain := stripANSI(rendered)
-		for _, want := range []string{"Options · session", "Serial execution", "Stop on first failure", "○ OFF", "Runs targets one by one"} {
+		for _, want := range []string{"Options · session", "Execution", "Logging", "Display", "Serial execution", "Stop on first failure", "○ OFF", "Runs targets one by one"} {
 			if !strings.Contains(plain, want) {
 				t.Fatalf("width %d missing %q:\n%s", width, want, plain)
 			}
 		}
-		for _, unwanted := range []string{"Capture output", "Follow output", "[x]", "[ ]"} {
+		for _, unwanted := range []string{"Capture output", "Follow output", "Maximize pane", "[x]", "[ ]"} {
 			if strings.Contains(plain, unwanted) {
 				t.Fatalf("width %d unexpectedly contains %q:\n%s", width, unwanted, plain)
 			}
@@ -144,15 +162,31 @@ func TestOptionsScreenShowsOnlySelectedCategoryAndDetail(t *testing.T) {
 	model.OptionsTab = 1
 	model.OptionsPos = int(optionSaveLogs)
 	rendered := stripANSI(model.renderOptionsOverlay(80, 17))
-	for _, want := range []string{"Capture output", "Save logs", "Persists captured output after each run."} {
+	for _, want := range []string{"Execution", "Logging", "Display", "Capture output", "Save logs", "Persists captured output after each run."} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("logging category missing %q:\n%s", want, rendered)
 		}
 	}
-	for _, unwanted := range []string{"Serial execution", "Follow output"} {
+	for _, unwanted := range []string{"Serial execution", "Follow output", "Maximize pane"} {
 		if strings.Contains(rendered, unwanted) {
 			t.Fatalf("logging category contains %q:\n%s", unwanted, rendered)
 		}
+	}
+}
+
+func TestOptionsDisplaySubmenuOnlyShowsFollowOutput(t *testing.T) {
+	model := NewModel(Options{})
+	model.ShowOptions = true
+	model.OptionsTab = 2
+	model.OptionsPos = int(optionFollowOutput)
+	rendered := stripANSI(model.renderOptionsOverlay(60, 17))
+	for _, want := range []string{"[3 Display]", "Follow output", "Keeps output pinned to newest line."} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("display category missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "Maximize") {
+		t.Fatalf("display category should not contain maximize option:\n%s", rendered)
 	}
 }
 
@@ -162,7 +196,7 @@ func TestOptionsOverlayKeepsPanelsVisibleAroundIt(t *testing.T) {
 	model.Height = 26
 	model.ShowOptions = true
 	rendered := stripANSI(model.render())
-	for _, want := range []string{"runny", "Options · session", "Serial execution", "Tasks", "Output", "api"} {
+	for _, want := range []string{"Options · session", "Serial execution", "Tasks", "Output", "api"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("options screen missing %q:\n%s", want, rendered)
 		}

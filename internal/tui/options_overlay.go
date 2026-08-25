@@ -22,7 +22,6 @@ const (
 	optionCaptureOutput
 	optionSaveLogs
 	optionFollowOutput
-	optionMaximizePane
 )
 
 var sessionOptions = []sessionOption{
@@ -31,13 +30,12 @@ var sessionOptions = []sessionOption{
 	optionCaptureOutput,
 	optionSaveLogs,
 	optionFollowOutput,
-	optionMaximizePane,
 }
 
 var sessionOptionCategories = []sessionOptionCategory{
 	{name: "Execution", narrow: "Exec", options: []sessionOption{optionSerial, optionFailFast}},
 	{name: "Logging", narrow: "Logs", options: []sessionOption{optionCaptureOutput, optionSaveLogs}},
-	{name: "Display", narrow: "View", options: []sessionOption{optionFollowOutput, optionMaximizePane}},
+	{name: "Display", narrow: "View", options: []sessionOption{optionFollowOutput}},
 }
 
 func (m Model) handleOptionsKey(keyName string) (tea.Model, tea.Cmd) {
@@ -125,8 +123,6 @@ func (m *Model) toggleSessionOption(option sessionOption) {
 		m.SaveLogs = !m.SaveLogs
 	case optionFollowOutput:
 		m.LogFollow = !m.LogFollow
-	case optionMaximizePane:
-		m.Zoom = !m.Zoom
 	}
 	m.Notice = m.sessionOptionLabel(option) + " " + ternary(m.sessionOptionEnabled(option), "enabled", "disabled")
 }
@@ -212,8 +208,6 @@ func (m Model) sessionOptionEnabled(option sessionOption) bool {
 		return m.SaveLogs
 	case optionFollowOutput:
 		return m.LogFollow
-	case optionMaximizePane:
-		return m.Zoom
 	default:
 		return false
 	}
@@ -231,8 +225,6 @@ func (m Model) sessionOptionLabel(option sessionOption) string {
 		return "Save logs"
 	case optionFollowOutput:
 		return "Follow output"
-	case optionMaximizePane:
-		return "Maximize pane"
 	default:
 		return "Option"
 	}
@@ -250,8 +242,6 @@ func (m Model) sessionOptionDescription(option sessionOption) string {
 		return "Persists captured output after each run."
 	case optionFollowOutput:
 		return "Keeps output pinned to newest line."
-	case optionMaximizePane:
-		return "Shows focused pane only."
 	default:
 		return ""
 	}

@@ -1405,7 +1405,7 @@ func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidt
 	inputRows := 1
 	panelHeight, leftWidth, rightWidth = panelDimensionsForInput(width, height, inputRows)
 	if m.Focus != FocusFilter {
-		panelHeight = max(10, height-3)
+		panelHeight = max(10, height-2)
 	}
 	return panelHeight, leftWidth, rightWidth
 }
@@ -1439,11 +1439,10 @@ func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 }
 
 func (m Model) renderPanelPrefix(width int) string {
-	rows := []string{m.renderHeader(width)}
 	if filter := m.renderSubHeader(width); filter != "" {
-		rows = append(rows, filter)
+		return filter + "\n"
 	}
-	return strings.Join(rows, "\n") + "\n"
+	return ""
 }
 
 func (m Model) hasOverlay() bool {
@@ -1597,25 +1596,6 @@ func (m Model) renderCommandOverlay(width int, height int) string {
 	return strings.Join(boxLines(boxWidth, boxHeight, title, rows, false), "\n")
 }
 
-func (m Model) renderHeader(width int) string {
-	stats := m.statusCounts()
-	mode := string(m.mode())
-	if m.mode() == core.ModeParallel {
-		mode += "×" + m.workersLabel()
-	}
-	segments := []string{
-		runnyBadgeStyle.Render("runny"),
-		subtleStyle.Render(mode),
-		fmt.Sprintf("%d selected", m.selectedCount()),
-		metricRunningStyle.Render(fmt.Sprintf("%d run", stats[core.StatusRunning])),
-		metricQueuedStyle.Render(fmt.Sprintf("%d queue", stats[core.StatusQueued])),
-		metricSuccessStyle.Render(fmt.Sprintf("%d ok", stats[core.StatusSucceeded])),
-		metricFailedStyle.Render(fmt.Sprintf("%d fail", stats[core.StatusFailed])),
-	}
-	line := " " + strings.Join(segments, subtleStyle.Render(" · "))
-	return headerStyle.Render(padRightVisible(truncateVisible(line, width), width))
-}
-
 func (m Model) renderDashboard(width int) string {
 	stats := m.statusCounts()
 	segments := []string{}
@@ -1714,17 +1694,6 @@ func (m Model) mode() core.ExecutionMode {
 	return m.Mode
 }
 
-func (m Model) workersLabel() string {
-	if m.Workers > 0 {
-		return fmt.Sprintf("%d", m.Workers)
-	}
-	return "auto"
-}
-
-func (m Model) executionConfigLabel() string {
-	return fmt.Sprintf("%s · workers %s", m.mode(), m.workersLabel())
-}
-
 func (m Model) renderDirectoryPanel(width int, height int) []string {
 	rows := []string{panelTitleStyle.Render(m.taskHeader(width - 4))}
 	visibleIndexes := m.visibleTargetIndexes()
@@ -1803,7 +1772,7 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	}
 	selection := unselectedStyle.Render("[ ]")
 	if target.Selected {
-		selection = selectedStyle.Render("[x]")
+		selection = selectedStyle.Render("[●]")
 	} else if partial {
 		selection = sectionStyle.Render("[-]")
 	}
@@ -2527,16 +2496,6 @@ func (m Model) focusName() string {
 	default:
 		return "tasks"
 	}
-}
-
-func (m Model) selectedCount() int {
-	selected := 0
-	for _, target := range m.Targets {
-		if target.Selected {
-			selected++
-		}
-	}
-	return selected
 }
 
 func (m Model) statusLabel(status core.Status) string {
@@ -3315,14 +3274,14 @@ func panelHeightForWindow(height int) int {
 	if height < 20 {
 		height = 20
 	}
-	return max(10, height-3)
+	return max(10, height-2)
 }
 
 func panelHeightForInput(height int, inputRows int) int {
 	if height < 20 {
 		height = 20
 	}
-	return max(10, height-5-max(1, inputRows))
+	return max(10, height-4-max(1, inputRows))
 }
 
 func (m *Model) ensureCursorVisible() {
