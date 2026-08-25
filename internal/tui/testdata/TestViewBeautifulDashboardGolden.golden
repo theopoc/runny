@@ -1,10 +1,10 @@
 ╔═ Tasks ════════════════════════════════╗  ╭─ Output — api [RUN] · follow:on · 0 lines ─────────╮
 ║ DIRECTORY                 STATUS       ║  │                                                    │
 ║ showing 1-4 of 4 •                     ║  │                                                    │
-║ › [●] − 📂 api            ⠋ running    ║  │                                                    │
-║   [●]   └─ 📁 api/cmd     ◌ queued     ║  │                                                    │
-║   [ ]   📁 web            ○ skipped    ║  │                                                    │
-║   [●]   📁 worker         ✕ failed     ║  │                                                    │
+║ › [●] ▾ api               ⠋ running    ║  │                                                    │
+║   [●]     api/cmd         ◌ queued     ║  │                                                    │
+║   [ ]   web               ○ skipped    ║  │                                                    │
+║   [●]   worker            ✕ failed     ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │

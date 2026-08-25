@@ -733,12 +733,10 @@ func TestFooterShortcutColorsUseTrueColorAndInheritedBackground(t *testing.T) {
 func TestNonSelectionChromeInheritsTerminalBackground(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	styles := map[string]lipgloss.Style{
-		"command prompt":  commandPromptStyle,
-		"overlay title":   overlayTitleStyle,
-		"error message":   errorBarStyle,
-		"warning message": warningBarStyle,
-		"notice message":  noticeBarStyle,
-		"running row":     rowRunningStyle,
+		"command prompt": commandPromptStyle,
+		"overlay title":  overlayTitleStyle,
+		"error message":  errorBarStyle,
+		"running row":    rowRunningStyle,
 	}
 	for name, style := range styles {
 		background := style.GetBackground()
@@ -1541,12 +1539,12 @@ func TestFilterRevealsMatchesInsideFoldedParents(t *testing.T) {
 	model = typeText(model, "cmd")
 
 	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
-	for _, want := range []string{"api", "api/cmd", "−"} {
+	for _, want := range []string{"api", "api/cmd", "▾"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("filter should reveal folded match/context %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "+") {
+	if strings.Contains(view, "▸") {
 		t.Fatalf("fold marker should show effective expanded state while filtering:\n%s", view)
 	}
 	if model.Cursor != 1 {
@@ -1687,16 +1685,22 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	}
 }
 
-func TestTargetTreeShowsDeepContinuationGuide(t *testing.T) {
+func TestTargetTreeUsesDepthIndentation(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Children: []string{"api/cmd", "api/pkg"}},
 		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Children: []string{"api/cmd/foo"}},
 		{ID: "api/cmd/foo", RelPath: "api/cmd/foo", ParentID: "api/cmd", Depth: 3},
 		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2},
 	}})
+	if got := model.treeGuidePlain(model.Targets[2]); got != "    " {
+		t.Fatalf("depth-three target indentation = %q, want four spaces", got)
+	}
 	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
-	if !strings.Contains(view, "│ └─ 📁 api/cmd/foo") {
-		t.Fatalf("deep tree should keep a continuation guide:\n%s", view)
+	if strings.ContainsAny(view, "├└│─") {
+		t.Fatalf("target tree should use indentation without connector glyphs:\n%s", view)
+	}
+	if strings.ContainsAny(view, "📁📂") {
+		t.Fatalf("target tree should not render folder icons:\n%s", view)
 	}
 }
 
@@ -1747,6 +1751,48 @@ func TestTargetRowsKeepSelectionHighlightUnderFocus(t *testing.T) {
 	}
 }
 
+func TestTargetStatusColorsSurviveSelectionAndFocus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status core.Status
+		color  string
+	}{
+		{name: "running", status: core.StatusRunning, color: "#FBBF24"},
+		{name: "ok", status: core.StatusSucceeded, color: "#4ADE80"},
+		{name: "failed", status: core.StatusFailed, color: "#FB7185"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := statusStyles[tt.status].GetForeground(); got != tuiColor(tt.color) {
+				t.Fatalf("%s foreground = %v, want %v", tt.name, got, tuiColor(tt.color))
+			}
+			if background := statusStyles[tt.status].GetBackground(); background != nil {
+				if _, inherited := background.(lipgloss.NoColor); !inherited {
+					t.Fatalf("%s status defines background %T %v", tt.name, background, background)
+				}
+			}
+			model := NewModel(Options{Command: "test", Targets: []core.Target{
+				{ID: "focused", RelPath: "focused", Selected: true},
+				{ID: "selected", RelPath: "selected", Selected: true},
+			}})
+			model.Status["focused"] = tt.status
+			model.Status["selected"] = tt.status
+			model.Cursor = 0
+
+			for name, row := range map[string]string{
+				"focused":  model.renderTargetRow(0, model.Targets[0], 70),
+				"selected": model.renderTargetRow(1, model.Targets[1], 70),
+			} {
+				want := model.renderRowStatus(tt.status)
+				if !strings.Contains(row, want) {
+					t.Fatalf("%s %s row missing semantic status rendering: %q", name, tt.name, row)
+				}
+			}
+		})
+	}
+}
+
 func TestNavigationHighlightDiffersFromSelectionHighlight(t *testing.T) {
 	selectedModel := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
@@ -1780,8 +1826,22 @@ func TestFoldKeysDoNotAddMarkerToLeafTarget(t *testing.T) {
 		t.Fatalf("leaf target should not become folded: %#v", model.Targets[0])
 	}
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], 70))
-	if strings.Contains(row, "+") {
+	if strings.ContainsAny(row, "▸▾") {
 		t.Fatalf("leaf target should not show fold marker:\n%s", row)
+	}
+}
+
+func TestTargetTreeUsesDisclosureChevrons(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "expanded", RelPath: "expanded", Children: []string{"expanded/child"}},
+		{ID: "expanded/child", RelPath: "expanded/child", ParentID: "expanded", Depth: 2},
+		{ID: "folded", RelPath: "folded", Folded: true, Children: []string{"folded/child"}},
+	}})
+	view := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
+	for _, want := range []string{"▾ expanded", "▸ folded", "expanded/child"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("target tree missing %q:\n%s", want, view)
+		}
 	}
 }
 
@@ -3293,7 +3353,7 @@ func TestModelRunErrorsGuideNextAction(t *testing.T) {
 	}
 }
 
-func TestStatusRailMessagesAreBoundedAndStyled(t *testing.T) {
+func TestStatusRailOnlyRendersErrors(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model, _ = updateWindowSize(model, 80, 24)
 	model.RunError = "command is empty; press : to edit"
@@ -3310,34 +3370,18 @@ func TestStatusRailMessagesAreBoundedAndStyled(t *testing.T) {
 	}
 
 	model.RunError = ""
-	model.Notice = "workers set to 2"
-	view = model.View().Content
-	plain = stripANSI(view)
-	if !strings.Contains(plain, "INFO workers set to 2") {
-		t.Fatalf("notice status missing:\n%s", plain)
-	}
-	if got := maxLineWidth(view); got > 80 {
-		t.Fatalf("notice view width = %d:\n%s", got, plain)
-	}
-
-	model, _ = updateWindowSize(model, 120, 24)
-	model.Status["api"] = core.StatusFailed
-	model.Notice = "run complete: 0 ok, 1 failed, 0 cancelled · press R to rerun failed"
-	view = model.View().Content
-	plain = stripANSI(view)
-	if !strings.Contains(plain, "WARN run complete: 0 ok, 1 failed") {
-		t.Fatalf("failed completion should render warning status:\n%s", plain)
-	}
-	if got := maxLineWidth(view); got > 120 {
-		t.Fatalf("warning view width = %d:\n%s", got, plain)
-	}
-
-	model.Status["api"] = core.StatusCancelled
-	model.Notice = "run complete: 0 ok, 0 failed, 1 cancelled"
-	view = model.View().Content
-	plain = stripANSI(view)
-	if !strings.Contains(plain, "WARN run complete: 0 ok, 0 failed, 1 cancelled") {
-		t.Fatalf("cancelled completion should render warning status:\n%s", plain)
+	for _, notice := range []string{
+		"workers set to 2",
+		"selected 2 target(s)",
+		"started 2 target(s)",
+		"run complete: 0 ok, 1 failed, 0 cancelled · press R to rerun failed",
+		"run complete: 0 ok, 0 failed, 1 cancelled",
+	} {
+		model.Notice = notice
+		plain = stripANSI(model.View().Content)
+		if strings.Contains(plain, notice) || strings.Contains(plain, "INFO ") || strings.Contains(plain, "WARN ") {
+			t.Fatalf("action notice should stay hidden for %q:\n%s", notice, plain)
+		}
 	}
 }
 

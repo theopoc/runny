@@ -89,8 +89,6 @@ var (
 	logInfoStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
 	noticeStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary)
 	errorBarStyle      = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	warningBarStyle    = lipgloss.NewStyle().Foreground(runnyTheme.warning).Bold(true)
-	noticeBarStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary).Bold(true)
 	statusStyles       = map[core.Status]lipgloss.Style{
 		core.StatusIdle:      lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 		core.StatusQueued:    lipgloss.NewStyle().Foreground(runnyTheme.info),
@@ -100,11 +98,10 @@ var (
 		core.StatusCancelled: lipgloss.NewStyle().Foreground(runnyTheme.fgDefault),
 		core.StatusSkipped:   lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 	}
-	folderIconStyle   = lipgloss.NewStyle().Foreground(runnyTheme.info).Bold(true)
-	folderPathStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	folderNameStyle   = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
-	treeGuideStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	statusHeaderStyle = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
+	treeDisclosureStyle = lipgloss.NewStyle().Foreground(runnyTheme.info).Bold(true)
+	folderPathStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	folderNameStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
+	statusHeaderStyle   = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
 )
 
 func tuiColor(value string) color.Color {

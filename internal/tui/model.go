@@ -1462,11 +1462,6 @@ func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightW
 	return joinPanels(left, right)
 }
 
-func (m Model) completionNeedsAttention() bool {
-	stats := m.statusCounts()
-	return stats[core.StatusFailed] > 0 || stats[core.StatusCancelled] > 0
-}
-
 func (m Model) renderTooSmall(width int, height int) string {
 	if width <= 0 {
 		width = 40
@@ -1619,14 +1614,6 @@ func (m Model) renderDashboard(width int) string {
 	message := ""
 	if m.RunError != "" {
 		message = errorBarStyle.Render("ERROR " + m.RunError)
-	} else if m.Notice != "" {
-		label := "INFO"
-		style := noticeBarStyle
-		if strings.HasPrefix(m.Notice, "run complete:") && m.completionNeedsAttention() {
-			label = "WARN"
-			style = warningBarStyle
-		}
-		message = style.Render(label + " " + m.Notice)
 	}
 	if message != "" {
 		left += subtleStyle.Render(" · ") + message
@@ -1776,27 +1763,18 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	} else if partial {
 		selection = sectionStyle.Render("[-]")
 	}
-	fold := " "
-	if len(target.Children) > 0 && target.Folded && m.Filter == "" {
-		fold = "+"
-	} else if len(target.Children) > 0 {
-		fold = "−"
-	}
+	fold := treeDisclosureStyle.Render(m.foldSymbol(target))
 	name := m.renderTargetName(target)
-	statusText := m.renderRowStatus(status, active)
+	statusText := m.renderRowStatus(status)
 	if active || target.Selected || partial {
 		fold = m.foldSymbol(target)
 		name = m.renderTargetNamePlain(target)
-		statusText = padRightVisible(m.statusLabel(status), 12)
 	}
 	left := cursor + " " + selection + " " + fold + " " + name
-	row := fixedStatusJoin(left, statusText, width)
 	if active {
-		if target.Selected || partial {
-			return rowActiveSelectedStyle.Render(padRightVisible(row, width))
-		}
-		return rowActiveStyle.Render(padRightVisible(row, width))
+		return m.renderActiveTargetRow(left, status, width)
 	}
+	row := fixedStatusJoin(left, statusText, width)
 	if target.Selected {
 		return rowSelectedStyle.Render(padRightVisible(row, width))
 	}
@@ -1809,25 +1787,35 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	return row
 }
 
+func (m Model) renderActiveTargetRow(left string, status core.Status, width int) string {
+	const (
+		statusWidth = 12
+		gap         = 2
+	)
+	if width < statusWidth+gap+8 {
+		return rowActiveStyle.Render(padRightVisible(fixedStatusJoin(left, m.statusLabel(status), width), width))
+	}
+	leftWidth := width - statusWidth - gap
+	leftSegment := padRightVisible(truncateVisible(left, leftWidth), leftWidth) + strings.Repeat(" ", gap)
+	return rowActiveStyle.Render(leftSegment) + m.renderRowStatus(status)
+}
+
 func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
 	return style
 }
 
 func (m Model) foldSymbol(target core.Target) string {
 	if len(target.Children) > 0 && target.Folded && m.Filter == "" {
-		return "+"
+		return "▸"
 	}
 	if len(target.Children) > 0 {
-		return "−"
+		return "▾"
 	}
 	return " "
 }
 
-func (m Model) renderRowStatus(status core.Status, active bool) string {
+func (m Model) renderRowStatus(status core.Status) string {
 	label := padRightVisible(m.statusLabel(status), 12)
-	if active {
-		return lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgFocus).Bold(true).Render(label)
-	}
 	if style, ok := statusStyles[status]; ok {
 		style = targetRowInlineStyle(style, status)
 		return style.Render(label)
@@ -1837,12 +1825,11 @@ func (m Model) renderRowStatus(status core.Status, active bool) string {
 
 func (m Model) renderTargetName(target core.Target) string {
 	guide := m.treeGuide(target)
-	icon := m.folderIcon(target)
 	name := targetName(target)
 	if target.Name != "" {
 		name = target.Name
 	}
-	return guide + folderIconStyle.Render(icon) + " " + m.renderTargetDisplayName(name)
+	return guide + m.renderTargetDisplayName(name)
 }
 
 func (m Model) renderTargetNamePlain(target core.Target) string {
@@ -1850,62 +1837,18 @@ func (m Model) renderTargetNamePlain(target core.Target) string {
 	if target.Name != "" {
 		name = target.Name
 	}
-	return m.treeGuidePlain(target) + m.folderIcon(target) + " " + name
-}
-
-func (m Model) folderIcon(target core.Target) string {
-	if len(target.Children) > 0 {
-		if target.Folded && m.Filter == "" {
-			return "📁"
-		}
-		return "📂"
-	}
-	return "📁"
+	return m.treeGuidePlain(target) + name
 }
 
 func (m Model) treeGuide(target core.Target) string {
-	return treeGuideStyle.Render(m.treeGuidePlain(target))
+	return m.treeGuidePlain(target)
 }
 
 func (m Model) treeGuidePlain(target core.Target) string {
 	if target.Depth <= 1 || target.ParentID == "" {
 		return ""
 	}
-	ancestors := m.targetAncestors(target)
-	var b strings.Builder
-	for _, ancestor := range ancestors[min(1, len(ancestors)):] {
-		if m.isLastChild(ancestor) {
-			b.WriteString("  ")
-		} else {
-			b.WriteString("│ ")
-		}
-	}
-	branch := "└─ "
-	if !m.isLastChild(target) {
-		branch = "├─ "
-	}
-	b.WriteString(branch)
-	return b.String()
-}
-
-func (m Model) targetAncestors(target core.Target) []core.Target {
-	var reversed []core.Target
-	seen := map[string]bool{}
-	parentID := target.ParentID
-	for parentID != "" && !seen[parentID] {
-		seen[parentID] = true
-		parent, ok := m.targetByID(parentID)
-		if !ok {
-			break
-		}
-		reversed = append(reversed, parent)
-		parentID = parent.ParentID
-	}
-	ancestors := make([]core.Target, 0, len(reversed))
-	for i := len(reversed) - 1; i >= 0; i-- {
-		ancestors = append(ancestors, reversed[i])
-	}
-	return ancestors
+	return strings.Repeat("  ", target.Depth-1)
 }
 
 func (m Model) targetByID(id string) (core.Target, bool) {
@@ -1974,22 +1917,6 @@ func (m Model) renderTargetDisplayName(name string) string {
 		return folderNameStyle.Render(base)
 	}
 	return folderPathStyle.Render(parent+"/") + folderNameStyle.Render(base)
-}
-
-func (m Model) isLastChild(target core.Target) bool {
-	if target.ParentID == "" {
-		return true
-	}
-	for _, candidate := range m.Targets {
-		if candidate.ID != target.ParentID {
-			continue
-		}
-		if len(candidate.Children) == 0 {
-			return true
-		}
-		return candidate.Children[len(candidate.Children)-1] == target.ID
-	}
-	return true
 }
 
 func targetName(target core.Target) string {
