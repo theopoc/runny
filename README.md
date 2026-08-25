@@ -128,7 +128,9 @@ exclude:
 | `a` | Select all visible directories |
 | `A` | Deselect all visible directories |
 | `/` | Focus filter/search |
-| `:` | Open command palette |
+| `:` | Open command overlay |
+| `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `esc` closes |
+| `ctrl+p` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
 | `up`, `k` | Move cursor up |
@@ -140,14 +142,17 @@ exclude:
 | `esc` | Leave filter focus |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
-| `del`, `x` | Cancel selected running or queued runs, or focused run |
+| `del`, `x` | Cancel selected running or queued runs, or focused run; multiple selected active runs require confirmation |
+| `q` | Confirm quit with Yes/No |
 | `R` | Rerun all failed with confirmation |
 | `pageup`, `pagedown` | Scroll output |
 | Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |
 | `f` | Toggle output tail mode |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
-Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+
+Session options include serial execution, fail-fast behavior, output capture, persisted logs, and output following. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
 
 ## Development
 

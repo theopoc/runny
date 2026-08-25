@@ -11,7 +11,7 @@ import (
 
 func TestCommandInputEditsAtCursor(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 
 	model, _ = updateSpecialKey(model, tea.KeyLeft)
 	model, _ = updateSpecialKey(model, tea.KeyLeft)
@@ -20,19 +20,19 @@ func TestCommandInputEditsAtCursor(t *testing.T) {
 	if model.Command != "echo nok" {
 		t.Fatalf("command = %q, want %q", model.Command, "echo nok")
 	}
-	if view := model.renderSubHeader(80); !strings.Contains(stripANSI(view), "echo nok") || model.commandCursor != 6 {
+	if view := model.renderCommandOverlay(80, 20); !strings.Contains(stripANSI(view), "echo nok") || model.commandCursor != 6 {
 		t.Fatalf("cursor should overlay character at insertion point:\n%s", stripANSI(view))
 	}
 }
 
 func TestCommandInputSelectsCopiesCutsAndReplacesText(t *testing.T) {
 	model := NewModel(Options{Command: "echo old"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 
 	for range 3 {
 		model, _ = updateModifiedKey(model, tea.KeyLeft, tea.ModShift)
 	}
-	view := model.renderSubHeader(80)
+	view := model.renderCommandOverlay(80, 20)
 	got := model.selectedCommandText()
 	if !strings.Contains(view, "\x1b[") || got != "old" {
 		t.Fatalf("selected text = %q, want old; view:\n%s", got, view)
@@ -59,7 +59,7 @@ func TestCommandInputSelectsCopiesCutsAndReplacesText(t *testing.T) {
 
 func TestCommandInputReadsClipboardAndHandlesUnicode(t *testing.T) {
 	model := NewModel(Options{Command: "echo café"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 
 	model, _ = updateSpecialKey(model, tea.KeyLeft)
 	model, cmd := updateModifiedKey(model, 'v', tea.ModCtrl)
@@ -75,7 +75,7 @@ func TestCommandInputReadsClipboardAndHandlesUnicode(t *testing.T) {
 
 func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	model := NewModel(Options{Command: "prefix-0123456789-suffix"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 
 	runes := []rune(model.Command)
 	cursor := len(runes)
@@ -101,16 +101,16 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 func TestCommandInputExpandsToKeepLongFocusedCommandVisible(t *testing.T) {
 	command := strings.Repeat("x", 76)
 	model := NewModel(Options{Command: command})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model, _ = updateWindowSize(model, 80, 24)
 	model.moveCommandCursorToEnd()
 
-	view := stripANSI(model.renderSubHeader(80))
+	view := stripANSI(model.renderCommandOverlay(80, 20))
 	lines := strings.Split(view, "\n")
 	if len(lines) <= 3 {
 		t.Fatalf("focused long command should expand beyond one content row:\n%s", view)
 	}
-	if !strings.Contains(view, command) {
+	if strings.Count(view, "x") != len(command) {
 		t.Fatalf("focused expanded input should keep complete command visible:\n%s", view)
 	}
 	for _, line := range lines {
@@ -120,9 +120,30 @@ func TestCommandInputExpandsToKeepLongFocusedCommandVisible(t *testing.T) {
 	}
 }
 
+func TestCommandOverlayPinsActionsToBottom(t *testing.T) {
+	model := NewModel(Options{Command: "echo ok"})
+	model.openCommandOverlay()
+
+	for _, test := range []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "standard", width: 80, height: 20},
+		{name: "minimum", width: 60, height: 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lines := strings.Split(stripANSI(model.renderCommandOverlay(test.width, test.height)), "\n")
+			if len(lines) < 3 || !strings.Contains(lines[len(lines)-2], "enter run · esc cancel · ↑/↓ history") {
+				t.Fatalf("actions should occupy last interior row:\n%s", strings.Join(lines, "\n"))
+			}
+		})
+	}
+}
+
 func TestCommandInputGrowthKeepsViewWithinTerminalHeight(t *testing.T) {
 	model := NewModel(Options{Command: strings.Repeat("long-command-", 40)})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model, _ = updateWindowSize(model, 80, 24)
 	model.moveCommandCursorToEnd()
 
@@ -132,63 +153,62 @@ func TestCommandInputGrowthKeepsViewWithinTerminalHeight(t *testing.T) {
 	}
 }
 
-func TestCommandInputCollapsesOutsideFocusAndExpandsAgain(t *testing.T) {
+func TestCommandInputRowStaysHiddenBehindOverlay(t *testing.T) {
 	model := NewModel(Options{Command: strings.Repeat("command-", 20)})
 	model, _ = updateWindowSize(model, 80, 24)
 	model.Focus = FocusTargets
 
-	collapsed := stripANSI(model.renderSubHeader(80))
-	if lines := strings.Split(collapsed, "\n"); len(lines) != 3 {
-		t.Fatalf("unfocused command box height = %d, want 3:\n%s", len(lines), collapsed)
+	if collapsed := model.renderSubHeader(80); collapsed != "" {
+		t.Fatalf("unfocused command row should be hidden: %q", collapsed)
 	}
 
-	model.Focus = FocusCommand
-	expanded := stripANSI(model.renderSubHeader(80))
-	if lines := strings.Split(expanded, "\n"); len(lines) <= 3 {
-		t.Fatalf("refocused command should expand:\n%s", expanded)
+	model.openCommandOverlay()
+	if background := model.renderSubHeader(80); background != "" {
+		t.Fatalf("command row behind overlay should be hidden: %q", background)
+	}
+	overlay := stripANSI(model.renderCommandOverlay(80, 20))
+	if !strings.Contains(overlay, "Run command") {
+		t.Fatalf("command overlay missing:\n%s", overlay)
 	}
 }
 
 func TestCommandInputRewrapsWithTerminalWidth(t *testing.T) {
 	model := NewModel(Options{Command: strings.Repeat("x", 200)})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model.moveCommandCursorToEnd()
 
-	model, _ = updateWindowSize(model, 120, 24)
-	wideHeight := len(strings.Split(stripANSI(model.renderSubHeader(120)), "\n"))
-	model, _ = updateWindowSize(model, 80, 24)
-	narrowHeight := len(strings.Split(stripANSI(model.renderSubHeader(80)), "\n"))
-	model, _ = updateWindowSize(model, 120, 24)
-	wideAgainHeight := len(strings.Split(stripANSI(model.renderSubHeader(120)), "\n"))
+	wide, _, _ := model.renderWrappedCommandInput(104, 20)
+	narrow, _, _ := model.renderWrappedCommandInput(68, 20)
+	wideAgain, _, _ := model.renderWrappedCommandInput(104, 20)
 
-	if narrowHeight <= wideHeight {
-		t.Fatalf("narrow command height = %d, want greater than wide height %d", narrowHeight, wideHeight)
+	if len(narrow) <= len(wide) {
+		t.Fatalf("narrow command rows = %d, want greater than wide rows %d", len(narrow), len(wide))
 	}
-	if wideAgainHeight != wideHeight {
-		t.Fatalf("wide command height after resize = %d, want %d", wideAgainHeight, wideHeight)
+	if len(wideAgain) != len(wide) {
+		t.Fatalf("wide command rows after resize = %d, want %d", len(wideAgain), len(wide))
 	}
 }
 
 func TestCommandInputVerticalViewportFollowsCursor(t *testing.T) {
 	model := NewModel(Options{Command: strings.Repeat("x", 800)})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model, _ = updateWindowSize(model, 80, 24)
 
 	model.setCommandCursor(0, false)
-	atStart := stripANSI(model.renderSubHeader(80))
-	if lines := strings.Split(atStart, "\n"); len(lines) != 7 || !strings.Contains(atStart, "Command ↓") {
-		t.Fatalf("viewport at start should show five rows and content below:\n%s", atStart)
+	atStart := stripANSI(model.renderCommandOverlay(80, 20))
+	if !strings.Contains(atStart, "Run command ↓") {
+		t.Fatalf("viewport at start should show content below:\n%s", atStart)
 	}
 
 	model.setCommandCursor(400, false)
-	inMiddle := stripANSI(model.renderSubHeader(80))
-	if !strings.Contains(inMiddle, "Command ↕") {
+	inMiddle := stripANSI(model.renderCommandOverlay(80, 20))
+	if !strings.Contains(inMiddle, "Run command ↕") {
 		t.Fatalf("viewport in middle should show content above and below:\n%s", inMiddle)
 	}
 
 	model.moveCommandCursorToEnd()
-	atEnd := stripANSI(model.renderSubHeader(80))
-	if !strings.Contains(atEnd, "Command ↑") {
+	atEnd := stripANSI(model.renderCommandOverlay(80, 20))
+	if !strings.Contains(atEnd, "Run command ↑") {
 		t.Fatalf("viewport at end should show content above:\n%s", atEnd)
 	}
 	panelHeight, _, _ := model.panelDimensions(80, 24)
@@ -200,11 +220,11 @@ func TestCommandInputVerticalViewportFollowsCursor(t *testing.T) {
 func TestCommandInputWrapsWideUnicodeByTerminalCells(t *testing.T) {
 	command := strings.Repeat("界", 38) + strings.Repeat("👩‍💻", 4)
 	model := NewModel(Options{Command: command})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model, _ = updateWindowSize(model, 80, 24)
 	model.moveCommandCursorToEnd()
 
-	view := stripANSI(model.renderSubHeader(80))
+	view := stripANSI(model.renderCommandOverlay(80, 20))
 	if strings.Count(view, "界") != 38 || strings.Count(view, "👩‍💻") != 4 {
 		t.Fatalf("wrapped Unicode command lost graphemes:\n%s", view)
 	}
@@ -215,25 +235,18 @@ func TestCommandInputWrapsWideUnicodeByTerminalCells(t *testing.T) {
 	}
 }
 
-func TestExpandedCommandMovesPanelMouseHitRegion(t *testing.T) {
+func TestCommandOverlayBlocksPanelMouseHitRegion(t *testing.T) {
 	model := NewModel(Options{Command: strings.Repeat("x", 200), Targets: nil})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model, _ = updateWindowSize(model, 80, 24)
-	panelTop := strings.Count(model.renderPanelPrefix(80), "\n")
-	if panelTop <= 5 {
-		t.Fatalf("expanded panel top = %d, want below fixed command position", panelTop)
-	}
 	if _, hit := model.paneFocusAt(1, 5); hit {
-		t.Fatal("mouse row inside expanded command input should not focus panel")
-	}
-	if focus, hit := model.paneFocusAt(1, panelTop); !hit || focus != FocusTargets {
-		t.Fatalf("mouse row at panel top returned focus=%v hit=%t, want targets hit", focus, hit)
+		t.Fatal("command overlay should block background panel focus")
 	}
 }
 
 func TestCommandCursorDoesNotInsertDisplayCell(t *testing.T) {
 	model := NewModel(Options{Command: "for seq in 1..3 ; do"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model.moveCommandCursorToEnd()
 
 	model, _ = updateSpecialKey(model, tea.KeyLeft)
@@ -253,7 +266,7 @@ func TestCommandOptionArrowMovesByWord(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := NewModel(Options{Command: "for seq in 1..3 ; do"})
-			model.Focus = FocusCommand
+			model.openCommandOverlay()
 			model.moveCommandCursorToEnd()
 
 			updated, _ := model.Update(tea.KeyPressMsg{Code: test.leftCode, Mod: tea.ModAlt})
@@ -281,7 +294,7 @@ func TestCommandSelectionCopiesWithControlOrCommandC(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := NewModel(Options{Command: "echo selected"})
-			model.Focus = FocusCommand
+			model.openCommandOverlay()
 			model.moveCommandCursorToEnd()
 			model.moveCommandCursor(-8, true)
 
@@ -298,7 +311,7 @@ func TestCommandSelectionKeepsFollowingTextColor(t *testing.T) {
 	commandInputStyle = commandInputStyle.Underline(true)
 	t.Cleanup(func() { commandInputStyle = originalStyle })
 	model := NewModel(Options{Command: "for seq in"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model.setCommandCursor(4, false)
 	model.moveCommandCursor(3, true)
 
@@ -314,7 +327,7 @@ func TestCommandSelectionFromEndIncludesFirstCharacter(t *testing.T) {
 	t.Cleanup(func() { commandSelectionStyle = originalStyle })
 
 	model := NewModel(Options{Command: "sdmlkq"})
-	model.Focus = FocusCommand
+	model.openCommandOverlay()
 	model.moveCommandCursorToEnd()
 	for range len([]rune(model.Command)) {
 		model.moveCommandCursor(-1, true)

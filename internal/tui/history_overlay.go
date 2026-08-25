@@ -81,7 +81,7 @@ func (m Model) activateHistorySelection() (tea.Model, tea.Cmd) {
 		m.moveCommandCursorToEnd()
 		m.RunError = ""
 		m.ShowHistory = false
-		m.Focus = FocusCommand
+		m.openCommandOverlay()
 		return m, nil
 	}
 	if _, ok := m.selectedHistoryRun(); !ok {
@@ -151,7 +151,7 @@ func (m Model) reuseSelectedHistoryRun() (tea.Model, tea.Cmd) {
 	m.moveCommandCursorToEnd()
 	m.RunError = ""
 	m.ShowHistory = false
-	m.Focus = FocusCommand
+	m.openCommandOverlay()
 	return m, nil
 }
 

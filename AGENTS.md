@@ -26,6 +26,10 @@ Use Go `testing` package. Name tests `Test<Behavior>` and keep them beside targe
 
 For visible TUI work, combine automated tests with real terminal inspection. Use the `ghostty-terminal-automation` skill to launch `runny`, send keys, wait for stable screens, and capture screenshots. Loop: run `go run ./cmd/runny`, resize terminal, navigate changed flow, screenshot, inspect, adjust code, repeat. Keep a final screenshot for PR evidence. Use cell inspection for color, bold, border, and truncation behavior.
 
+## TUI Visual Styling
+
+Render all TUI chrome, panel contents, focused labels, command text, status messages, overlays, and footer hints with foreground-only ANSI styling on the terminal's inherited default background. Communicate focus with border color, foreground accents, and bold text. Reserve explicit backgrounds or reverse video for cursor cells and genuine row or text selections. Keep a rendered-ANSI regression test that rejects background-color SGR sequences on every non-selection path, then inspect normal and narrow layouts in Ghostty; any opaque rectangle behind ordinary text is a release-blocking visual regression.
+
 ## Commit & Pull Request Guidelines
 
 History uses Conventional Commits with scoped subjects, such as `fix(tui): adjust running status colors`, `feat(tui): emphasize focused panel border`, and `docs(skills): update tui design guidance`.
