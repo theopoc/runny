@@ -282,22 +282,22 @@ func TestMouseWheelScrollsFocusedOutputThreeLines(t *testing.T) {
 
 	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.PreviewOffset != 49 || model.LogFollow {
-		t.Fatalf("wheel up output state = offset %d, follow %t; want 49, false", model.PreviewOffset, model.LogFollow)
+	if model.outputViewport.YOffset() != 49 || model.LogFollow {
+		t.Fatalf("wheel up output state = offset %d, follow %t; want 49, false", model.outputViewport.YOffset(), model.LogFollow)
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
-	if model.PreviewOffset != 52 {
-		t.Fatalf("wheel down output offset = %d, want 52", model.PreviewOffset)
+	if model.outputViewport.YOffset() != 52 {
+		t.Fatalf("wheel down output offset = %d, want 52", model.outputViewport.YOffset())
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.PreviewOffset != 49 {
-		t.Fatalf("wheel up after overscroll offset = %d, want 49", model.PreviewOffset)
+	if model.outputViewport.YOffset() != 49 {
+		t.Fatalf("wheel up after overscroll offset = %d, want 49", model.outputViewport.YOffset())
 	}
 }
 
@@ -323,13 +323,15 @@ func TestMouseWheelIsIgnoredOutsidePaneInteraction(t *testing.T) {
 				{ID: "api", RelPath: "api", Selected: true},
 				{ID: "web", RelPath: "web", Selected: true},
 			}})
-			model.PreviewOffset = 6
+			model.outputViewport.SetContentLines(strings.Split(strings.Repeat("line\n", 20), "\n"))
+			model.outputViewport.SetHeight(5)
+			model.outputViewport.SetYOffset(6)
 			tt.setup(&model)
 
 			updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 			model = updated.(Model)
-			if model.Cursor != 0 || model.PreviewOffset != 6 {
-				t.Fatalf("wheel changed state: cursor %d, offset %d", model.Cursor, model.PreviewOffset)
+			if model.Cursor != 0 || model.outputViewport.YOffset() != 6 {
+				t.Fatalf("wheel changed state: cursor %d, offset %d", model.Cursor, model.outputViewport.YOffset())
 			}
 		})
 	}
@@ -342,8 +344,8 @@ func TestKeyboardOutputScrollKeepsExistingTailBehavior(t *testing.T) {
 	model.Logs["api"] = strings.Repeat("line\n", 80)
 
 	model, _ = updateKey(model, "pagedown")
-	if model.PreviewOffset != 5 || model.LogFollow {
-		t.Fatalf("keyboard scroll state = offset %d, follow %t; want 5, false", model.PreviewOffset, model.LogFollow)
+	if model.outputViewport.YOffset() != 5 || model.LogFollow {
+		t.Fatalf("keyboard scroll state = offset %d, follow %t; want 5, false", model.outputViewport.YOffset(), model.LogFollow)
 	}
 }
 
@@ -2207,9 +2209,10 @@ func TestModelNavigationAndPreviewScrolling(t *testing.T) {
 
 	model.Focus = FocusLogs
 	model.LogFollow = true
+	model.Logs["api"] = strings.Repeat("line\n", 80)
 	model, _ = updateKey(model, "pagedown")
-	if model.PreviewOffset != 5 {
-		t.Fatalf("preview offset = %d, want 5", model.PreviewOffset)
+	if model.outputViewport.YOffset() != 5 {
+		t.Fatalf("preview offset = %d, want 5", model.outputViewport.YOffset())
 	}
 	if model.LogFollow {
 		t.Fatal("manual preview scroll should disable tail mode")
@@ -2781,21 +2784,35 @@ func TestRunOutputMessageFollowsTailAndPreservesManualScroll(t *testing.T) {
 
 	updated, _ := model.Update(runOutputMsg{targetID: "api", chunk: strings.Join(lines, "\n") + "\n"})
 	model = updated.(Model)
-	view := strings.Join(model.renderOutputLines("api", 6), "\n")
+	view := strings.Join(model.renderOutputLines("api", 80, 4), "\n")
 	if !strings.Contains(view, "line-20") || strings.Contains(view, "line-01") {
 		t.Fatalf("tail view did not follow live output:\n%s", view)
 	}
 
 	model.LogFollow = false
-	model.PreviewOffset = 2
+	model.syncOutputViewport()
+	model.outputViewport.SetYOffset(2)
 	updated, _ = model.Update(runOutputMsg{targetID: "api", chunk: "line-21\n"})
 	model = updated.(Model)
-	if model.PreviewOffset != 2 {
-		t.Fatalf("manual preview offset = %d, want 2", model.PreviewOffset)
+	if model.outputViewport.YOffset() != 2 {
+		t.Fatalf("manual preview offset = %d, want 2", model.outputViewport.YOffset())
 	}
-	view = strings.Join(model.renderOutputLines("api", 6), "\n")
+	view = strings.Join(model.renderOutputLines("api", 80, 4), "\n")
 	if !strings.Contains(view, "line-03") || strings.Contains(view, "line-21") {
 		t.Fatalf("manual scroll moved after live output:\n%s", view)
+	}
+}
+
+func TestOutputViewportPreservesPanelTruncationMarker(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+	model.Logs["api"] = "123456789"
+
+	rows := model.renderOutputLines("api", 8, 1)
+	if len(rows) != 1 {
+		t.Fatalf("rendered rows = %d, want 1", len(rows))
+	}
+	if got := stripANSI(rows[0]); got != "1234567~" {
+		t.Fatalf("rendered row = %q, want truncation marker", got)
 	}
 }
 
@@ -2807,7 +2824,8 @@ func TestPreviewOutputRangeShowsManualScroll(t *testing.T) {
 		"line-16", "line-17", "line-18", "line-19", "line-20",
 	}, "\n")
 	model.LogFollow = false
-	model.PreviewOffset = 2
+	model.syncOutputViewport()
+	model.outputViewport.SetYOffset(2)
 
 	view := stripANSI(strings.Join(model.renderLogPanel(52, 18), "\n"))
 	for _, want := range []string{"line-03", "line-18"} {
@@ -4266,17 +4284,17 @@ func TestHistoryLogOffsetClampsAtEndAndAfterResize(t *testing.T) {
 	for range 100 {
 		model.moveHistorySelection(1)
 	}
-	if model.HistoryLogOffset != model.maxHistoryLogOffset() {
-		t.Fatalf("log offset = %d, max = %d", model.HistoryLogOffset, model.maxHistoryLogOffset())
+	if model.historyLogViewport.YOffset() != model.maxHistoryLogOffset() {
+		t.Fatalf("log offset = %d, max = %d", model.historyLogViewport.YOffset(), model.maxHistoryLogOffset())
 	}
-	before := model.HistoryLogOffset
+	before := model.historyLogViewport.YOffset()
 	model.moveHistorySelection(-1)
-	if model.HistoryLogOffset != before-1 {
-		t.Fatalf("up from end offset = %d, want %d", model.HistoryLogOffset, before-1)
+	if model.historyLogViewport.YOffset() != before-1 {
+		t.Fatalf("up from end offset = %d, want %d", model.historyLogViewport.YOffset(), before-1)
 	}
 	model, _ = updateWindowSize(model, 140, 40)
-	if model.HistoryLogOffset != 0 {
-		t.Fatalf("resized log offset = %d, want 0", model.HistoryLogOffset)
+	if model.historyLogViewport.YOffset() != 0 {
+		t.Fatalf("resized log offset = %d, want 0", model.historyLogViewport.YOffset())
 	}
 }
 
