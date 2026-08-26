@@ -20,6 +20,7 @@ func TestOptionsScreenOpensNavigatesTogglesAndCloses(t *testing.T) {
 		t.Fatalf("mode = %q, want serial", model.Mode)
 	}
 	model, _ = updateSpecialKey(model, tea.KeyDown)
+	model, _ = updateSpecialKey(model, tea.KeyDown)
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
 	if !model.FailFast {
 		t.Fatal("enter should toggle fail fast")
@@ -58,6 +59,31 @@ func TestOptionsScreenNavigationCategoriesBoundsAndEscape(t *testing.T) {
 	model, _ = updateSpecialKey(model, tea.KeyEsc)
 	if model.ShowOptions {
 		t.Fatal("escape should close options overlay")
+	}
+}
+
+func TestOptionsOverlayAdjustsWorkersAndReturnsToAuto(t *testing.T) {
+	model := NewModel(Options{Mode: core.ModeSerial})
+	model.ShowOptions = true
+	model.OptionsPos = int(optionWorkers)
+
+	model, _ = updateKey(model, "+")
+	if model.Workers != 1 || model.Mode != core.ModeParallel || model.Notice != "workers set to 1" {
+		t.Fatalf("workers/mode/notice = %d/%s/%q, want 1/parallel/set notice", model.Workers, model.Mode, model.Notice)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Workers != 2 {
+		t.Fatalf("enter workers = %d, want 2", model.Workers)
+	}
+	model, _ = updateKey(model, "-")
+	model, _ = updateKey(model, "-")
+	if model.Workers != 0 || model.Notice != "workers set to auto" {
+		t.Fatalf("decrement workers/notice = %d/%q, want auto", model.Workers, model.Notice)
+	}
+	model, _ = updateKey(model, "+")
+	model, _ = updateKey(model, "a")
+	if model.Workers != 0 || model.Mode != core.ModeParallel || model.Notice != "workers set to auto" {
+		t.Fatalf("auto workers/mode/notice = %d/%s/%q", model.Workers, model.Mode, model.Notice)
 	}
 }
 
@@ -105,13 +131,20 @@ func TestOptionsOverlayLoggingInvariants(t *testing.T) {
 }
 
 func TestOptionsOverlayLocksExecutionButKeepsViewMutableDuringRun(t *testing.T) {
-	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model := NewModel(Options{Workers: 3, Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.Status["api"] = core.StatusRunning
 	model.ShowOptions = true
 	model.OptionsPos = int(optionFailFast)
 	model, _ = updateSpecialKey(model, ' ')
 	if model.FailFast || !strings.Contains(model.Notice, "locked") {
 		t.Fatalf("fail fast/notice = %t/%q", model.FailFast, model.Notice)
+	}
+
+	model.OptionsPos = int(optionWorkers)
+	model, _ = updateKey(model, "+")
+	model, _ = updateKey(model, "a")
+	if model.Workers != 3 || !strings.Contains(model.Notice, "locked") {
+		t.Fatalf("workers/notice = %d/%q, want locked at 3", model.Workers, model.Notice)
 	}
 
 	model.OptionsTab = 2
@@ -128,7 +161,7 @@ func TestOptionsOverlayRendersCompactResponsiveInheritedBackground(t *testing.T)
 	for _, width := range []int{60, 100} {
 		rendered := model.renderOptionsOverlay(width, 17)
 		plain := stripANSI(rendered)
-		for _, want := range []string{"Options · session", "Execution", "Logging", "Display", "Serial execution", "Stop on first failure", "○ OFF", "Runs targets one by one"} {
+		for _, want := range []string{"Options · session", "Execution", "Logging", "Display", "Serial execution", "Workers", "AUTO", "Stop on first failure", "○ OFF", "Runs targets one by one"} {
 			if !strings.Contains(plain, want) {
 				t.Fatalf("width %d missing %q:\n%s", width, want, plain)
 			}
@@ -145,13 +178,25 @@ func TestOptionsOverlayRendersCompactResponsiveInheritedBackground(t *testing.T)
 		if got := maxLineWidth(rendered); got != wantWidth {
 			t.Fatalf("width %d overlay width = %d, want %d:\n%s", width, got, wantWidth, plain)
 		}
-		if got := len(strings.Split(rendered, "\n")); got != 9 {
-			t.Fatalf("width %d overlay height = %d, want 9:\n%s", width, got, plain)
+		if got := len(strings.Split(rendered, "\n")); got != 10 {
+			t.Fatalf("width %d overlay height = %d, want 10:\n%s", width, got, plain)
 		}
 		for _, line := range strings.Split(rendered, "\n") {
 			if containsANSIBackground(line) {
 				t.Fatalf("option screen paints background: %q", line)
 			}
+		}
+	}
+}
+
+func TestOptionsOverlayRendersConfiguredWorkersAndGuidance(t *testing.T) {
+	model := NewModel(Options{Workers: 4})
+	model.ShowOptions = true
+	model.OptionsPos = int(optionWorkers)
+	rendered := stripANSI(model.renderOptionsOverlay(80, 17))
+	for _, want := range []string{"Workers", "4", "Max parallel runs. +/- adjusts; a sets auto."} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("workers option missing %q:\n%s", want, rendered)
 		}
 	}
 }
@@ -229,6 +274,21 @@ func TestOptionsOverlayFooterFitsNarrowWidth(t *testing.T) {
 	for _, want := range []string{"[space] Toggle", "[right] Next", "[esc] Close", "[?] Help"} {
 		if !strings.Contains(stripANSI(footer), want) {
 			t.Fatalf("options footer missing %q:\n%s", want, stripANSI(footer))
+		}
+	}
+}
+
+func TestOptionsOverlayWorkersFooterFitsNarrowWidth(t *testing.T) {
+	model := NewModel(Options{})
+	model.ShowOptions = true
+	model.OptionsPos = int(optionWorkers)
+	footer := model.renderFooter(60)
+	if got := maxLineWidth(footer); got > 60 {
+		t.Fatalf("workers footer width = %d:\n%s", got, stripANSI(footer))
+	}
+	for _, want := range []string{"[+/-] Adjust", "[a] Auto", "[up/down] Choose", "[esc] Close"} {
+		if !strings.Contains(stripANSI(footer), want) {
+			t.Fatalf("workers footer missing %q:\n%s", want, stripANSI(footer))
 		}
 	}
 }

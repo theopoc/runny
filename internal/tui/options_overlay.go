@@ -18,6 +18,7 @@ type sessionOptionCategory struct {
 
 const (
 	optionSerial sessionOption = iota
+	optionWorkers
 	optionFailFast
 	optionCaptureOutput
 	optionSaveLogs
@@ -26,6 +27,7 @@ const (
 
 var sessionOptions = []sessionOption{
 	optionSerial,
+	optionWorkers,
 	optionFailFast,
 	optionCaptureOutput,
 	optionSaveLogs,
@@ -33,13 +35,14 @@ var sessionOptions = []sessionOption{
 }
 
 var sessionOptionCategories = []sessionOptionCategory{
-	{name: "Execution", narrow: "Exec", options: []sessionOption{optionSerial, optionFailFast}},
+	{name: "Execution", narrow: "Exec", options: []sessionOption{optionSerial, optionWorkers, optionFailFast}},
 	{name: "Logging", narrow: "Logs", options: []sessionOption{optionCaptureOutput, optionSaveLogs}},
 	{name: "Display", narrow: "View", options: []sessionOption{optionFollowOutput}},
 }
 
 func (m Model) handleOptionsKey(keyName string) (tea.Model, tea.Cmd) {
 	m.normalizeOptionsSelection()
+	selected := m.selectedSessionOption()
 	switch keyName {
 	case "esc", "q", "o":
 		m.ShowOptions = false
@@ -53,10 +56,27 @@ func (m Model) handleOptionsKey(keyName string) (tea.Model, tea.Cmd) {
 		m.moveOptionsTab(1)
 	case "1", "2", "3":
 		m.selectOptionsTab(int(keyName[0] - '1'))
+	case "+", "=":
+		if selected == optionWorkers {
+			m.adjustWorkers(1)
+		}
+	case "-":
+		if selected == optionWorkers {
+			m.adjustWorkers(-1)
+		}
+	case "a":
+		if selected == optionWorkers {
+			m.setWorkersAuto()
+		}
 	case " ", "space", "enter":
-		m.toggleSessionOption(sessionOptions[m.OptionsPos])
+		m.toggleSessionOption(selected)
 	}
 	return m, nil
+}
+
+func (m Model) selectedSessionOption() sessionOption {
+	m.normalizeOptionsSelection()
+	return sessionOptions[m.OptionsPos]
 }
 
 func (m *Model) normalizeOptionsSelection() {
@@ -108,6 +128,9 @@ func (m *Model) toggleSessionOption(option sessionOption) {
 			m.Mode = core.ModeSerial
 			m.Workers = 0
 		}
+	case optionWorkers:
+		m.adjustWorkers(1)
+		return
 	case optionFailFast:
 		m.FailFast = !m.FailFast
 	case optionCaptureOutput:
@@ -125,6 +148,32 @@ func (m *Model) toggleSessionOption(option sessionOption) {
 		m.LogFollow = !m.LogFollow
 	}
 	m.Notice = m.sessionOptionLabel(option) + " " + ternary(m.sessionOptionEnabled(option), "enabled", "disabled")
+}
+
+func (m *Model) adjustWorkers(delta int) {
+	if m.sessionOptionLocked(optionWorkers) {
+		m.Notice = "execution options locked while runs are active"
+		return
+	}
+	if delta > 0 {
+		m.Workers++
+	} else if m.Workers <= 1 {
+		m.Workers = 0
+	} else {
+		m.Workers--
+	}
+	m.Mode = core.ModeParallel
+	m.Notice = "workers set to " + m.sessionWorkersLabel()
+}
+
+func (m *Model) setWorkersAuto() {
+	if m.sessionOptionLocked(optionWorkers) {
+		m.Notice = "execution options locked while runs are active"
+		return
+	}
+	m.Workers = 0
+	m.Mode = core.ModeParallel
+	m.Notice = "workers set to auto"
 }
 
 func (m Model) renderOptionsOverlay(width, _ int) string {
@@ -176,10 +225,20 @@ func (m Model) renderSessionOptionState(option sessionOption) string {
 	if m.sessionOptionLocked(option) {
 		return subtleStyle.Render("◇ LOCKED")
 	}
+	if option == optionWorkers {
+		return sectionStyle.Render(strings.ToUpper(m.sessionWorkersLabel()))
+	}
 	if m.sessionOptionEnabled(option) {
 		return sectionStyle.Render("● ON")
 	}
 	return subtleStyle.Render("○ OFF")
+}
+
+func (m Model) sessionWorkersLabel() string {
+	if m.Workers > 0 {
+		return fmt.Sprintf("%d", m.Workers)
+	}
+	return "auto"
 }
 
 func (m Model) renderSessionOptionDetail(option sessionOption, width int) []string {
@@ -200,6 +259,8 @@ func (m Model) sessionOptionEnabled(option sessionOption) bool {
 	switch option {
 	case optionSerial:
 		return m.mode() == core.ModeSerial
+	case optionWorkers:
+		return m.mode() == core.ModeParallel
 	case optionFailFast:
 		return m.FailFast
 	case optionCaptureOutput:
@@ -217,6 +278,8 @@ func (m Model) sessionOptionLabel(option sessionOption) string {
 	switch option {
 	case optionSerial:
 		return "Serial execution"
+	case optionWorkers:
+		return "Workers"
 	case optionFailFast:
 		return "Stop on first failure"
 	case optionCaptureOutput:
@@ -234,6 +297,8 @@ func (m Model) sessionOptionDescription(option sessionOption) string {
 	switch option {
 	case optionSerial:
 		return "Runs targets one by one. Workers becomes auto."
+	case optionWorkers:
+		return "Max parallel runs. +/- adjusts; a sets auto."
 	case optionFailFast:
 		return "Stops queued targets after first failure."
 	case optionCaptureOutput:

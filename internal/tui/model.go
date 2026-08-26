@@ -2128,9 +2128,16 @@ func (m Model) renderFooter(width int) string {
 	} else if m.ShowPalette {
 		hints = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close", "? help"}
 	} else if m.ShowOptions {
-		hints = []string{"space/enter toggle", "left/right category", "up/down choose", "esc/o close", "? help"}
-		if width < 70 {
-			hints = []string{"space toggle", "right next", "esc close", "? help"}
+		if m.selectedSessionOption() == optionWorkers {
+			hints = []string{"+/- adjust", "a auto", "up/down choose", "left/right category", "esc/o close"}
+			if width < 70 {
+				hints = []string{"+/- adjust", "a auto", "up/down choose", "esc close"}
+			}
+		} else {
+			hints = []string{"space/enter toggle", "left/right category", "up/down choose", "esc/o close", "? help"}
+			if width < 70 {
+				hints = []string{"space toggle", "right next", "esc close", "? help"}
+			}
 		}
 	} else if m.ConfirmRun {
 		hints = []string{"y confirm", "enter confirm", "n cancel", "esc cancel"}
@@ -2470,7 +2477,7 @@ func (m Model) helpRows(width ...int) []string {
 			bindings: []helpBinding{
 				{"o", "open/close"}, {"left/right", "category"}, {"h/l", "category"},
 				{"1/2/3", "category"}, {"up/down", "choose"}, {"j/k", "choose"},
-				{"space/enter", "toggle"}, {"esc", "close"},
+				{"space/enter", "toggle"}, {"+/-", "adjust workers"}, {"a", "workers auto"}, {"esc", "close"},
 			},
 		},
 		{
