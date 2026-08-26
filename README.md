@@ -129,7 +129,7 @@ exclude:
 | `A` | Deselect all visible directories |
 | `/` | Focus filter/search |
 | `:` | Open command overlay |
-| `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `esc` closes |
+| `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
 | `ctrl+p` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
@@ -152,7 +152,7 @@ exclude:
 
 Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
-Session options include serial execution, fail-fast behavior, output capture, persisted logs, and output following. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
+Session options include serial execution, worker count, fail-fast behavior, output capture, persisted logs, and output following. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
 
 ## Development
 
