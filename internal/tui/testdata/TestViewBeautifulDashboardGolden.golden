@@ -1,3 +1,4 @@
+ command: pnpm test · targets: 3/4 selected · mode: parallel · workers: auto
 ╔═ Tasks ════════════════════════════════╗  ╭─ Output — api [RUN] · follow:on · 0 lines ─────────╮
 ║ DIRECTORY                 STATUS       ║  │                                                    │
 ║ showing 1-4 of 4 •                     ║  │                                                    │
@@ -5,7 +6,6 @@
 ║   [●]     api/cmd         ◌ queued     ║  │                                                    │
 ║   [ ]   web               ○ skipped    ║  │                                                    │
 ║   [●]   worker            ✕ failed     ║  │                                                    │
-║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
 ║                                        ║  │                                                    │
