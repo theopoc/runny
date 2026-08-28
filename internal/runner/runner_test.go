@@ -543,7 +543,12 @@ func TestRunnerCancellationKillsChildProcesses(t *testing.T) {
 	for range 50 {
 		data, err := os.ReadFile(pidFile)
 		if err == nil {
-			parsed, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+			value := strings.TrimSpace(string(data))
+			if value == "" {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			parsed, parseErr := strconv.Atoi(value)
 			if parseErr != nil {
 				t.Fatal(parseErr)
 			}
