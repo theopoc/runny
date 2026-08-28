@@ -59,6 +59,8 @@ runny -- sh -c 'pnpm test && pnpm lint'
 
 `Runny` always opens the TUI. Flags and config files prepare the initial discovery, command, execution mode, and logging options.
 
+Each task runs through the interactive shell named by `$SHELL`, falling back to `/bin/sh`. This loads shell aliases and functions. When `direnv` is available, Runny also loads the allowed `.envrc` for each target directory. Commands receive a pseudo-terminal for shell compatibility, but no interactive input.
+
 Arguments after `--` keep their original boundaries. Shell metacharacters inside an argument are treated as data. Use `sh -c` explicitly when the command needs shell composition such as `&&`, pipes, or redirections.
 
 ## Docker

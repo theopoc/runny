@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -50,6 +51,119 @@ func TestRunnerRunsCommandInTargetDirectory(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Status != core.StatusSucceeded {
 		t.Fatalf("results = %#v", results)
+	}
+}
+
+func TestRunnerUsesUserInteractiveShell(t *testing.T) {
+	shell := filepath.Join(t.TempDir(), "user-shell")
+	shellScript := "#!/bin/sh\n[ -t 0 ] && [ -t 1 ] && [ -t 2 ] || exit 64\nprintf 'shell-args=%s|%s\\n' \"$1\" \"$2\"\n"
+	if err := os.WriteFile(shell, []byte(shellScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	t.Setenv("PATH", t.TempDir())
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+
+	results, err := Run(context.Background(), core.RunRequest{
+		Command: "printf ignored",
+		Targets: []core.Target{target},
+		Mode:    core.ModeSerial,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != core.StatusSucceeded {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].Output != "shell-args=-ic|printf ignored\n" {
+		t.Fatalf("output = %q, want user shell invoked interactively", results[0].Output)
+	}
+}
+
+func TestRunnerLoadsZshAlias(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is not available")
+	}
+	zdotdir := t.TempDir()
+	zshrc := "alias runny_alias_probe='printf \"RUNNY_ZSH_ALIAS=loaded\\\\n\"'\n"
+	if err := os.WriteFile(filepath.Join(zdotdir, ".zshrc"), []byte(zshrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", zsh)
+	t.Setenv("ZDOTDIR", zdotdir)
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: t.TempDir(), Selected: true}
+
+	results, err := Run(context.Background(), core.RunRequest{
+		Command: "runny_alias_probe",
+		Targets: []core.Target{target},
+		Mode:    core.ModeSerial,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != core.StatusSucceeded {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].Output != "RUNNY_ZSH_ALIAS=loaded\n" {
+		t.Fatalf("output = %q, want alias from .zshrc", results[0].Output)
+	}
+}
+
+func TestRunnerLoadsTargetDirenvEnvironment(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.Mkdir(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shell := filepath.Join(binDir, "user-shell")
+	shellScript := "#!/bin/sh\n[ \"$1\" = -ic ] || exit 64\nexec /bin/sh -c \"$2\"\n"
+	if err := os.WriteFile(shell, []byte(shellScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	direnv := filepath.Join(binDir, "direnv")
+	direnvScript := "#!/bin/sh\n[ \"$1\" = exec ] || exit 64\ntarget=$2\nshift 2\n. \"$target/.envrc\"\nexec \"$@\"\n"
+	if err := os.WriteFile(direnv, []byte(direnvScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	t.Setenv("PATH", binDir)
+	targetDir := filepath.Join(root, "project")
+	if err := os.Mkdir(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, ".envrc"), []byte("export RUNNY_DIRENV_SENTINEL=loaded\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := core.Target{ID: "api", RelPath: "api", AbsPath: targetDir, Selected: true}
+
+	results, err := Run(context.Background(), core.RunRequest{
+		Command: `printf 'RUNNY_DIRENV_SENTINEL=%s\n' "$RUNNY_DIRENV_SENTINEL"`,
+		Targets: []core.Target{target},
+		Mode:    core.ModeSerial,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != core.StatusSucceeded {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].Output != "RUNNY_DIRENV_SENTINEL=loaded\n" {
+		t.Fatalf("output = %q, want target direnv environment", results[0].Output)
+	}
+}
+
+func TestTerminalOutputWriterNormalizesSplitCRLF(t *testing.T) {
+	var output strings.Builder
+	writer := &terminalOutputWriter{dst: &output}
+	for _, chunk := range []string{"first\r", "\nsecond\r", "third"} {
+		if _, err := writer.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writer.Flush()
+	if output.String() != "first\nsecond\rthird" {
+		t.Fatalf("output = %q", output.String())
 	}
 }
 
