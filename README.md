@@ -59,6 +59,8 @@ runny -- sh -c 'pnpm test && pnpm lint'
 
 `Runny` always opens the TUI. Flags and config files prepare the initial discovery, command, execution mode, and logging options.
 
+Each task runs through the interactive shell named by `$SHELL`. When that variable is unset, Runny uses the current user's login shell from `/etc/passwd`, then falls back to `/bin/sh`. This loads shell aliases and functions. When `direnv` is available, Runny also loads the allowed `.envrc` for each target directory. Commands receive a pseudo-terminal for shell compatibility, but no interactive input.
+
 Arguments after `--` keep their original boundaries. Shell metacharacters inside an argument are treated as data. Use `sh -c` explicitly when the command needs shell composition such as `&&`, pipes, or redirections.
 
 ## Docker
@@ -76,7 +78,20 @@ docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
 docker run --rm -it -v "$PWD:/workspace" -w /workspace runny --depth 2 -- pnpm test
 ```
 
-The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags. Commands run inside the container; tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
+The image includes `sh`, `bash`, `zsh`, and `direnv`. Its non-root `runny` user has `/bin/zsh` as the login shell, so no shell environment variable is required.
+
+Docker remaps the workspace path, so a `.envrc` allowed on the host is not automatically trusted inside the container. Explicitly allow the mounted workspace for the current container before starting Runny:
+
+```bash
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$HOME/.zshrc:/home/runny/.zshrc:ro" \
+  -w /workspace \
+  --entrypoint sh \
+  runny -lc 'direnv allow . && exec runny'
+```
+
+Mounting `.zshrc` makes its aliases and functions available to commands launched by Runny. Shell startup files must only reference tools and paths available inside the container; use a container-specific `.zshrc` when the host file depends on host-only plugins. The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags. Other tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
 
 ## Flags
 
@@ -128,7 +143,9 @@ exclude:
 | `a` | Select all visible directories |
 | `A` | Deselect all visible directories |
 | `/` | Focus filter/search |
-| `:` | Open command palette |
+| `:` | Open command overlay |
+| `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
+| `ctrl+p` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
 | `up`, `k` | Move cursor up |
@@ -140,14 +157,17 @@ exclude:
 | `esc` | Leave filter focus |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
-| `del`, `x` | Cancel selected running or queued runs, or focused run |
+| `del`, `x` | Cancel selected running or queued runs, or focused run; multiple selected active runs require confirmation |
+| `q` | Confirm quit with Yes/No |
 | `R` | Rerun all failed with confirmation |
 | `pageup`, `pagedown` | Scroll output |
 | Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |
 | `f` | Toggle output tail mode |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
-Palette commands include `run`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
+
+Session options include serial execution, worker count, fail-fast behavior, output capture, persisted logs, and output following. Execution and logging options stay locked while runs are active; view options remain mutable. Changes apply to current session and do not rewrite configuration files.
 
 ## Development
 

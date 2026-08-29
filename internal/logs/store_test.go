@@ -1,10 +1,100 @@
 package logs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestReadPersistedReturnsTargetLog(t *testing.T) {
+	root := t.TempDir()
+	runID := "20260815T080000.000000000Z"
+	store := newTestStore(t, Options{Root: filepath.Join(root, runID), Save: true})
+	if err := store.Append("services/api", "failed output\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadPersisted(root, runID, "services/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "failed output\n" {
+		t.Fatalf("log = %q", got)
+	}
+}
+
+func TestReadPersistedReturnsBoundedTail(t *testing.T) {
+	root := t.TempDir()
+	runID := "run"
+	runRoot := filepath.Join(root, runID)
+	store := newTestStore(t, Options{Root: runRoot, Save: true})
+	content := strings.Repeat("x", int(persistedReadLimit)+32) + "tail\n"
+	if err := store.Append("api", content); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadPersisted(root, runID, "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "[older output truncated]\n") || !strings.HasSuffix(got, "tail\n") {
+		t.Fatalf("bounded log markers missing: prefix=%q suffix=%q", got[:min(32, len(got))], got[max(0, len(got)-16):])
+	}
+	if len(got) > int(persistedReadLimit)+len("[older output truncated]\n") {
+		t.Fatalf("bounded log length = %d", len(got))
+	}
+}
+
+func TestReadPersistedRejectsUnsafeIdentifiers(t *testing.T) {
+	tests := []struct {
+		name     string
+		runID    string
+		targetID string
+	}{
+		{name: "empty run", targetID: "api"},
+		{name: "nested run", runID: "nested/run", targetID: "api"},
+		{name: "parent run", runID: "../run", targetID: "api"},
+		{name: "unsafe target", runID: "run", targetID: "../api"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := ReadPersisted(t.TempDir(), tt.runID, tt.targetID); !errors.Is(err, ErrLogUnavailable) {
+				t.Fatalf("ReadPersisted() error = %v, want ErrLogUnavailable", err)
+			}
+		})
+	}
+}
+
+func TestReadPersistedMissingLogIsUnavailable(t *testing.T) {
+	if _, err := ReadPersisted(t.TempDir(), "run", "api"); !errors.Is(err, ErrLogUnavailable) {
+		t.Fatalf("ReadPersisted() error = %v, want ErrLogUnavailable", err)
+	}
+}
+
+func TestReadPersistedRejectsRunSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "runs")
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "api.log"), []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "run")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadPersisted(root, "run", "api"); !errors.Is(err, ErrLogUnavailable) {
+		t.Fatalf("ReadPersisted() error = %v, want ErrLogUnavailable", err)
+	}
+}
 
 func TestStoreCapturesMemoryAndPersistsWhenEnabled(t *testing.T) {
 	root := t.TempDir()

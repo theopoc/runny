@@ -74,7 +74,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	program.Send(tea.KeyPressMsg(tea.Key{Code: '/'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Text: "w"}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	program.Send(tea.KeyPressMsg(tea.Key{Text: ":"}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	for _, char := range "workers 1" {
 		program.Send(tea.KeyPressMsg(tea.Key{Text: string(char)}))
 	}
@@ -102,7 +102,7 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		t.Fatal("program did not quit")
 	}
 	rendered := stripANSI(final.View().Content)
-	for _, want := range []string{"runny", "Tasks", "Output", "workers 1", "succeeded"} {
+	for _, want := range []string{"Tasks", "2 ok"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered output should contain %q:\n%s", want, rendered)
 		}

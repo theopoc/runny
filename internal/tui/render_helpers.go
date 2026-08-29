@@ -109,6 +109,14 @@ func padRightANSI(value string, width int) string {
 	return value + strings.Repeat(" ", width-current)
 }
 
+func padLeftVisible(value string, width int) string {
+	current := ansi.StringWidth(value)
+	if current >= width {
+		return value
+	}
+	return strings.Repeat(" ", width-current) + value
+}
+
 func centerANSI(value string, width int) string {
 	current := ansi.StringWidth(value)
 	if current >= width {

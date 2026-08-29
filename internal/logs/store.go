@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
+
+var ErrLogUnavailable = errors.New("logs unavailable")
+
+const persistedReadLimit int64 = 1 << 20
 
 type Options struct {
 	Root     string
@@ -94,6 +99,44 @@ func targetLogPath(targetID string) (string, error) {
 		return "", fmt.Errorf("invalid target id %q", targetID)
 	}
 	return path + ".log", nil
+}
+
+func ReadPersisted(rootPath, runID, targetID string) (string, error) {
+	if runID == "" || runID == "." || !filepath.IsLocal(runID) || filepath.Base(runID) != runID {
+		return "", fmt.Errorf("%w: invalid run id %q", ErrLogUnavailable, runID)
+	}
+	targetPath, err := targetLogPath(targetID)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrLogUnavailable, err)
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrLogUnavailable, err)
+	}
+	defer root.Close()
+	f, err := root.Open(filepath.Join(runID, targetPath))
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrLogUnavailable, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	truncated := info.Size() > persistedReadLimit
+	if truncated {
+		if _, err := f.Seek(-persistedReadLimit, io.SeekEnd); err != nil {
+			return "", err
+		}
+	}
+	data, err := io.ReadAll(io.LimitReader(f, persistedReadLimit))
+	if err != nil {
+		return "", err
+	}
+	if truncated {
+		return "[older output truncated]\n" + string(data), nil
+	}
+	return string(data), nil
 }
 
 func appendToRoot(root *os.Root, path, text string) error {
