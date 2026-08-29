@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -70,7 +71,6 @@ type Model struct {
 	HistoryLog            string
 	HistoryLogError       string
 	HistoryLogLoading     bool
-	HistoryLogOffset      int
 	HistoryDetailOffset   int
 	historyLogRunID       string
 	historyLogTargetID    string
@@ -96,7 +96,6 @@ type Model struct {
 	PalettePos            int
 	HistoryFilter         string
 	HistorySearching      bool
-	PreviewOffset         int
 	LogFollow             bool
 	Running               bool
 	PendingRuns           int
@@ -124,6 +123,8 @@ type Model struct {
 	runFunc               func(context.Context, core.RunRequest) ([]core.RunResult, error)
 	runTracker            *runTracker
 	lifecycleCtx          context.Context
+	outputViewport        viewport.Model
+	historyLogViewport    viewport.Model
 }
 
 type runTracker struct {
@@ -205,6 +206,8 @@ func NewModel(opts Options) Model {
 		runTracker:         opts.runTracker,
 		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
+		outputViewport:     newLogViewport(),
+		historyLogViewport: newLogViewport(),
 	}
 	if opts.CommandHistoryPath != "" {
 		if entries, err := history.ReadCommands(opts.CommandHistoryPath); err == nil {
@@ -301,7 +304,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = size.Width
 		m.Height = size.Height
 		if m.ShowHistory && m.HistoryDepth == historyDepthLogs {
-			m.HistoryLogOffset = min(m.HistoryLogOffset, m.maxHistoryLogOffset())
+			m.syncHistoryLogViewport()
 		}
 		if m.ShowHistory && m.HistoryDepth == historyDepthTargets {
 			m.HistoryDetailOffset = min(m.HistoryDetailOffset, m.maxHistoryDetailOffset())
@@ -342,7 +345,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	} else if key.Key().Text != "" {
 		keyName = key.Key().Text
 	}
-	if keyName == "ctrl+c" && !(m.Focus == FocusCommand && m.hasCommandSelection()) {
+	if matchesKey(keyName, defaultKeys.ConfirmQuit) && !(m.Focus == FocusCommand && m.hasCommandSelection()) {
 		m.ShowHelp = false
 		m.ShowHistory = false
 		m.ShowPalette = false
@@ -355,7 +358,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ConfirmQuitYes = true
 		return m, nil
 	}
-	if keyName == "?" {
+	if matchesKey(keyName, defaultKeys.Help) {
 		m.ShowHelp = !m.ShowHelp
 		return m, nil
 	}
@@ -371,70 +374,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.Focus == FocusFilter {
 		return m.handleFilterKey(keyName, key)
 	}
-	switch keyName {
-	case "esc":
+	switch {
+	case matchesKey(keyName, defaultKeys.Escape):
 		return m, nil
-	case "q":
+	case matchesKey(keyName, defaultKeys.Quit):
 		m.ConfirmQuit = true
 		m.ConfirmQuitYes = true
 		return m, nil
-	case ":":
+	case matchesKey(keyName, defaultKeys.Command):
 		m.openCommandOverlay()
-	case "ctrl+p":
+	case matchesKey(keyName, defaultKeys.Palette):
 		m.ShowPalette = true
 		m.Palette = ""
 		m.PalettePos = 0
-	case "o":
+	case matchesKey(keyName, defaultKeys.Options):
 		m.ShowOptions = true
 		m.normalizeOptionsSelection()
-	case "enter":
+	case matchesKey(keyName, defaultKeys.Run):
 		return m.startRun(false)
-	case "up", "k":
+	case matchesKey(keyName, defaultKeys.Up):
 		m.moveCursor(-1)
-	case "down", "j":
+	case matchesKey(keyName, defaultKeys.Down):
 		m.moveCursor(1)
-	case "n":
+	case matchesKey(keyName, defaultKeys.NextMatch):
 		if m.Filter != "" {
 			m.moveFilterMatch(1)
 		}
-	case "N":
+	case matchesKey(keyName, defaultKeys.PreviousMatch):
 		if m.Filter != "" {
 			m.moveFilterMatch(-1)
 		}
-	case "home", "g":
+	case matchesKey(keyName, defaultKeys.First):
 		m.moveCursorToEdge(false)
-	case "end", "G":
+	case matchesKey(keyName, defaultKeys.Last):
 		m.moveCursorToEdge(true)
-	case "tab":
+	case matchesKey(keyName, defaultKeys.NextPane):
 		m.cycleFocus(1)
-	case "shift+tab":
+	case matchesKey(keyName, defaultKeys.PreviousPane):
 		m.cycleFocus(-1)
-	case "/":
+	case matchesKey(keyName, defaultKeys.Filter):
 		m.Focus = FocusFilter
-	case "H":
+	case matchesKey(keyName, defaultKeys.History):
 		if m.ShowHistory {
 			m.ShowHistory = false
 		} else {
 			m.openHistory()
 		}
-	case "z":
+	case matchesKey(keyName, defaultKeys.Zoom):
 		m.Zoom = !m.Zoom
 		if m.Zoom {
 			m.Notice = "zoom enabled"
 		} else {
 			m.Notice = "split view enabled"
 		}
-	case " ", "space":
+	case matchesKey(keyName, defaultKeys.ToggleTarget):
 		m.toggleFocused()
-	case "a":
+	case matchesKey(keyName, defaultKeys.ToggleVisible):
 		m.toggleVisibleSelected()
-	case "right", "l":
+	case matchesKey(keyName, defaultKeys.Unfold):
 		m.setFolded(false)
-	case "left", "h":
+	case matchesKey(keyName, defaultKeys.Fold):
 		m.setFolded(true)
-	case "delete", "x":
+	case matchesKey(keyName, defaultKeys.Cancel):
 		m.cancelSelectedOrFocused()
-	case "R":
+	case matchesKey(keyName, defaultKeys.RerunFailed):
 		if !m.hasActiveRuns() && m.failedCount() > 0 {
 			m.ConfirmRun = true
 		} else if m.hasActiveRuns() {
@@ -442,15 +445,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Notice = "no failed targets to rerun"
 		}
-	case "pageup", "pgup", "ctrl+b":
+	case matchesKey(keyName, defaultKeys.PageUp):
 		m.scrollPreview(-5)
-	case "pagedown", "pgdown", "ctrl+f":
+	case matchesKey(keyName, defaultKeys.PageDown):
 		m.scrollPreview(5)
-	case "ctrl+u":
+	case matchesKey(keyName, defaultKeys.HalfPageUp):
 		m.scrollPreview(-3)
-	case "ctrl+d":
+	case matchesKey(keyName, defaultKeys.HalfPageDown):
 		m.scrollPreview(3)
-	case "f":
+	case matchesKey(keyName, defaultKeys.Follow):
 		m.LogFollow = !m.LogFollow
 	}
 	return m, nil
@@ -475,12 +478,11 @@ func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
 	case FocusTargets:
 		m.moveCursor(direction)
 	case FocusLogs:
-		maxOffset := m.outputMaxOffset()
+		m.syncOutputViewport()
 		if m.LogFollow {
-			m.PreviewOffset = maxOffset
+			m.outputViewport.GotoBottom()
 		}
 		m.scrollPreview(direction * 3)
-		m.PreviewOffset = min(m.PreviewOffset, maxOffset)
 	}
 }
 
@@ -1985,7 +1987,7 @@ func (m Model) renderLogPanel(width int, height int) []string {
 	title := "Output"
 	if len(m.Targets) > 0 && m.Cursor >= 0 && m.Cursor < len(m.Targets) {
 		target := m.Targets[m.Cursor]
-		lines = append(lines, m.renderOutputLines(target.ID, height)...)
+		lines = append(lines, m.renderOutputLines(target.ID, max(1, width-4), max(1, height-2))...)
 		title = fmt.Sprintf(
 			"Output — %s [%s] · follow:%s · %d lines",
 			target.RelPath,
@@ -2080,35 +2082,21 @@ func (m Model) outputRangeLabel(targetID string, height int) string {
 	return fmt.Sprintf("(%d-%d/%d %s %s)", offset+1, end, len(output), mode, markers)
 }
 
-func (m Model) renderOutputLines(targetID string, height int) []string {
-	output := outputLines(m.Logs[targetID])
-	if len(output) == 0 {
+func (m Model) renderOutputLines(targetID string, width, height int) []string {
+	if len(outputLines(m.Logs[targetID])) == 0 {
 		return nil
 	}
-	visible := max(1, height-2)
-	offset := m.previewOutputOffset(len(output), visible)
-	rows := make([]string, 0, visible)
-	for i, line := range output[offset:] {
-		if i >= visible {
-			break
-		}
-		rows = append(rows, m.styleLogLine(line))
-	}
-	return rows
+	return viewportRows(m.configuredOutputViewport(targetID, width, height))
 }
 
 func (m Model) previewOutputOffset(total int, visible int) int {
-	maxOffset := max(0, total-visible)
+	model := m.outputViewport
+	model.SetHeight(max(1, visible))
+	model.SetContentLines(make([]string, max(0, total)))
 	if m.LogFollow {
-		return maxOffset
+		model.GotoBottom()
 	}
-	if m.PreviewOffset > maxOffset {
-		return maxOffset
-	}
-	if m.PreviewOffset < 0 {
-		return 0
-	}
-	return m.PreviewOffset
+	return model.YOffset()
 }
 
 func (m Model) previewScrollLabel(targetID string, height int) string {
@@ -2123,14 +2111,8 @@ func (m Model) previewScrollLabel(targetID string, height int) string {
 		return "manual"
 	}
 	visible := max(1, height-14)
+	offset := m.previewOutputOffset(len(output), visible)
 	maxOffset := max(0, len(output)-visible)
-	offset := m.PreviewOffset
-	if m.LogFollow {
-		offset = maxOffset
-	}
-	if offset > maxOffset {
-		offset = maxOffset
-	}
 	return fmt.Sprintf("%d/%d %s", offset+1, maxOffset+1, ternary(m.LogFollow, "tail", "manual"))
 }
 
@@ -2510,9 +2492,17 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "global",
 			title: "Global",
 			bindings: []helpBinding{
-				{"?", "keymap"}, {"/", "filter"}, {":", "run command"}, {"o", "options"}, {"ctrl+p", "palette"}, {"H", "history"}, {"q", "quit"},
-				{"tab", "tasks/output"}, {"z", "maximize panel / split"}, {"esc", "close mode"},
-				{"ctrl+c", "confirm quit"},
+				helpBindingFrom(defaultKeys.Help),
+				helpBindingFrom(defaultKeys.Filter),
+				helpBindingFrom(defaultKeys.Command),
+				helpBindingFrom(defaultKeys.Options),
+				helpBindingFrom(defaultKeys.Palette),
+				helpBindingFrom(defaultKeys.History),
+				helpBindingFrom(defaultKeys.Quit),
+				helpBindingFrom(defaultKeys.NextPane),
+				helpBindingFrom(defaultKeys.Zoom),
+				helpBindingFrom(defaultKeys.Escape),
+				helpBindingFrom(defaultKeys.ConfirmQuit),
 			},
 		},
 		{
@@ -2577,9 +2567,13 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "preview",
 			title: "Output",
 			bindings: []helpBinding{
-				{"pageup", "scroll up"}, {"ctrl+b", "scroll up"},
-				{"pagedown", "scroll down"}, {"ctrl+f", "scroll down"},
-				{"ctrl+u", "half up"}, {"ctrl+d", "half down"}, {"f", "tail"},
+				helpBindingFromKey(defaultKeys.PageUp, 0, "scroll up"),
+				helpBindingFromKey(defaultKeys.PageUp, 1, "scroll up"),
+				helpBindingFromKey(defaultKeys.PageDown, 0, "scroll down"),
+				helpBindingFromKey(defaultKeys.PageDown, 1, "scroll down"),
+				helpBindingFrom(defaultKeys.HalfPageUp),
+				helpBindingFrom(defaultKeys.HalfPageDown),
+				helpBindingFrom(defaultKeys.Follow),
 			},
 		},
 	}
@@ -3213,23 +3207,19 @@ func (m *Model) moveCursorToEdge(last bool) {
 }
 
 func (m *Model) scrollPreview(delta int) {
-	m.PreviewOffset += delta
-	if m.PreviewOffset < 0 {
-		m.PreviewOffset = 0
+	m.syncOutputViewport()
+	if delta < 0 {
+		m.outputViewport.ScrollUp(-delta)
+	} else {
+		m.outputViewport.ScrollDown(delta)
 	}
 	m.LogFollow = false
 }
 
 func (m Model) outputMaxOffset() int {
-	if m.Cursor < 0 || m.Cursor >= len(m.Targets) {
-		return 0
-	}
-	output := outputLines(m.Logs[m.Targets[m.Cursor].ID])
-	if len(output) == 0 {
-		return 0
-	}
-	visible := max(1, panelHeightForWindow(m.Height)-2)
-	return max(0, len(output)-visible)
+	m.syncOutputViewport()
+	m.outputViewport.GotoBottom()
+	return m.outputViewport.YOffset()
 }
 
 func outputLines(output string) []string {

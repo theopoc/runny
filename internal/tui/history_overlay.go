@@ -63,7 +63,12 @@ func (m *Model) moveHistorySelection(delta int) {
 		m.HistoryTargetPos = clampHistoryIndex(m.HistoryTargetPos+delta, len(m.visibleHistoryTargets()))
 		m.HistoryDetailOffset = 0
 	case m.HistoryDepth == historyDepthLogs:
-		m.HistoryLogOffset = min(max(0, m.HistoryLogOffset+delta), m.maxHistoryLogOffset())
+		m.syncHistoryLogViewport()
+		if delta < 0 {
+			m.historyLogViewport.ScrollUp(-delta)
+		} else {
+			m.historyLogViewport.ScrollDown(delta)
+		}
 	case m.HistoryDepth == historyDepthRuns:
 		m.HistoryPos = clampHistoryIndex(m.HistoryPos+delta, len(m.filteredHistoryRuns()))
 		m.HistoryTargetPos = 0
@@ -110,7 +115,8 @@ func (m Model) openSelectedHistoryLog() (tea.Model, tea.Cmd) {
 	m.HistoryLog = ""
 	m.HistoryLogError = ""
 	m.HistoryLogLoading = false
-	m.HistoryLogOffset = 0
+	m.historyLogViewport.SetContentLines(nil)
+	m.historyLogViewport.SetYOffset(0)
 	m.historyLogRunID = run.LogID
 	m.historyLogTargetID = target.ID
 	if run.LogID == "" {
@@ -139,6 +145,7 @@ func (m *Model) applyHistoryLogLoaded(loaded historyLogLoadedMsg) {
 	}
 	m.HistoryLog = loaded.content
 	m.HistoryLogError = ""
+	m.syncHistoryLogViewport()
 }
 
 func (m Model) reuseSelectedHistoryRun() (tea.Model, tea.Cmd) {
@@ -520,13 +527,8 @@ func (m Model) historyLogRows(width, height int) []string {
 	case m.HistoryLog == "":
 		rows = append(rows, "(empty log)")
 	default:
-		lines := outputLines(m.HistoryLog)
 		visible := max(1, height-1)
-		offset := min(max(0, m.HistoryLogOffset), max(0, len(lines)-visible))
-		end := min(len(lines), offset+visible)
-		for _, line := range lines[offset:end] {
-			rows = append(rows, truncateVisible(line, width))
-		}
+		rows = append(rows, viewportRows(m.configuredHistoryLogViewport(width, visible))...)
 	}
 	return truncateHistoryRows(rows, height)
 }
@@ -538,7 +540,9 @@ func (m Model) maxHistoryLogOffset() int {
 	panelHeight, _, _ := m.panelDimensions(m.Width, m.Height)
 	bodyHeight := max(1, panelHeight-3)
 	visible := max(1, bodyHeight-1)
-	return max(0, len(outputLines(m.HistoryLog))-visible)
+	model := m.configuredHistoryLogViewport(1, visible)
+	model.GotoBottom()
+	return model.YOffset()
 }
 
 func (m Model) maxHistoryDetailOffset() int {
