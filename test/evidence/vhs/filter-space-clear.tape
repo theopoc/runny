@@ -19,6 +19,8 @@ Type "/"
 Sleep 500ms
 Type "api"
 Sleep 2s
+Enter
+Sleep 2s
 Space
 Sleep 3s
 

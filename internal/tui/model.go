@@ -602,12 +602,6 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	switch keyName {
 	case "esc", "enter":
 		m.Focus = FocusTargets
-	case " ", "space":
-		m.Filter = ""
-		m.Focus = FocusTargets
-		m.ensureCursorVisible()
-		m.Notice = "filter cleared"
-		m.RunError = ""
 	case "ctrl+u":
 		m.Filter = ""
 		m.ensureCursorVisible()
@@ -2195,7 +2189,7 @@ func (m Model) renderFooter(width int) string {
 				hints = []string{"enter run", "esc cancel", "? help"}
 			}
 		case FocusFilter:
-			hints = []string{"type fuzzy", "' exact", "n/N matches", "space clear filter", "enter/esc tasks", "? help"}
+			hints = []string{"type fuzzy", "' exact", "n/N matches", "ctrl+u clear", "enter/esc tasks", "? help"}
 		case FocusLogs:
 			hints = []string{": command", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 		default:
