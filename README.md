@@ -78,7 +78,19 @@ docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
 docker run --rm -it -v "$PWD:/workspace" -w /workspace runny --depth 2 -- pnpm test
 ```
 
-The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags. Commands run inside the container; tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
+The image includes `sh`, `bash`, `zsh`, and `direnv`, and defaults to `SHELL=/bin/sh`. Choose another bundled shell with `-e SHELL=/bin/zsh` or `-e SHELL=/bin/bash`.
+
+Docker remaps the workspace path, so a `.envrc` allowed on the host is not automatically trusted inside the container. Explicitly allow the mounted workspace for the current container before starting Runny:
+
+```bash
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  --entrypoint sh \
+  runny -lc 'direnv allow . && exec runny'
+```
+
+The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags. Commands run inside the container, isolated from the host shell configuration. Host aliases and functions require mounting the relevant shell startup files. Other tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
 
 ## Flags
 
