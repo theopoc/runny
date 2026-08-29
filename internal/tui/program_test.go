@@ -80,7 +80,6 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	}
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: ' '}))
-	program.Send(tea.KeyPressMsg(tea.Key{Code: 'a'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	waitForCompletedRun(t, runHistoryPath, 2)
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
@@ -94,6 +93,9 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		final = result.model.(Model)
 		if final.Workers != 1 {
 			t.Fatalf("workers = %d, want 1", final.Workers)
+		}
+		if final.Filter != "" {
+			t.Fatalf("filter = %q, want cleared by space", final.Filter)
 		}
 		if final.Status["api"] != core.StatusSucceeded || final.Status["web"] != core.StatusSucceeded {
 			t.Fatalf("statuses = %#v", final.Status)

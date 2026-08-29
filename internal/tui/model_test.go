@@ -110,6 +110,44 @@ func TestModelToggleAcceptsNamedSpaceKey(t *testing.T) {
 	}
 }
 
+func TestModelSpaceClearsActiveFilterInsteadOfTogglingTarget(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Filter = "api"
+
+	model, _ = updateSpecialKey(model, tea.KeySpace)
+
+	if model.Filter != "" || model.Focus != FocusTargets {
+		t.Fatalf("space should clear active filter and keep tasks focus, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	if !model.Targets[0].Selected || !model.Targets[1].Selected {
+		t.Fatalf("space should not change selection while clearing filter: %#v", model.Targets)
+	}
+	if model.Notice != "filter cleared" {
+		t.Fatalf("notice = %q, want filter cleared", model.Notice)
+	}
+}
+
+func TestFilterFocusSpaceClearsFilterAndReturnsToTasks(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Focus = FocusFilter
+	model.Filter = "api"
+
+	model, _ = updateNamedKey(model, "space")
+
+	if model.Filter != "" || model.Focus != FocusTargets {
+		t.Fatalf("space should clear filter and return to tasks, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	if !model.Targets[0].Selected || !model.Targets[1].Selected {
+		t.Fatalf("space should not change selection while clearing filter: %#v", model.Targets)
+	}
+}
+
 func TestModelStartsWithTasksFocusWhenCommandIsEmpty(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
@@ -603,13 +641,13 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	filterModel.Focus = FocusFilter
 	filterFooter := stripANSI(filterModel.renderFooter(120))
-	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[n/N] Matches", "[ctrl+u] Clear", "[enter/esc] Tasks", "[?] Help"} {
+	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[n/N] Matches", "[space] Clear filter", "[enter/esc] Tasks", "[?] Help"} {
 		if !strings.Contains(strings.Join(strings.Fields(filterFooter), " "), want) {
 			t.Fatalf("filter footer should contain %q:\n%s", want, filterFooter)
 		}
 	}
 	compactFilterFooter := stripANSI(filterModel.renderFooter(80))
-	for _, want := range []string{"[type]", "[']", "[n/N]", "[ctrl+u]", "[enter/esc]", "[?]"} {
+	for _, want := range []string{"[type]", "[']", "[n/N]", "[space]", "[enter/esc]", "[?]"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactFilterFooter), " "), want) {
 			t.Fatalf("compact filter footer should contain %q:\n%s", want, compactFilterFooter)
 		}
@@ -620,8 +658,8 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel.Focus = FocusTargets
 	filterModel.Filter = "api"
 	filteredTasksFooter := stripANSI(filterModel.renderFooter(120))
-	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "[space] Select") {
-		t.Fatalf("filtered task footer should keep select label:\n%s", filteredTasksFooter)
+	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "[space] Clear filter") {
+		t.Fatalf("filtered task footer should expose filter clearing shortcut:\n%s", filteredTasksFooter)
 	}
 
 	historyModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
@@ -1140,12 +1178,12 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "w▌") {
 		t.Fatalf("filter focus should show cursor:\n%s", view)
 	}
-	model, _ = updateKey(model, " ")
 	model, _ = updateKey(model, "x")
 	model, _ = updateKey(model, "ctrl+w")
-	if model.Filter != "w" {
-		t.Fatalf("filter = %q, want w after ctrl+w", model.Filter)
+	if model.Filter != "" {
+		t.Fatalf("filter = %q, want empty after ctrl+w", model.Filter)
 	}
+	model, _ = updateKey(model, "w")
 	model, _ = updateSpecialKey(model, tea.KeyBackspace)
 	if model.Filter != "" {
 		t.Fatalf("filter = %q", model.Filter)
