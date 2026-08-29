@@ -20,11 +20,10 @@ FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec4
 
 RUN apk add --no-cache bash direnv zsh && \
     addgroup -S -g 1001 runny && \
-    adduser -S -u 1001 -G runny runny
+    adduser -S -u 1001 -G runny -s /bin/zsh runny
 
 COPY --from=builder /out/runny /usr/local/bin/runny
 
 WORKDIR /workspace
-ENV SHELL=/bin/sh
 USER runny
 ENTRYPOINT ["runny"]

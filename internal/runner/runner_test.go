@@ -80,6 +80,56 @@ func TestRunnerUsesUserInteractiveShell(t *testing.T) {
 	}
 }
 
+func TestResolveShell(t *testing.T) {
+	tests := []struct {
+		name    string
+		shell   string
+		uid     int
+		passwd  string
+		readErr error
+		want    string
+	}{
+		{
+			name:   "environment wins",
+			shell:  "/bin/bash",
+			uid:    1001,
+			passwd: "runny:x:1001:1001::/home/runny:/bin/zsh\n",
+			want:   "/bin/bash",
+		},
+		{
+			name:   "login shell from passwd",
+			uid:    1001,
+			passwd: "root:x:0:0:root:/root:/bin/sh\nrunny:x:1001:1001::/home/runny:/bin/zsh\n",
+			want:   "/bin/zsh",
+		},
+		{
+			name:   "missing user falls back",
+			uid:    1001,
+			passwd: "root:x:0:0:root:/root:/bin/sh\n",
+			want:   "/bin/sh",
+		},
+		{
+			name:    "unreadable passwd falls back",
+			uid:     1001,
+			readErr: errors.New("read failed"),
+			want:    "/bin/sh",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveShell(
+				func(string) string { return tt.shell },
+				tt.uid,
+				func(string) ([]byte, error) { return []byte(tt.passwd), tt.readErr },
+			)
+			if got != tt.want {
+				t.Fatalf("resolveShell() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunnerLoadsZshAlias(t *testing.T) {
 	zsh, err := exec.LookPath("zsh")
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -185,15 +187,33 @@ func runOne(
 }
 
 func commandForTarget(command string, target core.Target) *exec.Cmd {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	shell := currentShell()
 	command = disableJobControl(shell, command)
 	if direnv, err := exec.LookPath("direnv"); err == nil {
 		return exec.Command(direnv, "exec", target.AbsPath, shell, "-ic", command)
 	}
 	return exec.Command(shell, "-ic", command)
+}
+
+func currentShell() string {
+	return resolveShell(os.Getenv, os.Getuid(), os.ReadFile)
+}
+
+func resolveShell(getenv func(string) string, uid int, readFile func(string) ([]byte, error)) string {
+	if shell := getenv("SHELL"); shell != "" {
+		return shell
+	}
+	passwd, err := readFile("/etc/passwd")
+	if err == nil {
+		uidText := strconv.Itoa(uid)
+		for line := range strings.SplitSeq(string(passwd), "\n") {
+			fields := strings.Split(line, ":")
+			if len(fields) >= 7 && fields[2] == uidText && fields[6] != "" {
+				return fields[6]
+			}
+		}
+	}
+	return "/bin/sh"
 }
 
 func disableJobControl(shell, command string) string {

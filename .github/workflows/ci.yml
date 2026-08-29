@@ -32,18 +32,23 @@ jobs:
           fixture="$(mktemp -d)"
           mkdir "$fixture/test"
           printf 'export HELLO=world\n' > "$fixture/.envrc"
+          cat > "$fixture/.zshrc" <<'ZSHRC'
+          alias runny_alias_probe='echo "alias-from-zshrc HELLO=$HELLO"'
+          ZSHRC
           docker run --rm \
             -v "$fixture:/workspace" \
+            -v "$fixture/.zshrc:/home/runny/.zshrc:ro" \
             -w /workspace \
             --entrypoint sh \
             runny:ci \
             -ec "
-              test \"\$SHELL\" = /bin/sh
+              test -z \"\${SHELL:-}\"
+              grep -q '^runny:.*:/bin/zsh\$' /etc/passwd
               command -v bash
               command -v zsh
               command -v direnv
               direnv allow .
-              direnv exec test sh -c 'test \"\$HELLO\" = world'
+              direnv exec test zsh -ic runny_alias_probe | grep -Fx 'alias-from-zshrc HELLO=world'
             "
 
   notify:
