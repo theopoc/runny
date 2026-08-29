@@ -347,6 +347,24 @@ func TestKeyboardOutputScrollKeepsExistingTailBehavior(t *testing.T) {
 	}
 }
 
+func TestPhysicalPageKeysPauseOutputFollow(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyPgUp},
+		{Code: tea.KeyPgDown},
+	} {
+		model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+		model.Focus = FocusLogs
+		model.LogFollow = true
+		model.Logs["api"] = strings.Repeat("line\n", 80)
+
+		updated, _ := model.Update(key)
+		model = updated.(Model)
+		if model.LogFollow {
+			t.Fatalf("physical %q should pause output follow", key.String())
+		}
+	}
+}
+
 func TestTabFocusTogglesVisiblePanels(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
@@ -384,7 +402,8 @@ func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
 	model.Cursor = 1
 	model.Notice = "keep me"
 
-	updated, _ := model.Update(tea.MouseClickMsg{X: 71, Y: 0, Button: tea.MouseLeft})
+	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+	updated, _ := model.Update(tea.MouseClickMsg{X: 71, Y: panelTop, Button: tea.MouseLeft})
 	model = updated.(Model)
 	if model.Focus != FocusLogs {
 		t.Fatalf("output border click focus = %v, want output", model.Focus)
@@ -403,20 +422,23 @@ func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
 	}
 }
 
-func TestPaneFocusAccountsForOptionalFilterRow(t *testing.T) {
+func TestPaneFocusAccountsForPersistentContextAndOptionalFilterRows(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
 	model.Width = 120
 	model.Height = 26
 
-	if focus, hit := model.paneFocusAt(1, 0); !hit || focus != FocusTargets {
-		t.Fatalf("top row without header = (%v, %t), want tasks hit", focus, hit)
+	if _, hit := model.paneFocusAt(1, 0); hit {
+		t.Fatal("persistent context row should not hit background panel")
+	}
+	if focus, hit := model.paneFocusAt(1, 1); !hit || focus != FocusTargets {
+		t.Fatalf("first panel row below context = (%v, %t), want tasks hit", focus, hit)
 	}
 
 	model.Focus = FocusFilter
 	if _, hit := model.paneFocusAt(1, 0); hit {
 		t.Fatal("filter row should not hit background panel")
 	}
-	if focus, hit := model.paneFocusAt(1, 3); !hit || focus != FocusTargets {
+	if focus, hit := model.paneFocusAt(1, 4); !hit || focus != FocusTargets {
 		t.Fatalf("first panel row below filter = (%v, %t), want tasks hit", focus, hit)
 	}
 }
@@ -1195,17 +1217,42 @@ func normalizeFooterText(footer string) string {
 	return strings.Join(strings.Fields(footer), " ")
 }
 
-func TestPanelPrefixHidesCommandRowOutsideFilter(t *testing.T) {
+func TestPanelPrefixShowsPersistentRunContextOutsideFilter(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
 		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
 	}})
 	model.Cursor = 1
 	prefix := stripANSI(model.renderPanelPrefix(140))
-	for _, hidden := range []string{"command ›", "test", "scope", "workers"} {
-		if strings.Contains(prefix, hidden) {
-			t.Fatalf("panel prefix should hide unused command row %q:\n%s", hidden, prefix)
+	for _, want := range []string{"command: test", "targets: 2/2 selected", "mode: parallel", "workers: auto"} {
+		if !strings.Contains(prefix, want) {
+			t.Fatalf("panel prefix should keep run context %q visible:\n%s", want, prefix)
 		}
+	}
+	if strings.Count(prefix, "\n")+1 != 1 {
+		t.Fatalf("run context should use one row outside filter mode:\n%s", prefix)
+	}
+}
+
+func TestOverlaysUseFullPanelHeightWithoutRedundantRunContext(t *testing.T) {
+	model := NewModel(Options{Command: "pnpm test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model, _ = updateWindowSize(model, 120, 40)
+	model.ShowHelp = true
+
+	if prefix := model.renderPanelPrefix(120); prefix != "" {
+		t.Fatalf("overlay should replace redundant run context, got %q", stripANSI(prefix))
+	}
+	view := stripANSI(model.View().Content)
+	for _, want := range []string{"H open history", "[/] switch runs/commands", "/ search active tab"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("120x40 help should retain %q when overlay is open:\n%s", want, view)
+		}
+	}
+	if lines := strings.Count(view, "\n") + 1; lines != 40 {
+		t.Fatalf("overlay view lines = %d, want 40:\n%s", lines, view)
 	}
 }
 
@@ -1268,8 +1315,14 @@ func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
 	model.Status["api"] = core.StatusRunning
 	model.Status["web"] = core.StatusFailed
 
-	if prefix := model.renderPanelPrefix(120); prefix != "" {
-		t.Fatalf("operator chrome should omit top header, got %q", prefix)
+	prefix := stripANSI(strings.TrimSpace(model.renderPanelPrefix(120)))
+	if strings.Count(prefix, "\n") != 0 {
+		t.Fatalf("operator run context should use one row:\n%s", prefix)
+	}
+	for _, want := range []string{"command: pnpm test", "targets: 2/2 selected", "mode: parallel", "workers: 4"} {
+		if !strings.Contains(prefix, want) {
+			t.Fatalf("operator run context should contain %q:\n%s", want, prefix)
+		}
 	}
 
 	footer := strings.Join(strings.Fields(stripANSI(model.renderFooter(120))), " ")
@@ -2628,6 +2681,64 @@ func TestViewResponsiveWidths(t *testing.T) {
 		model, _ = updateWindowSize(model, width, 24)
 		if got := maxLineWidth(model.View().Content); got > width {
 			t.Fatalf("width %d rendered line width = %d\n%s", width, got, stripANSI(model.View().Content))
+		}
+	}
+}
+
+func TestRunContextPersistsCommandScopeAndExecutionModeAtBreakpoints(t *testing.T) {
+	for _, test := range []struct {
+		width int
+		want  []string
+	}{
+		{width: 120, want: []string{"command: go test ./...", "targets: 2/3 selected", "mode: parallel", "workers: 2"}},
+		{width: 100, want: []string{"command: go test ./...", "targets: 2/3 selected", "mode: parallel", "workers: 2"}},
+		{width: 99, want: []string{"cmd: go test ./...", "2/3 selected", "parallel/2"}},
+		{width: 60, want: []string{"cmd: go test ./...", "2/3 selected", "parallel/2"}},
+	} {
+		t.Run(fmt.Sprintf("width_%d", test.width), func(t *testing.T) {
+			model := NewModel(Options{Command: "go test ./...", Workers: 2, Targets: []core.Target{
+				{ID: "api", RelPath: "api", Selected: true},
+				{ID: "docs", RelPath: "docs", Selected: false},
+				{ID: "web", RelPath: "web", Selected: true},
+			}})
+			model, _ = updateWindowSize(model, test.width, 24)
+			contextLine := stripANSI(strings.Split(model.View().Content, "\n")[0])
+			for _, want := range test.want {
+				if !strings.Contains(contextLine, want) {
+					t.Fatalf("%d-column context should contain %q:\n%s", test.width, want, contextLine)
+				}
+			}
+		})
+	}
+}
+
+func TestRunContextKeepsScopeVisibleWhenCommandIsLong(t *testing.T) {
+	model := NewModel(Options{Command: strings.Repeat("very-long-command ", 12), Mode: core.ModeSerial, Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: false},
+	}})
+	model, _ = updateWindowSize(model, 60, 24)
+	contextLine := stripANSI(strings.Split(model.View().Content, "\n")[0])
+	for _, want := range []string{"cmd:", "1/2 selected", "serial/1"} {
+		if !strings.Contains(contextLine, want) {
+			t.Fatalf("long command should preserve %q in context:\n%s", want, contextLine)
+		}
+	}
+	if got := lipgloss.Width(contextLine); got > 60 {
+		t.Fatalf("context width = %d, want <= 60:\n%s", got, contextLine)
+	}
+}
+
+func TestPersistentRunContextKeepsViewHeightBounded(t *testing.T) {
+	for _, size := range []struct {
+		width  int
+		height int
+	}{{120, 40}, {100, 30}, {99, 30}, {60, 24}} {
+		model := NewModel(Options{Command: "go test ./...", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+		model, _ = updateWindowSize(model, size.width, size.height)
+		view := stripANSI(model.View().Content)
+		if got := strings.Count(view, "\n") + 1; got > size.height {
+			t.Fatalf("%dx%d rendered %d rows:\n%s", size.width, size.height, got, view)
 		}
 	}
 }
