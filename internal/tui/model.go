@@ -1404,10 +1404,15 @@ func panelDimensionsForInput(width int, height int, inputRows int) (panelHeight 
 }
 
 func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
+	contextRows := 1
+	if m.hasOverlay() {
+		contextRows = 0
+	}
 	inputRows := 1
 	panelHeight, leftWidth, rightWidth = panelDimensionsForInput(width, height, inputRows)
+	panelHeight = max(10, panelHeight-contextRows)
 	if m.Focus != FocusFilter {
-		panelHeight = max(10, height-2)
+		panelHeight = max(10, height-2-contextRows)
 	}
 	return panelHeight, leftWidth, rightWidth
 }
@@ -1441,10 +1446,49 @@ func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 }
 
 func (m Model) renderPanelPrefix(width int) string {
-	if filter := m.renderSubHeader(width); filter != "" {
-		return filter + "\n"
+	if m.hasOverlay() {
+		return ""
 	}
-	return ""
+	rows := []string{m.renderRunContext(width)}
+	if filter := m.renderSubHeader(width); filter != "" {
+		rows = append(rows, filter)
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	return strings.Join(rows, "\n") + "\n"
+}
+
+func (m Model) renderRunContext(width int) string {
+	command := strings.TrimSpace(m.Command)
+	if command == "" {
+		command = "not set"
+	}
+	selected := 0
+	for _, target := range m.Targets {
+		if target.Selected {
+			selected++
+		}
+	}
+
+	workers := "auto"
+	if m.mode() == core.ModeSerial {
+		workers = "1"
+	} else if m.Workers > 0 {
+		workers = strconv.Itoa(m.Workers)
+	}
+
+	prefix := " command: "
+	metadata := fmt.Sprintf("targets: %d/%d selected · mode: %s · workers: %s", selected, len(m.Targets), m.mode(), workers)
+	if width < 100 {
+		prefix = " cmd: "
+		metadata = fmt.Sprintf("%d/%d selected · %s/%s", selected, len(m.Targets), m.mode(), workers)
+	}
+	separator := " · "
+	commandWidth := max(1, width-lipgloss.Width(prefix)-lipgloss.Width(separator)-lipgloss.Width(metadata))
+	command = truncateVisible(command, commandWidth)
+	line := subtleStyle.Render(prefix) + commandDisplayStyle.Render(command) + subtleStyle.Render(separator+metadata)
+	return padRightVisible(line, width)
 }
 
 func (m Model) hasOverlay() bool {
