@@ -376,6 +376,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case matchesKey(keyName, defaultKeys.Escape):
+		if m.Filter != "" {
+			m.Filter = ""
+			m.ensureCursorVisible()
+			m.Notice = "filter cleared"
+			m.RunError = ""
+		}
 		return m, nil
 	case matchesKey(keyName, defaultKeys.Quit):
 		m.ConfirmQuit = true
@@ -427,11 +433,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Notice = "split view enabled"
 		}
-	case matchesKey(keyName, defaultKeys.ToggleTarget) && m.Filter != "":
-		m.Filter = ""
-		m.ensureCursorVisible()
-		m.Notice = "filter cleared"
-		m.RunError = ""
 	case matchesKey(keyName, defaultKeys.ToggleTarget):
 		m.toggleFocused()
 	case matchesKey(keyName, defaultKeys.ToggleVisible):
@@ -2195,19 +2196,19 @@ func (m Model) renderFooter(width int) string {
 		default:
 			fullHints := []string{": command", "space select", "/ filter", "o options", "x cancel", "tab output", "? help", "q quit"}
 			if m.Filter != "" {
-				fullHints[1] = "space clear filter"
+				fullHints[2] = "esc clear filter"
 			}
 			hints = fullHints
 			if footerHintContentWidth(fullHints) > width {
 				hints = []string{": cmd", "space sel", "o opts", "x stop", "tab pane", "? help", "q quit"}
 				if m.Filter != "" {
-					hints[1] = "space clear"
+					hints[2] = "esc clear"
 				}
 			}
 			if width < 70 {
 				hints = []string{": cmd", "space sel", "o op", "tab out", "? help", "q quit"}
 				if m.Filter != "" {
-					hints[1] = "space clear"
+					hints[2] = "esc clear"
 				}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {

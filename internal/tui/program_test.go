@@ -73,13 +73,13 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: '/'}))
 	program.Send(tea.KeyPressMsg(tea.Key{Text: "w"}))
-	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	for _, char := range "workers 1" {
 		program.Send(tea.KeyPressMsg(tea.Key{Text: string(char)}))
 	}
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	program.Send(tea.KeyPressMsg(tea.Key{Code: ' '}))
+	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	program.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	waitForCompletedRun(t, runHistoryPath, 2)
 	program.Send(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
