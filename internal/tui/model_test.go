@@ -110,6 +110,69 @@ func TestModelToggleAcceptsNamedSpaceKey(t *testing.T) {
 	}
 }
 
+func TestModelEscapeClearsFilterActivatedWithEnterAndRestoresTree(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model, _ = updateKey(model, "/")
+	model = typeText(model, "api")
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Filter != "api" || model.Focus != FocusTargets {
+		t.Fatalf("enter should activate filter and return to tasks, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	if view := stripANSI(model.View().Content); !strings.Contains(view, "showing 1-1 of 1") || strings.Contains(view, "web") {
+		t.Fatalf("activated filter should show only matching target:\n%s", view)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+
+	if model.Filter != "" || model.Focus != FocusTargets {
+		t.Fatalf("escape should clear activated filter and keep tasks focus, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	if !model.Targets[0].Selected || !model.Targets[1].Selected {
+		t.Fatalf("escape should not change selection while clearing filter: %#v", model.Targets)
+	}
+	if model.Notice != "filter cleared" {
+		t.Fatalf("notice = %q, want filter cleared", model.Notice)
+	}
+	if view := stripANSI(model.View().Content); !strings.Contains(view, "showing 1-2 of 2") || !strings.Contains(view, "web") {
+		t.Fatalf("escape should restore unfiltered directory tree:\n%s", view)
+	}
+}
+
+func TestModelSpaceKeepsSelectionBehaviorWithActivatedFilter(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Filter = "api"
+
+	model, _ = updateKey(model, " ")
+
+	if model.Filter != "api" {
+		t.Fatalf("space should not clear activated filter, filter = %q", model.Filter)
+	}
+	if model.Targets[0].Selected || !model.Targets[1].Selected {
+		t.Fatalf("space should toggle only focused filtered target: %#v", model.Targets)
+	}
+}
+
+func TestFilterFocusSpaceRemainsPartOfQuery(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Focus = FocusFilter
+	model.Filter = "api"
+
+	model, _ = updateKey(model, " ")
+
+	if model.Filter != "api " || model.Focus != FocusFilter {
+		t.Fatalf("space should remain editable before filter activation, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+}
+
 func TestModelStartsWithTasksFocusWhenCommandIsEmpty(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
@@ -620,8 +683,11 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel.Focus = FocusTargets
 	filterModel.Filter = "api"
 	filteredTasksFooter := stripANSI(filterModel.renderFooter(120))
+	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "[esc] Clear filter") {
+		t.Fatalf("filtered task footer should expose filter clearing shortcut:\n%s", filteredTasksFooter)
+	}
 	if !strings.Contains(strings.Join(strings.Fields(filteredTasksFooter), " "), "[space] Select") {
-		t.Fatalf("filtered task footer should keep select label:\n%s", filteredTasksFooter)
+		t.Fatalf("filtered task footer should preserve selection shortcut:\n%s", filteredTasksFooter)
 	}
 
 	historyModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})

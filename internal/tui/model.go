@@ -376,6 +376,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case matchesKey(keyName, defaultKeys.Escape):
+		if m.Filter != "" {
+			m.Filter = ""
+			m.ensureCursorVisible()
+			m.Notice = "filter cleared"
+			m.RunError = ""
+		}
 		return m, nil
 	case matchesKey(keyName, defaultKeys.Quit):
 		m.ConfirmQuit = true
@@ -2189,12 +2195,21 @@ func (m Model) renderFooter(width int) string {
 			hints = []string{": command", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 		default:
 			fullHints := []string{": command", "space select", "/ filter", "o options", "x cancel", "tab output", "? help", "q quit"}
+			if m.Filter != "" {
+				fullHints[2] = "esc clear filter"
+			}
 			hints = fullHints
 			if footerHintContentWidth(fullHints) > width {
 				hints = []string{": cmd", "space sel", "o opts", "x stop", "tab pane", "? help", "q quit"}
+				if m.Filter != "" {
+					hints[2] = "esc clear"
+				}
 			}
 			if width < 70 {
 				hints = []string{": cmd", "space sel", "o op", "tab out", "? help", "q quit"}
+				if m.Filter != "" {
+					hints[2] = "esc clear"
+				}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
 				hints = append([]string{"R failed"}, hints...)
