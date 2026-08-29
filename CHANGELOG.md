@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/theopoc/runny/compare/v0.4.0...v0.5.0) (2026-08-29)
+
+
+### Features
+
+* **tui:** add worker controls to options ([#56](https://github.com/theopoc/runny/issues/56)) ([9c2c5b5](https://github.com/theopoc/runny/commit/9c2c5b53f327b903ef80146f782003ab8a173598))
+* **tui:** keep run context visible ([#59](https://github.com/theopoc/runny/issues/59)) ([2c6b446](https://github.com/theopoc/runny/commit/2c6b446dbb7ac9d00c19e773827f10773d518b22))
+
+
+### Bug Fixes
+
+* **release:** deduplicate historical notes ([#48](https://github.com/theopoc/runny/issues/48)) ([1481c5d](https://github.com/theopoc/runny/commit/1481c5dfcf7062318636f64ae84420db2f0e7278))
+* **runner:** load user shell environment ([#60](https://github.com/theopoc/runny/issues/60)) ([c83c430](https://github.com/theopoc/runny/commit/c83c430398b2d6e6a040173d6d67791028310bef))
+
 ## [0.4.0](https://github.com/theopoc/runny/compare/v0.3.0...v0.4.0) (2026-08-25)
 
 
