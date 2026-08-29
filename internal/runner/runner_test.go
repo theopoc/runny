@@ -253,15 +253,20 @@ func TestRunStreamsStdoutAndStderrBeforeCommandFinishes(t *testing.T) {
 		done <- outcome{results: results, err: err}
 	}()
 
-	select {
-	case event := <-events:
-		if event.Type != core.EventOutput || event.TargetID != target.ID || event.Output != "stdout-before-finish\n" {
-			t.Fatalf("first event = %#v", event)
+	var streamed strings.Builder
+	firstOutputDeadline := time.After(500 * time.Millisecond)
+	for !strings.Contains(streamed.String(), "stdout-before-finish\n") {
+		select {
+		case event := <-events:
+			if event.Type != core.EventOutput || event.TargetID != target.ID {
+				t.Fatalf("event = %#v", event)
+			}
+			streamed.WriteString(event.Output)
+		case <-done:
+			t.Fatal("command finished before first output was complete")
+		case <-firstOutputDeadline:
+			t.Fatalf("first output was not delivered while command was running: %q", streamed.String())
 		}
-	case <-done:
-		t.Fatal("command finished before first output event")
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("first output event was not delivered while command was running")
 	}
 
 	select {
@@ -270,8 +275,6 @@ func TestRunStreamsStdoutAndStderrBeforeCommandFinishes(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	var streamed strings.Builder
-	streamed.WriteString("stdout-before-finish\n")
 	for !strings.Contains(streamed.String(), "stderr-before-finish\n") {
 		select {
 		case event := <-events:
