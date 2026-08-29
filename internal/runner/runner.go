@@ -5,12 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/termios"
+	"github.com/creack/pty"
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/logs"
 )
@@ -18,6 +24,8 @@ import (
 type logStoreCloser interface {
 	Close() error
 }
+
+const terminalDrainTimeout = 250 * time.Millisecond
 
 func Run(ctx context.Context, req core.RunRequest) (results []core.RunResult, err error) {
 	if req.Command == "" {
@@ -102,32 +110,45 @@ func runOne(
 	if ctx.Err() != nil {
 		return cancelledResult(target)
 	}
-	cmd := exec.Command("/bin/sh", "-c", command)
+	cmd := commandForTarget(command, target)
 	cmd.Dir = target.AbsPath
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var capture *tailBuffer
 	var outputWriter io.Writer = io.Discard
 	if !disableLogging {
 		capture = newTailBuffer(MaxOutputBytes)
 		outputWriter = &eventWriter{target: target, capture: capture, onEvent: onEvent}
 	}
-	cmd.Stdout = outputWriter
-	cmd.Stderr = outputWriter
-	err := cmd.Start()
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err == nil {
+		writeTerminalEOF(ptmx)
+		readDone := make(chan struct{})
+		go func() {
+			if disableLogging {
+				_, _ = io.Copy(io.Discard, ptmx)
+			} else {
+				writer := &terminalOutputWriter{dst: outputWriter}
+				_, _ = io.Copy(writer, ptmx)
+				writer.Flush()
+			}
+			close(readDone)
+		}()
 		done := make(chan error, 1)
 		go func() {
 			done <- cmd.Wait()
 		}()
 		select {
 		case err = <-done:
+			waitForTerminalRead(ptmx, readDone)
 		case <-ctx.Done():
+			_ = ptmx.Close()
 			if cmd.Process != nil {
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				_ = cmd.Process.Kill()
 			}
 			err = <-done
+			<-readDone
 		}
+		_ = ptmx.Close()
 	}
 	ended := time.Now()
 	var output string
@@ -166,6 +187,137 @@ func runOne(
 		result.ExitCode = exitErr.ExitCode()
 	}
 	return result
+}
+
+func waitForTerminalRead(terminal *os.File, readDone <-chan struct{}) {
+	timer := time.NewTimer(terminalDrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-readDone:
+	case <-timer.C:
+		_ = terminal.Close()
+		<-readDone
+	}
+}
+
+func commandForTarget(command string, target core.Target) *exec.Cmd {
+	shell := currentShell()
+	command = disableJobControl(shell, command)
+	if direnv, err := exec.LookPath("direnv"); err == nil {
+		return exec.Command(direnv, "exec", target.AbsPath, shell, "-ic", command)
+	}
+	return exec.Command(shell, "-ic", command)
+}
+
+func currentShell() string {
+	return resolveShell(os.Getenv, os.Getuid(), os.ReadFile)
+}
+
+func resolveShell(getenv func(string) string, uid int, readFile func(string) ([]byte, error)) string {
+	if shell := getenv("SHELL"); shell != "" {
+		return shell
+	}
+	passwd, err := readFile("/etc/passwd")
+	if err == nil {
+		uidText := strconv.Itoa(uid)
+		for line := range strings.SplitSeq(string(passwd), "\n") {
+			fields := strings.Split(line, ":")
+			if len(fields) >= 7 && fields[2] == uidText && fields[6] != "" {
+				return fields[6]
+			}
+		}
+	}
+	return "/bin/sh"
+}
+
+func disableJobControl(shell, command string) string {
+	switch filepath.Base(shell) {
+	case "sh", "bash", "dash", "ksh", "zsh":
+		return "set +m\n" + command
+	default:
+		return command
+	}
+}
+
+func writeTerminalEOF(terminal *os.File) {
+	settings, err := termios.GetTermios(int(terminal.Fd()))
+	if err != nil {
+		_, _ = terminal.Write([]byte{4})
+		return
+	}
+	echoEnabled := settings.Lflag&syscall.ECHO != 0
+	_ = termios.SetTermios(
+		int(terminal.Fd()),
+		uint32(settings.Ispeed),
+		uint32(settings.Ospeed),
+		nil,
+		nil,
+		nil,
+		nil,
+		map[termios.L]bool{termios.ECHO: false},
+	)
+	_, _ = terminal.Write([]byte{4})
+	_ = termios.SetTermios(
+		int(terminal.Fd()),
+		uint32(settings.Ispeed),
+		uint32(settings.Ospeed),
+		nil,
+		nil,
+		nil,
+		nil,
+		map[termios.L]bool{termios.ECHO: echoEnabled},
+	)
+}
+
+type terminalOutputWriter struct {
+	dst       io.Writer
+	pendingCR bool
+}
+
+func (w *terminalOutputWriter) Write(p []byte) (int, error) {
+	out := make([]byte, 0, len(p)+1)
+	index := 0
+	if w.pendingCR {
+		if len(p) > 0 && p[0] == '\n' {
+			out = append(out, '\n')
+			index = 1
+		} else {
+			out = append(out, '\r')
+		}
+		w.pendingCR = false
+	}
+	for index < len(p) {
+		if p[index] != '\r' {
+			out = append(out, p[index])
+			index++
+			continue
+		}
+		if index+1 == len(p) {
+			w.pendingCR = true
+			break
+		}
+		if p[index+1] == '\n' {
+			out = append(out, '\n')
+			index += 2
+			continue
+		}
+		out = append(out, '\r')
+		index++
+	}
+	if len(out) == 0 {
+		return len(p), nil
+	}
+	if _, err := w.dst.Write(out); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (w *terminalOutputWriter) Flush() {
+	if w.pendingCR {
+		_, _ = w.dst.Write([]byte{'\r'})
+		w.pendingCR = false
+	}
 }
 
 type eventWriter struct {
