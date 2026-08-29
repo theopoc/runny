@@ -25,6 +25,8 @@ type logStoreCloser interface {
 	Close() error
 }
 
+const terminalDrainTimeout = 250 * time.Millisecond
+
 func Run(ctx context.Context, req core.RunRequest) (results []core.RunResult, err error) {
 	if req.Command == "" {
 		return nil, errors.New("command is required")
@@ -136,6 +138,7 @@ func runOne(
 		}()
 		select {
 		case err = <-done:
+			waitForTerminalRead(ptmx, readDone)
 		case <-ctx.Done():
 			_ = ptmx.Close()
 			if cmd.Process != nil {
@@ -143,9 +146,9 @@ func runOne(
 				_ = cmd.Process.Kill()
 			}
 			err = <-done
+			<-readDone
 		}
 		_ = ptmx.Close()
-		<-readDone
 	}
 	ended := time.Now()
 	var output string
@@ -184,6 +187,17 @@ func runOne(
 		result.ExitCode = exitErr.ExitCode()
 	}
 	return result
+}
+
+func waitForTerminalRead(terminal *os.File, readDone <-chan struct{}) {
+	timer := time.NewTimer(terminalDrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-readDone:
+	case <-timer.C:
+		_ = terminal.Close()
+		<-readDone
+	}
 }
 
 func commandForTarget(command string, target core.Target) *exec.Cmd {
