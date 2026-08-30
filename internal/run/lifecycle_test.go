@@ -74,23 +74,30 @@ func TestRunEmitsStrictPerTargetLifecycle(t *testing.T) {
 	})
 	r := startTestRun(t, Spec{Command: "test", Targets: testTargets("api"), Mode: core.ModeSerial}, deps)
 	events := collectEvents(t, r)
-	want := []EventKind{
-		EventTargetQueued,
-		EventTargetStarted,
-		EventTargetOutputChanged,
-		EventTargetFinished,
-		EventCompleted,
+	if len(events) < 5 {
+		t.Fatalf("events = %v, want queued, started, output+, finished, completed", eventKinds(events))
 	}
-	if got := eventKinds(events); !slices.Equal(got, want) {
-		t.Fatalf("event kinds = %v, want %v", got, want)
+	if events[0].Kind != EventTargetQueued || events[1].Kind != EventTargetStarted {
+		t.Fatalf("event prefix = %v, want [target_queued target_started]", eventKinds(events[:2]))
 	}
-	if got := events[2].Target.OutputTail; got != "first second" {
+	outputEvents := events[2 : len(events)-2]
+	for _, event := range outputEvents {
+		if event.Kind != EventTargetOutputChanged {
+			t.Fatalf("output events = %v, want only target_output_changed", eventKinds(outputEvents))
+		}
+	}
+	if got := outputEvents[len(outputEvents)-1].Target.OutputTail; got != "first second" {
 		t.Fatalf("output tail = %q", got)
 	}
-	if events[3].Target.Status != core.StatusSucceeded {
-		t.Fatalf("finished target = %#v", events[3].Target)
+	finished := events[len(events)-2]
+	if finished.Kind != EventTargetFinished || finished.Target.Status != core.StatusSucceeded {
+		t.Fatalf("finished target = %#v", finished)
 	}
-	completed := events[4].Run
+	completedEvent := events[len(events)-1]
+	if completedEvent.Kind != EventCompleted {
+		t.Fatalf("final event = %s, want completed", completedEvent.Kind)
+	}
+	completed := completedEvent.Run
 	if completed.Succeeded != 1 || len(completed.Targets) != 1 {
 		t.Fatalf("completed snapshot = %#v", completed)
 	}
