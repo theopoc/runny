@@ -18,7 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/history"
-	"github.com/theopoc/runny/internal/runner"
+	runpkg "github.com/theopoc/runny/internal/run"
 )
 
 func TestModelToggleAllWithLowercaseAAndFilter(t *testing.T) {
@@ -2101,12 +2101,16 @@ func TestPaletteEnterNoMatchKeepsPaletteOpen(t *testing.T) {
 }
 
 func TestModelCommandPaletteRunsAndOpensOverlays(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model := NewModel(Options{
+		Command:  "echo ok",
+		Targets:  []core.Target{{ID: "api", RelPath: "api", Selected: true}},
+		startRun: fakeStart(&fakeActiveRun{}, nil),
+	})
 	model, cmd := runPaletteCommand(model, "run")
 	if cmd == nil {
 		t.Fatal(":run should start selected targets")
 	}
-	if !model.Running || model.Status["api"] != core.StatusRunning {
+	if !model.Running || model.Status["api"] != core.StatusQueued {
 		t.Fatalf("running/status = %v/%s", model.Running, model.Status["api"])
 	}
 
@@ -2142,14 +2146,13 @@ func TestModelCommandPaletteRunsAndOpensOverlays(t *testing.T) {
 
 func TestModelCommandPaletteCancelsSelectedTarget(t *testing.T) {
 	model := NewModel(Options{Command: "sleep 10", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	cancelled := false
+	run := &fakeActiveRun{cancelResults: [][]string{{"api"}}}
 	model.Running = true
-	model.PendingRuns = 1
 	model.Status["api"] = core.StatusRunning
-	model.targetCancels = map[string]context.CancelFunc{"api": func() { cancelled = true }}
+	model.activeRun = run
 
 	model, _ = runPaletteCommand(model, "cancel")
-	if !cancelled {
+	if run.cancelCalls != 1 {
 		t.Fatal(":cancel should call target cancel function")
 	}
 	if model.Status["api"] != core.StatusCancelled {
@@ -2163,18 +2166,16 @@ func TestCancelSelectedRequiresConfirmationForMultipleActiveTargets(t *testing.T
 		{ID: "web", RelPath: "web", Selected: true},
 		{ID: "docs", RelPath: "docs", Selected: false},
 	}})
-	cancelled := map[string]bool{}
+	run := &fakeActiveRun{cancelResults: [][]string{{"api", "web"}}}
 	model.Running = true
-	model.PendingRuns = 3
+	model.activeRun = run
 	for _, target := range model.Targets {
 		model.Status[target.ID] = core.StatusRunning
-		id := target.ID
-		model.targetCancels[id] = func() { cancelled[id] = true }
 	}
 
 	model, _ = updateKey(model, "x")
-	if len(cancelled) != 0 {
-		t.Fatalf("x should wait for confirmation, cancelled = %#v", cancelled)
+	if run.cancelCalls != 0 {
+		t.Fatalf("x should wait for confirmation, calls = %d", run.cancelCalls)
 	}
 	view := stripANSI(model.View().Content)
 	for _, want := range []string{"Cancel selected", "2 selected active target(s)", "targets: api, web", "y/enter confirm", "n/esc cancel"} {
@@ -2184,8 +2185,8 @@ func TestCancelSelectedRequiresConfirmationForMultipleActiveTargets(t *testing.T
 	}
 
 	model, _ = updateKey(model, "y")
-	if !cancelled["api"] || !cancelled["web"] || cancelled["docs"] {
-		t.Fatalf("confirmation should cancel selected active targets only: %#v", cancelled)
+	if run.cancelCalls != 1 || model.Status["api"] != core.StatusCancelled || model.Status["web"] != core.StatusCancelled {
+		t.Fatalf("confirmation should cancel selected active targets only: calls=%d statuses=%#v", run.cancelCalls, model.Status)
 	}
 	if model.Status["docs"] != core.StatusRunning {
 		t.Fatalf("unselected target status = %s, want running", model.Status["docs"])
@@ -2198,12 +2199,12 @@ func TestCancelSelectedConfirmationNeverFallsBackAfterAsyncCompletion(t *testing
 		{ID: "web", RelPath: "web", Selected: true},
 		{ID: "docs", RelPath: "docs"},
 	}})
-	docsCancelled := false
+	run := &fakeActiveRun{cancelResults: [][]string{nil}}
 	model.Running = true
+	model.activeRun = run
 	model.Status["api"] = core.StatusRunning
 	model.Status["web"] = core.StatusRunning
 	model.Status["docs"] = core.StatusRunning
-	model.targetCancels["docs"] = func() { docsCancelled = true }
 
 	model, _ = updateKey(model, "x")
 	model.Status["api"] = core.StatusSucceeded
@@ -2211,8 +2212,8 @@ func TestCancelSelectedConfirmationNeverFallsBackAfterAsyncCompletion(t *testing
 	model.Cursor = 2
 	model, _ = updateKey(model, "y")
 
-	if docsCancelled || model.Status["docs"] != core.StatusRunning {
-		t.Fatalf("stale selected confirmation must not cancel focused unselected target: cancelled=%v status=%s", docsCancelled, model.Status["docs"])
+	if run.cancelCalls != 1 || model.Status["docs"] != core.StatusRunning {
+		t.Fatalf("stale selected confirmation must not cancel focused unselected target: calls=%d status=%s", run.cancelCalls, model.Status["docs"])
 	}
 }
 
@@ -2221,12 +2222,11 @@ func TestModelCommandPaletteConfirmsCancelAll(t *testing.T) {
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
 	}})
-	cancelled := false
+	run := &fakeActiveRun{cancelResults: [][]string{{"api", "web"}}}
 	model.Running = true
-	model.PendingRuns = 2
+	model.activeRun = run
 	model.Status["api"] = core.StatusRunning
 	model.Status["web"] = core.StatusQueued
-	model.cancelRun = func() { cancelled = true }
 
 	model, _ = runPaletteCommand(model, "cancel-all")
 	if !model.ConfirmCancelAll {
@@ -2243,15 +2243,15 @@ func TestModelCommandPaletteConfirmsCancelAll(t *testing.T) {
 	}
 
 	model, _ = updateKey(model, "n")
-	if cancelled || model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusQueued {
-		t.Fatalf("n should cancel confirmation only, cancelled/statuses = %v/%#v", cancelled, model.Status)
+	if run.cancelCalls != 0 || model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusQueued {
+		t.Fatalf("n should cancel confirmation only, calls/statuses = %d/%#v", run.cancelCalls, model.Status)
 	}
 	if model.Notice != "confirmation cancelled" {
 		t.Fatalf("notice = %q", model.Notice)
 	}
 	model.ConfirmCancelAll = true
 	model, _ = updateKey(model, "y")
-	if !cancelled {
+	if run.cancelCalls != 1 {
 		t.Fatal("confirming cancel-all should call cancelRun")
 	}
 	if model.ConfirmCancelAll {
@@ -2344,10 +2344,10 @@ func TestModelNavigationAndPreviewScrolling(t *testing.T) {
 
 func TestCtrlCShowsQuitConfirmationFromOverlay(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	cancelled := false
+	run := &fakeActiveRun{cancelResults: [][]string{{"api"}}}
 	model.Running = true
 	model.ShowHelp = true
-	model.cancelRun = func() { cancelled = true }
+	model.activeRun = run
 	model.Status["api"] = core.StatusRunning
 
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
@@ -2364,7 +2364,7 @@ func TestCtrlCShowsQuitConfirmationFromOverlay(t *testing.T) {
 	if model.ShowHelp {
 		t.Fatal("ctrl+c should replace current overlay with quit confirmation")
 	}
-	if cancelled {
+	if run.cancelCalls != 0 {
 		t.Fatal("ctrl+c should not cancel before confirmation")
 	}
 	if model.Status["api"] != core.StatusRunning {
@@ -2379,7 +2379,7 @@ func TestCtrlCShowsQuitConfirmationFromOverlay(t *testing.T) {
 	if model.ConfirmQuit {
 		t.Fatal("n should close quit confirmation")
 	}
-	if cancelled {
+	if run.cancelCalls != 0 {
 		t.Fatal("n should not cancel active run")
 	}
 }
@@ -2915,17 +2915,16 @@ func TestOutputPanelStaysEmptyForRunningCommandUntilOutputArrives(t *testing.T) 
 	}
 }
 
-func TestRunOutputMessageUpdatesRunningTarget(t *testing.T) {
-	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+func TestRunOutputEventUpdatesRunningTarget(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", Selected: true}
+	model := NewModel(Options{Targets: []core.Target{target}})
 	model.Running = true
 	model.Status["api"] = core.StatusRunning
-	stream := make(chan tea.Msg)
+	model.activeRun = &fakeActiveRun{}
 
-	updated, next := model.Update(runOutputMsg{
-		targetID: "api",
-		chunk:    "live stdout\nlive stderr\n",
-		stream:   stream,
-	})
+	updated, next := model.Update(runEventMsg{event: targetEvent(
+		runpkg.EventTargetOutputChanged, target, core.StatusRunning, "live stdout\nlive stderr\n", "",
+	)})
 	model = updated.(Model)
 
 	if model.Logs["api"] != "live stdout\nlive stderr\n" {
@@ -2936,17 +2935,26 @@ func TestRunOutputMessageUpdatesRunningTarget(t *testing.T) {
 	}
 }
 
-func TestRunOutputMessageBoundsLiveOutput(t *testing.T) {
-	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
-	chunk := strings.Repeat("x", runner.MaxOutputBytes+1)
+func TestRunOutputEventProjectsBoundedLiveOutput(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", Selected: true}
+	model := NewModel(Options{Targets: []core.Target{target}})
+	output := runpkg.TruncatedOutputMarker + strings.Repeat("x", runpkg.MaxOutputBytes)
 
-	updated, _ := model.Update(runOutputMsg{targetID: "api", chunk: chunk})
+	updated, _ := model.Update(runEventMsg{event: runpkg.Event{
+		Kind: runpkg.EventTargetOutputChanged,
+		Target: &runpkg.TargetSnapshot{
+			Target:          target,
+			Status:          core.StatusRunning,
+			OutputTail:      output,
+			OutputTruncated: true,
+		},
+	}})
 	got := updated.(Model).Logs["api"]
 
-	if !strings.HasPrefix(got, runner.TruncatedOutputMarker) {
-		t.Fatalf("live output prefix = %q", got[:min(len(got), len(runner.TruncatedOutputMarker))])
+	if !strings.HasPrefix(got, runpkg.TruncatedOutputMarker) {
+		t.Fatalf("live output prefix = %q", got[:min(len(got), len(runpkg.TruncatedOutputMarker))])
 	}
-	if len(got) != len(runner.TruncatedOutputMarker)+runner.MaxOutputBytes {
+	if len(got) != len(runpkg.TruncatedOutputMarker)+runpkg.MaxOutputBytes {
 		t.Fatalf("live output length = %d", len(got))
 	}
 }
@@ -2959,7 +2967,10 @@ func TestRunOutputMessageFollowsTailAndPreservesManualScroll(t *testing.T) {
 		lines[i] = fmt.Sprintf("line-%02d", i+1)
 	}
 
-	updated, _ := model.Update(runOutputMsg{targetID: "api", chunk: strings.Join(lines, "\n") + "\n"})
+	firstOutput := strings.Join(lines, "\n") + "\n"
+	updated, _ := model.Update(runEventMsg{event: targetEvent(
+		runpkg.EventTargetOutputChanged, model.Targets[0], core.StatusRunning, firstOutput, "",
+	)})
 	model = updated.(Model)
 	view := strings.Join(model.renderOutputLines("api", 80, 4), "\n")
 	if !strings.Contains(view, "line-20") || strings.Contains(view, "line-01") {
@@ -2969,7 +2980,9 @@ func TestRunOutputMessageFollowsTailAndPreservesManualScroll(t *testing.T) {
 	model.LogFollow = false
 	model.syncOutputViewport()
 	model.outputViewport.SetYOffset(2)
-	updated, _ = model.Update(runOutputMsg{targetID: "api", chunk: "line-21\n"})
+	updated, _ = model.Update(runEventMsg{event: targetEvent(
+		runpkg.EventTargetOutputChanged, model.Targets[0], core.StatusRunning, firstOutput+"line-21\n", "",
+	)})
 	model = updated.(Model)
 	if model.outputViewport.YOffset() != 2 {
 		t.Fatalf("manual preview offset = %d, want 2", model.outputViewport.YOffset())
@@ -3047,7 +3060,6 @@ func TestRunningDashboardAndTaskActivityIndicators(t *testing.T) {
 		{ID: "worker", RelPath: "worker", Selected: true},
 	}})
 	model.Running = true
-	model.PendingRuns = 3
 	model.Status["api"] = core.StatusRunning
 	model.Status["web"] = core.StatusQueued
 	model.Status["worker"] = core.StatusFailed
@@ -3146,22 +3158,14 @@ func TestDashboardShowsStatusCountsWithoutProgressChrome(t *testing.T) {
 	}
 }
 
-func TestModelRunsCommandAndShowsResults(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
+func TestModelProjectsRunLifecycle(t *testing.T) {
+	targets := []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
-	}})
-	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		result := core.RunResult{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n"}
-		if req.Targets[0].ID == "web" {
-			result.Status = core.StatusFailed
-			result.Output = "web bad\n"
-			result.Error = "exit status 1"
-		}
-		return []core.RunResult{
-			result,
-		}, nil
 	}
+	run := &fakeActiveRun{}
+	var spec runpkg.Spec
+	model := NewModel(Options{Command: "echo ok", Targets: targets, startRun: fakeStart(run, &spec)})
 
 	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
@@ -3171,11 +3175,26 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 	if !model.Running {
 		t.Fatal("model should be running")
 	}
-	if model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusRunning {
+	if model.Status["api"] != core.StatusQueued || model.Status["web"] != core.StatusQueued {
 		t.Fatalf("statuses = %#v", model.Status)
 	}
+	if spec.Command != "echo ok" || len(spec.Targets) != 2 {
+		t.Fatalf("run spec = %#v", spec)
+	}
 
-	model = applyCmd(t, model, cmd)
+	for _, event := range []runpkg.Event{
+		targetEvent(runpkg.EventTargetStarted, targets[0], core.StatusRunning, "", ""),
+		targetEvent(runpkg.EventTargetFinished, targets[0], core.StatusSucceeded, "api ok\n", ""),
+		targetEvent(runpkg.EventTargetStarted, targets[1], core.StatusRunning, "", ""),
+		targetEvent(runpkg.EventTargetFinished, targets[1], core.StatusFailed, "web bad\n", "exit status 1"),
+		completedEvent("run-1", "echo ok",
+			runpkg.TargetSnapshot{Target: targets[0], Status: core.StatusSucceeded, OutputTail: "api ok\n"},
+			runpkg.TargetSnapshot{Target: targets[1], Status: core.StatusFailed, OutputTail: "web bad\n", Error: "exit status 1"},
+		),
+	} {
+		updated, _ := model.Update(runEventMsg{event: event})
+		model = updated.(Model)
+	}
 	if model.Running {
 		t.Fatal("model should stop running after results")
 	}
@@ -3190,39 +3209,19 @@ func TestModelRunsCommandAndShowsResults(t *testing.T) {
 	}
 }
 
-func TestTargetRunStreamsOutputBeforeReturningFinalResult(t *testing.T) {
+func TestRunEventCommandStreamsBeforeCompletion(t *testing.T) {
 	target := core.Target{ID: "api", RelPath: "api", Selected: true}
-	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{target}})
+	run := &fakeActiveRun{events: []runpkg.Event{
+		targetEvent(runpkg.EventTargetOutputChanged, target, core.StatusRunning, "live output\n", ""),
+		targetEvent(runpkg.EventTargetFinished, target, core.StatusSucceeded, "live output\n", ""),
+		completedEvent("run-1", "echo ok", runpkg.TargetSnapshot{Target: target, Status: core.StatusSucceeded, OutputTail: "live output\n"}),
+	}}
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{target}, startRun: fakeStart(run, nil)})
 	model.Running = true
-	model.PendingRuns = 1
-	model.runCtx = context.Background()
-	release := make(chan struct{})
-	model.runFunc = func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		if req.OnEvent == nil {
-			return nil, errors.New("missing output event sink")
-		}
-		req.OnEvent(core.Event{Type: core.EventOutput, TargetID: target.ID, Output: "live output\n"})
-		<-release
-		return []core.RunResult{{Target: target, Status: core.StatusSucceeded, Output: "live output\n"}}, nil
-	}
+	model.activeRun = run
 
-	first := make(chan tea.Msg, 1)
-	go func() {
-		first <- model.startTargetCmd(target)()
-	}()
-
-	var output runOutputMsg
-	select {
-	case msg := <-first:
-		var ok bool
-		output, ok = msg.(runOutputMsg)
-		if !ok {
-			t.Fatalf("first target message = %T, want runOutputMsg", msg)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("live output was not delivered before run completion")
-	}
-	updated, next := model.Update(output)
+	msg := waitForRunEvent(context.Background(), run)()
+	updated, next := model.Update(msg)
 	model = updated.(Model)
 	if model.Logs[target.ID] != "live output\n" {
 		t.Fatalf("live logs = %q", model.Logs[target.ID])
@@ -3231,21 +3230,9 @@ func TestTargetRunStreamsOutputBeforeReturningFinalResult(t *testing.T) {
 		t.Fatal("live output should schedule next stream read")
 	}
 
-	finished := make(chan tea.Msg, 1)
-	go func() {
-		finished <- next()
-	}()
-	close(release)
-	select {
-	case msg := <-finished:
-		done, ok := msg.(runDoneMsg)
-		if !ok {
-			t.Fatalf("final target message = %T, want runDoneMsg", msg)
-		}
-		updated, _ = model.Update(done)
+	for next != nil {
+		updated, next = model.Update(next())
 		model = updated.(Model)
-	case <-time.After(time.Second):
-		t.Fatal("final target result was not delivered")
 	}
 	if model.Logs[target.ID] != "live output\n" {
 		t.Fatalf("final logs duplicated streamed output: %q", model.Logs[target.ID])
@@ -3256,16 +3243,16 @@ func TestRunCompletionPreservesStreamedOutputAndDeduplicatesError(t *testing.T) 
 	target := core.Target{ID: "api", RelPath: "api", Selected: true}
 	model := NewModel(Options{Targets: []core.Target{target}})
 	model.Running = true
-	model.PendingRuns = 1
 	model.Status[target.ID] = core.StatusRunning
 	model.Logs[target.ID] = "live output\nexit status 1\n"
 
-	updated, _ := model.Update(runDoneMsg{targetID: target.ID, results: []core.RunResult{{
-		Target: target,
-		Status: core.StatusFailed,
-		Output: "different final snapshot\n",
-		Error:  "exit status 1",
-	}}})
+	updated, _ := model.Update(runEventMsg{event: targetEvent(
+		runpkg.EventTargetFinished,
+		target,
+		core.StatusFailed,
+		"live output\nexit status 1\n",
+		"exit status 1",
+	)})
 	model = updated.(Model)
 
 	if model.Logs[target.ID] != "live output\nexit status 1\n" {
@@ -3308,123 +3295,104 @@ func TestCommandEnterFocusesTasksWhenNoTargetIsSelected(t *testing.T) {
 	}
 }
 
-func TestModelRunnerErrorBecomesFailure(t *testing.T) {
+func TestModelStartErrorLeavesRunUnaccepted(t *testing.T) {
 	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
-	}})
-	model.runFunc = func(context.Context, core.RunRequest) ([]core.RunResult, error) {
+	}, startRun: func(context.Context, runpkg.Spec) (activeRun, error) {
 		return nil, errors.New("runner setup failed")
-	}
+	}})
 
 	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
-	model, next := applyOneCmd(t, model, cmd)
 
-	if next != nil {
-		t.Fatal("runner error should not schedule another command")
+	if cmd != nil {
+		t.Fatal("start error should not schedule command")
 	}
-	if model.Status["api"] != core.StatusFailed {
-		t.Fatalf("api status = %s, want failed", model.Status["api"])
+	if model.Status["api"] != core.StatusIdle {
+		t.Fatalf("api status = %s, want idle", model.Status["api"])
 	}
-	if model.Running || model.PendingRuns != 0 {
-		t.Fatalf("run should be terminal, running/pending = %t/%d", model.Running, model.PendingRuns)
+	if model.Running {
+		t.Fatal("rejected run should not be running")
 	}
-	if !strings.Contains(model.Logs["api"], "runner setup failed") {
-		t.Fatalf("api log = %q, want runner error", model.Logs["api"])
+	if !strings.Contains(model.RunError, "runner setup failed") {
+		t.Fatalf("run error = %q", model.RunError)
 	}
-	if len(model.RunHistory) != 1 {
-		t.Fatalf("run history = %#v, want one terminal run", model.RunHistory)
-	}
-	run := model.RunHistory[0]
-	if run.Total != 1 || run.Failed != 1 || run.Succeeded != 0 || run.Cancelled != 0 {
-		t.Fatalf("run totals = %#v, want one failure", run)
+	if len(model.RunHistory) != 0 {
+		t.Fatalf("run history = %#v, want no unaccepted run", model.RunHistory)
 	}
 }
 
-func TestModelFailFastCancelsRemaining(t *testing.T) {
+func TestModelPassesFailFastAndProjectsFinalOutcomes(t *testing.T) {
+	targets := []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+		{ID: "worker", RelPath: "worker", Selected: true},
+	}
+	run := &fakeActiveRun{}
+	var spec runpkg.Spec
 	model := NewModel(Options{
 		Command:  "echo ok",
 		Workers:  1,
 		FailFast: true,
-		Targets: []core.Target{
-			{ID: "api", RelPath: "api", Selected: true},
-			{ID: "web", RelPath: "web", Selected: true},
-			{ID: "worker", RelPath: "worker", Selected: true},
-		},
+		Targets:  targets,
+		startRun: fakeStart(run, &spec),
 	})
-	model.runFunc = func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		return []core.RunResult{{
-			Target: req.Targets[0],
-			Status: core.StatusFailed,
-			Error:  "exit status 1",
-		}}, nil
-	}
 
-	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	updated, _ := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
-	model, next := applyOneCmd(t, model, cmd)
-
-	if next != nil {
-		t.Fatal("fail-fast should not schedule queued targets")
+	if !spec.FailFast || spec.Workers != 1 {
+		t.Fatalf("run spec = %#v", spec)
 	}
+	event := completedEvent("run-1", "echo ok",
+		runpkg.TargetSnapshot{Target: targets[0], Status: core.StatusFailed, Error: "exit status 1"},
+		runpkg.TargetSnapshot{Target: targets[1], Status: core.StatusCancelled},
+		runpkg.TargetSnapshot{Target: targets[2], Status: core.StatusCancelled},
+	)
+	updatedModel, _ := model.Update(runEventMsg{event: event})
+	model = updatedModel.(Model)
 	if model.Status["api"] != core.StatusFailed ||
 		model.Status["web"] != core.StatusCancelled ||
 		model.Status["worker"] != core.StatusCancelled {
 		t.Fatalf("fail-fast statuses = %#v", model.Status)
 	}
-	if len(model.runQueue) != 0 {
-		t.Fatalf("run queue = %#v, want empty", model.runQueue)
-	}
-	if model.Running || model.PendingRuns != 0 || model.hasActiveRuns() {
-		t.Fatalf("run should be terminal, running/pending/active = %t/%d/%t", model.Running, model.PendingRuns, model.hasActiveRuns())
+	if model.Running || model.hasActiveRuns() {
+		t.Fatalf("run should be terminal, running/active = %t/%t", model.Running, model.hasActiveRuns())
 	}
 	if len(model.RunHistory) != 1 {
 		t.Fatalf("run history = %#v, want one terminal run", model.RunHistory)
 	}
-	run := model.RunHistory[0]
-	if run.Total != 3 || run.Failed != 1 || run.Cancelled != 2 || run.Succeeded != 0 {
-		t.Fatalf("run totals = %#v, want one failure and two cancellations", run)
+	summary := model.RunHistory[0]
+	if summary.Total != 3 || summary.Failed != 1 || summary.Cancelled != 2 || summary.Succeeded != 0 {
+		t.Fatalf("run totals = %#v, want one failure and two cancellations", summary)
 	}
 }
 
-func TestModelUsesOneLogRootPerRun(t *testing.T) {
-	baseLogRoot := t.TempDir()
+func TestModelUsesRunIDForArchivedHistoryProjection(t *testing.T) {
+	targets := []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}
+	run := &fakeActiveRun{}
 	model := NewModel(Options{
 		Command:  "echo ok",
 		Workers:  2,
 		SaveLogs: true,
-		LogRoot:  baseLogRoot,
-		Targets: []core.Target{
-			{ID: "api", RelPath: "api", Selected: true},
-			{ID: "web", RelPath: "web", Selected: true},
-		},
+		LogRoot:  t.TempDir(),
+		Targets:  targets,
+		startRun: fakeStart(run, nil),
 	})
-	var requestRoots []string
-	model.runFunc = func(_ context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		requestRoots = append(requestRoots, req.LogRoot)
-		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded}}, nil
-	}
 
-	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
+	updated, _ := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
-	if model.runLogRoot == "" {
-		t.Fatal("startRun should create a run-scoped log root")
-	}
-	if filepath.Dir(model.runLogRoot) != baseLogRoot {
-		t.Fatalf("run log root = %q, want child of %q", model.runLogRoot, baseLogRoot)
-	}
-	if _, err := time.Parse("20060102T150405.000000000Z", filepath.Base(model.runLogRoot)); err != nil {
-		t.Fatalf("run log root timestamp = %q: %v", filepath.Base(model.runLogRoot), err)
-	}
-
-	model = applyCmd(t, model, cmd)
-	if len(requestRoots) != 2 {
-		t.Fatalf("request log roots = %#v, want two", requestRoots)
-	}
-	for _, root := range requestRoots {
-		if root != model.runLogRoot {
-			t.Fatalf("request log root = %q, want shared root %q", root, model.runLogRoot)
-		}
+	event := completedEvent("20260830T010203.000000000Z", "echo ok",
+		runpkg.TargetSnapshot{Target: targets[0], Status: core.StatusSucceeded},
+		runpkg.TargetSnapshot{Target: targets[1], Status: core.StatusSucceeded},
+	)
+	event.Run.LogID = event.Run.ID
+	updatedModel, _ := model.Update(runEventMsg{event: event})
+	model = updatedModel.(Model)
+	if len(model.RunHistory) != 1 || model.RunHistory[0].LogID != "20260830T010203.000000000Z" {
+		t.Fatalf("run history = %#v", model.RunHistory)
 	}
 }
 
@@ -3585,31 +3553,24 @@ func TestModelCancelsOnlySelectedRunningTarget(t *testing.T) {
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: false},
 	}})
+	run := &fakeActiveRun{cancelResults: [][]string{{"api"}}}
 	model.Running = true
-	model.PendingRuns = 2
+	model.activeRun = run
 	model.Status["api"] = core.StatusRunning
 	model.Status["web"] = core.StatusRunning
-	apiCancelled := false
-	webCancelled := false
-	model.targetCancels = map[string]context.CancelFunc{
-		"api": func() { apiCancelled = true },
-		"web": func() { webCancelled = true },
-	}
 
 	model, _ = updateKey(model, "delete")
-	if !apiCancelled {
+	if run.cancelCalls != 1 {
 		t.Fatal("selected api target should be cancelled")
-	}
-	if webCancelled {
-		t.Fatal("unselected web target should keep running")
 	}
 	if model.Status["api"] != core.StatusCancelled || model.Status["web"] != core.StatusRunning {
 		t.Fatalf("statuses = %#v", model.Status)
 	}
 
-	updated, _ := model.Update(runDoneMsg{targetID: "api", results: []core.RunResult{{Target: model.Targets[0], Status: core.StatusCancelled}}})
-	model = updated.(Model)
-	updated, _ = model.Update(runDoneMsg{targetID: "web", results: []core.RunResult{{Target: model.Targets[1], Status: core.StatusSucceeded}}})
+	updated, _ := model.Update(runEventMsg{event: completedEvent("run-1", "sleep 10",
+		runpkg.TargetSnapshot{Target: model.Targets[0], Status: core.StatusCancelled},
+		runpkg.TargetSnapshot{Target: model.Targets[1], Status: core.StatusSucceeded},
+	)})
 	model = updated.(Model)
 	if model.Running {
 		t.Fatal("model should stop after remaining target completes")
@@ -3619,60 +3580,30 @@ func TestModelCancelsOnlySelectedRunningTarget(t *testing.T) {
 	}
 }
 
-func TestModelHonorsSerialMode(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Mode: core.ModeSerial, Targets: []core.Target{
+func TestModelPassesModeAndWorkerLimitToRun(t *testing.T) {
+	run := &fakeActiveRun{}
+	var spec runpkg.Spec
+	model := NewModel(Options{Command: "echo ok", Mode: core.ModeSerial, Workers: 7, Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
-	}})
-	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded}}, nil
-	}
+	}, startRun: fakeStart(run, &spec)})
 
-	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
-	model = updated
-	if model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusQueued {
-		t.Fatalf("serial initial statuses = %#v", model.Status)
-	}
-	model, next := applyOneCmd(t, model, cmd)
-	if model.Status["api"] != core.StatusSucceeded || model.Status["web"] != core.StatusRunning {
-		t.Fatalf("serial after first completion statuses = %#v", model.Status)
-	}
-	if next == nil {
-		t.Fatal("serial should schedule next target")
-	}
-	model, next = applyOneCmd(t, model, next)
-	if next != nil {
-		t.Fatal("serial should have no more commands")
-	}
-	if model.Running {
-		t.Fatal("serial run should be complete")
-	}
-	if model.Status["web"] != core.StatusSucceeded {
-		t.Fatalf("web status = %s", model.Status["web"])
-	}
-}
-
-func TestModelHonorsWorkerLimit(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Workers: 2, Targets: []core.Target{
-		{ID: "api", RelPath: "api", Selected: true},
-		{ID: "web", RelPath: "web", Selected: true},
-		{ID: "worker", RelPath: "worker", Selected: true},
-	}})
-	updated, _ := updateSpecialKey(model, tea.KeyEnter)
-	model = updated
-	if model.Status["api"] != core.StatusRunning || model.Status["web"] != core.StatusRunning || model.Status["worker"] != core.StatusQueued {
-		t.Fatalf("worker-limited statuses = %#v", model.Status)
+	_, _ = updateSpecialKey(model, tea.KeyEnter)
+	if spec.Mode != core.ModeSerial || spec.Workers != 7 {
+		t.Fatalf("run spec = %#v", spec)
 	}
 }
 
 func TestModelCancelsSelectedQueuedTargets(t *testing.T) {
+	run := &fakeActiveRun{cancelResults: [][]string{{"web", "worker"}}}
 	model := NewModel(Options{Command: "echo ok", Workers: 1, Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
 		{ID: "worker", RelPath: "worker", Selected: true},
-	}})
+	}, startRun: fakeStart(run, nil)})
 	updated, _ := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
+	model.Status["api"] = core.StatusRunning
 	model.Targets[0].Selected = false
 
 	model, _ = updateKey(model, "delete")
@@ -3686,14 +3617,11 @@ func TestModelCancelsSelectedQueuedTargets(t *testing.T) {
 	if model.Status["web"] != core.StatusCancelled || model.Status["worker"] != core.StatusCancelled {
 		t.Fatalf("queued selected targets should be cancelled: %#v", model.Status)
 	}
-	if model.PendingRuns != 1 {
-		t.Fatalf("pending runs = %d, want only active target", model.PendingRuns)
-	}
-	if len(model.runQueue) != 0 {
-		t.Fatalf("queue should be empty after cancelling queued targets: %#v", model.runQueue)
-	}
-
-	updatedModel, next := model.Update(runDoneMsg{targetID: "api", results: []core.RunResult{{Target: model.Targets[0], Status: core.StatusSucceeded}}})
+	updatedModel, next := model.Update(runEventMsg{event: completedEvent("run-1", "echo ok",
+		runpkg.TargetSnapshot{Target: model.Targets[0], Status: core.StatusSucceeded},
+		runpkg.TargetSnapshot{Target: model.Targets[1], Status: core.StatusCancelled},
+		runpkg.TargetSnapshot{Target: model.Targets[2], Status: core.StatusCancelled},
+	)})
 	model = updatedModel.(Model)
 	if next != nil {
 		t.Fatal("no follow-up command expected after queue was cancelled")
@@ -3701,31 +3629,24 @@ func TestModelCancelsSelectedQueuedTargets(t *testing.T) {
 	if model.Running {
 		t.Fatal("model should stop after active target completes")
 	}
-	if len(model.completedResults) != 3 {
-		t.Fatalf("completed results = %#v", model.completedResults)
+	if len(model.RunHistory) != 1 || model.RunHistory[0].Cancelled != 2 {
+		t.Fatalf("run history = %#v", model.RunHistory)
 	}
 }
 
 func TestCancelAllClearsQueuedWork(t *testing.T) {
+	run := &fakeActiveRun{cancelResults: [][]string{{"api", "web", "worker"}}}
 	model := NewModel(Options{Command: "echo ok", Workers: 1, Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
 		{ID: "worker", RelPath: "worker", Selected: true},
-	}})
+	}, startRun: fakeStart(run, nil)})
 	updated, _ := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
-	cancelled := false
-	model.cancelRun = func() { cancelled = true }
 
 	model.cancelAll()
-	if !cancelled {
+	if run.cancelCalls != 1 {
 		t.Fatal("cancelAll should call root cancel function")
-	}
-	if len(model.runQueue) != 0 {
-		t.Fatalf("run queue should be cleared: %#v", model.runQueue)
-	}
-	if model.PendingRuns != 1 {
-		t.Fatalf("pending runs = %d, want active target only", model.PendingRuns)
 	}
 	for _, id := range []string{"api", "web", "worker"} {
 		if model.Status[id] != core.StatusCancelled {
@@ -3733,7 +3654,11 @@ func TestCancelAllClearsQueuedWork(t *testing.T) {
 		}
 	}
 
-	updatedModel, next := model.Update(runDoneMsg{targetID: "api", results: []core.RunResult{{Target: model.Targets[0], Status: core.StatusCancelled}}})
+	updatedModel, next := model.Update(runEventMsg{event: completedEvent("run-1", "echo ok",
+		runpkg.TargetSnapshot{Target: model.Targets[0], Status: core.StatusCancelled},
+		runpkg.TargetSnapshot{Target: model.Targets[1], Status: core.StatusCancelled},
+		runpkg.TargetSnapshot{Target: model.Targets[2], Status: core.StatusCancelled},
+	)})
 	model = updatedModel.(Model)
 	if next != nil {
 		t.Fatal("cancelAll should not schedule queued work after active target completes")
@@ -3741,20 +3666,19 @@ func TestCancelAllClearsQueuedWork(t *testing.T) {
 	if model.Running {
 		t.Fatal("model should stop after active cancellation completes")
 	}
-	if len(model.completedResults) != 3 {
-		t.Fatalf("completed results = %#v, want active plus queued cancellations", model.completedResults)
+	if len(model.RunHistory) != 1 || model.RunHistory[0].Cancelled != 3 {
+		t.Fatalf("run history = %#v", model.RunHistory)
 	}
 }
 
 func TestCtrlCConfirmsBeforeCancellingActiveWorkAndQuitting(t *testing.T) {
+	run := &fakeActiveRun{cancelResults: [][]string{{"api", "web"}}}
 	model := NewModel(Options{Command: "echo ok", Workers: 1, Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
-	}})
+	}, startRun: fakeStart(run, nil)})
 	updated, _ := updateSpecialKey(model, tea.KeyEnter)
 	model = updated
-	cancelled := false
-	model.cancelRun = func() { cancelled = true }
 
 	updated, cmd := updateKey(model, "ctrl+c")
 	model = updated
@@ -3768,7 +3692,7 @@ func TestCtrlCConfirmsBeforeCancellingActiveWorkAndQuitting(t *testing.T) {
 	if !model.ConfirmQuitYes {
 		t.Fatal("quit confirmation should default to Yes")
 	}
-	if cancelled {
+	if run.cancelCalls != 0 {
 		t.Fatal("ctrl+c should not cancel the root run context before confirmation")
 	}
 	if model.Status["api"] == core.StatusCancelled || model.Status["web"] == core.StatusCancelled {
@@ -3777,38 +3701,17 @@ func TestCtrlCConfirmsBeforeCancellingActiveWorkAndQuitting(t *testing.T) {
 
 	updated, cmd = updateKey(model, "enter")
 	model = updated
-	if !cancelled {
+	if run.cancelCalls != 1 {
 		t.Fatal("enter on Yes should cancel the root run context")
 	}
 	if model.Status["api"] != core.StatusCancelled || model.Status["web"] != core.StatusCancelled {
 		t.Fatalf("statuses = %#v, want all active work cancelled", model.Status)
-	}
-	if len(model.runQueue) != 0 {
-		t.Fatalf("run queue should be cleared: %#v", model.runQueue)
 	}
 	if cmd == nil {
 		t.Fatal("ctrl+c should return tea.Quit")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatalf("ctrl+c command = %T, want tea.QuitMsg", cmd())
-	}
-}
-
-func TestModelDeduplicatesCompletedResults(t *testing.T) {
-	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{
-		{ID: "api", RelPath: "api", Selected: true},
-	}})
-	model.Running = true
-	model.PendingRuns = 2
-	model.recordCompletedResult(core.RunResult{Target: model.Targets[0], Status: core.StatusQueued})
-
-	updated, _ := model.Update(runDoneMsg{targetID: "api", results: []core.RunResult{{Target: model.Targets[0], Status: core.StatusSucceeded}}})
-	model = updated.(Model)
-	if len(model.completedResults) != 1 {
-		t.Fatalf("completed results = %#v, want one result per target", model.completedResults)
-	}
-	if model.completedResults[0].Status != core.StatusSucceeded {
-		t.Fatalf("status = %s, want latest result", model.completedResults[0].Status)
 	}
 }
 
@@ -3851,75 +3754,23 @@ func TestModelHistoryAndRerunFailed(t *testing.T) {
 		t.Fatalf("notice = %q", model.Notice)
 	}
 	model, _ = updateKey(model, "R")
-	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		if len(req.Targets) != 1 || req.Targets[0].ID != "web" {
-			t.Fatalf("rerun targets = %#v", req.Targets)
-		}
-		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded, Output: "fixed\n"}}, nil
-	}
+	run := &fakeActiveRun{}
+	var spec runpkg.Spec
+	model.startLifecycle = fakeStart(run, &spec)
 	updated, cmd := updateKey(model, "y")
 	model = updated
 	if cmd == nil {
 		t.Fatal("confirm should start rerun")
 	}
-	model = applyCmd(t, model, cmd)
+	if len(spec.Targets) != 1 || spec.Targets[0].ID != "web" {
+		t.Fatalf("rerun targets = %#v", spec.Targets)
+	}
+	updatedModel, _ := model.Update(runEventMsg{event: completedEvent("run-1", spec.Command,
+		runpkg.TargetSnapshot{Target: spec.Targets[0], Status: core.StatusSucceeded, OutputTail: "fixed\n"},
+	)})
+	model = updatedModel.(Model)
 	if model.Status["web"] != core.StatusSucceeded {
 		t.Fatalf("web status = %s", model.Status["web"])
-	}
-}
-
-func TestModelPersistsHistory(t *testing.T) {
-	tmp := t.TempDir()
-	commandHistory := filepath.Join(tmp, "home-history.jsonl")
-	runHistory := filepath.Join(tmp, "project-history.jsonl")
-	model := NewModel(Options{
-		Command:            "echo ok",
-		CommandHistoryPath: commandHistory,
-		RunHistoryPath:     runHistory,
-		Targets: []core.Target{
-			{ID: "api", RelPath: "api", Selected: true},
-			{ID: "web", RelPath: "web", Selected: true},
-		},
-	})
-	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		started := time.Date(2026, time.August, 15, 8, 0, 0, 0, time.UTC)
-		result := core.RunResult{Target: req.Targets[0], Status: core.StatusSucceeded, Output: req.Targets[0].ID + " ok\n", Started: started, Ended: started.Add(time.Second)}
-		if req.Targets[0].ID == "web" {
-			result.Status = core.StatusFailed
-			result.Error = "exit status 1"
-		}
-		return []core.RunResult{result}, nil
-	}
-
-	updated, cmd := updateSpecialKey(model, tea.KeyEnter)
-	model = updated
-	model = applyCmd(t, model, cmd)
-	if model.RunError != "" {
-		t.Fatalf("run error = %q", model.RunError)
-	}
-
-	commands, err := history.ReadCommands(commandHistory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(commands) != 1 || commands[0].Command != "echo ok" {
-		t.Fatalf("commands = %#v", commands)
-	}
-	runs, err := history.ReadRuns(runHistory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(runs) != 1 || runs[0].Succeeded != 1 || runs[0].Failed != 1 || runs[0].Total != 2 {
-		t.Fatalf("runs = %#v", runs)
-	}
-	if len(runs[0].Targets) != 2 || runs[0].Targets[0].ID != "api" || runs[0].Targets[1].ID != "web" {
-		t.Fatalf("run targets = %#v", runs[0].Targets)
-	}
-	if runs[0].Targets[1].Status != core.StatusFailed || runs[0].Targets[1].Error != "exit status 1" {
-		t.Fatalf("failed target = %#v", runs[0].Targets[1])
-	}
-	if runs[0].Started.IsZero() || runs[0].Ended.Sub(runs[0].Started) != time.Second {
-		t.Fatalf("run timing = %s..%s", runs[0].Started, runs[0].Ended)
 	}
 }
 
@@ -4315,11 +4166,9 @@ func TestHistoryRerunFailedConfirmsHistoricalCommandAndTargets(t *testing.T) {
 		}
 	}
 
-	var request core.RunRequest
-	model.runFunc = func(ctx context.Context, req core.RunRequest) ([]core.RunResult, error) {
-		request = req
-		return []core.RunResult{{Target: req.Targets[0], Status: core.StatusSucceeded}}, nil
-	}
+	run := &fakeActiveRun{}
+	var request runpkg.Spec
+	model.startLifecycle = fakeStart(run, &request)
 	model, cmd := updateKey(model, "y")
 	if cmd == nil {
 		t.Fatal("historical confirmation should start run")
@@ -4327,7 +4176,6 @@ func TestHistoryRerunFailedConfirmsHistoricalCommandAndTargets(t *testing.T) {
 	if model.Command != "pnpm test" {
 		t.Fatalf("confirmed command = %q", model.Command)
 	}
-	model = applyCmd(t, model, cmd)
 	if request.Command != "pnpm test" || len(request.Targets) != 1 || request.Targets[0].ID != "web" {
 		t.Fatalf("historical request = %#v", request)
 	}

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
+	runpkg "github.com/theopoc/runny/internal/run"
 )
 
 func Run(opts Options) error {
@@ -20,8 +21,17 @@ func runProgram(ctx context.Context, opts Options) error {
 	lifecycleCtx, cancelLifecycle := context.WithCancel(ctx)
 	defer cancelLifecycle()
 	opts.lifecycleCtx = lifecycleCtx
-	runTracker := newRunTracker()
-	opts.runTracker = runTracker
+	var runtime *runpkg.Runtime
+	if opts.startRun == nil {
+		runtime = runpkg.NewLocal(runpkg.LocalOptions{
+			CommandHistoryPath: opts.CommandHistoryPath,
+			RunHistoryPath:     opts.RunHistoryPath,
+			LogRoot:            opts.LogRoot,
+		})
+		opts.startRun = func(ctx context.Context, spec runpkg.Spec) (activeRun, error) {
+			return runtime.Start(ctx, spec)
+		}
+	}
 	programOptions := []tea.ProgramOption{
 		tea.WithColorProfile(colorprofile.TrueColor),
 		tea.WithoutSignals(),
@@ -43,6 +53,8 @@ func runProgram(ctx context.Context, opts Options) error {
 	cancelLifecycle()
 	close(programDone)
 	<-shutdownDone
-	runTracker.CloseAndWait()
+	if runtime != nil {
+		runtime.CloseAndWait()
+	}
 	return err
 }
