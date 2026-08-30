@@ -3,127 +3,69 @@ package runner
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/charmbracelet/x/termios"
 	"github.com/creack/pty"
 	"github.com/theopoc/runny/internal/core"
-	"github.com/theopoc/runny/internal/logs"
 )
-
-type logStoreCloser interface {
-	Close() error
-}
 
 const terminalDrainTimeout = 250 * time.Millisecond
 
-func Run(ctx context.Context, req core.RunRequest) (results []core.RunResult, err error) {
-	if req.Command == "" {
-		return nil, errors.New("command is required")
-	}
-	targets := core.SelectedTargets(req.Targets)
-	if len(targets) == 0 {
-		return nil, errors.New("no selected targets")
-	}
-	results = make([]core.RunResult, len(targets))
-	logStore, err := logs.NewStore(logs.Options{Root: req.LogRoot, Save: req.SaveLogs, Disabled: req.DisableLogging})
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		err = closeLogStore(logStore, err)
-	}()
-	if ctx.Err() != nil {
-		for i, target := range targets {
-			results[i] = cancelledResult(target)
-		}
-		return results, nil
-	}
-	workers := req.Workers
-	if req.Mode == core.ModeSerial {
-		workers = 1
-	}
-	if workers <= 0 {
-		workers = min(runtime.NumCPU(), len(targets))
-	}
-	jobs := make(chan int)
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range jobs {
-				result := runOne(runCtx, req.Command, targets[idx], logStore, req.DisableLogging, req.OnEvent)
-				results[idx] = result
-				if req.FailFast && result.Status == core.StatusFailed {
-					cancel()
-				}
-			}
-		}()
-	}
-	for i := range targets {
-		if runCtx.Err() != nil {
-			results[i] = cancelledResult(targets[i])
-			continue
-		}
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
-	for i, result := range results {
-		if result.Target.ID == "" {
-			results[i] = cancelledResult(targets[i])
-		}
-	}
-	return results, nil
+// Request describes one Target execution.
+type Request struct {
+	Command  string
+	Target   core.Target
+	OnOutput func([]byte)
 }
 
-func closeLogStore(store logStoreCloser, runErr error) error {
-	closeErr := store.Close()
-	if closeErr == nil {
-		return runErr
-	}
-	return errors.Join(runErr, fmt.Errorf("closing log store: %w", closeErr))
+// Outcome contains command execution facts only. Persistence cannot change it.
+type Outcome struct {
+	Status   core.Status
+	ExitCode int
+	Error    string
+	Started  time.Time
+	Ended    time.Time
 }
 
-func runOne(
-	ctx context.Context,
-	command string,
-	target core.Target,
-	logStore *logs.Store,
-	disableLogging bool,
-	onEvent func(core.Event),
-) core.RunResult {
+// Execute runs one command in one Target PTY and streams normalized output.
+func Execute(ctx context.Context, req Request) Outcome {
 	started := time.Now()
 	if ctx.Err() != nil {
-		return cancelledResult(target)
+		return Outcome{
+			Status:  core.StatusCancelled,
+			Error:   ctx.Err().Error(),
+			Started: started,
+			Ended:   started,
+		}
 	}
-	cmd := commandForTarget(command, target)
-	cmd.Dir = target.AbsPath
-	var capture *tailBuffer
+	if req.Command == "" {
+		return Outcome{
+			Status:  core.StatusFailed,
+			Error:   "command is required",
+			Started: started,
+			Ended:   time.Now(),
+		}
+	}
+	cmd := commandForTarget(req.Command, req.Target)
+	cmd.Dir = req.Target.AbsPath
 	var outputWriter io.Writer = io.Discard
-	if !disableLogging {
-		capture = newTailBuffer(MaxOutputBytes)
-		outputWriter = &eventWriter{target: target, capture: capture, onEvent: onEvent}
+	if req.OnOutput != nil {
+		outputWriter = callbackWriter(req.OnOutput)
 	}
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err == nil {
 		writeTerminalEOF(ptmx)
 		readDone := make(chan struct{})
 		go func() {
-			if disableLogging {
+			if req.OnOutput == nil {
 				_, _ = io.Copy(io.Discard, ptmx)
 			} else {
 				writer := &terminalOutputWriter{dst: outputWriter}
@@ -151,26 +93,7 @@ func runOne(
 		_ = ptmx.Close()
 	}
 	ended := time.Now()
-	var output string
-	if capture != nil {
-		output = capture.String()
-	}
-	var saveErr error
-	if logStore != nil {
-		if appendErr := logStore.Append(target.ID, output); appendErr != nil {
-			saveErr = fmt.Errorf("saving log: %w", appendErr)
-		}
-	}
-	result := core.RunResult{Target: target, Started: started, Ended: ended, Output: output}
-	if saveErr != nil {
-		result.Status = core.StatusFailed
-		result.Error = errors.Join(err, ctx.Err(), saveErr).Error()
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			result.ExitCode = exitErr.ExitCode()
-		}
-		return result
-	}
+	result := Outcome{Started: started, Ended: ended}
 	if ctx.Err() != nil {
 		result.Status = core.StatusCancelled
 		result.Error = ctx.Err().Error()
@@ -320,36 +243,9 @@ func (w *terminalOutputWriter) Flush() {
 	}
 }
 
-type eventWriter struct {
-	mu      sync.Mutex
-	target  core.Target
-	capture io.Writer
-	onEvent func(core.Event)
-}
+type callbackWriter func([]byte)
 
-func (w *eventWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	n, err := w.capture.Write(p)
-	if n > 0 && w.onEvent != nil {
-		w.onEvent(core.Event{
-			Type:     core.EventOutput,
-			TargetID: w.target.ID,
-			Target:   w.target,
-			Output:   string(p[:n]),
-			Time:     time.Now(),
-		})
-	}
-	return n, err
-}
-
-func cancelledResult(target core.Target) core.RunResult {
-	now := time.Now()
-	return core.RunResult{
-		Target:  target,
-		Status:  core.StatusCancelled,
-		Started: now,
-		Ended:   now,
-		Error:   context.Canceled.Error(),
-	}
+func (w callbackWriter) Write(p []byte) (int, error) {
+	w(p)
+	return len(p), nil
 }

@@ -2,12 +2,11 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
-	"runtime"
+	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -17,7 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/history"
-	"github.com/theopoc/runny/internal/runner"
+	runpkg "github.com/theopoc/runny/internal/run"
 )
 
 type Focus int
@@ -40,132 +39,91 @@ type Options struct {
 	LogRoot            string
 	CommandHistoryPath string
 	RunHistoryPath     string
-	runFunc            func(context.Context, core.RunRequest) ([]core.RunResult, error)
-	runTracker         *runTracker
+	startRun           startRunFunc
 	lifecycleCtx       context.Context
 	programOptions     []tea.ProgramOption
 }
 
+type activeRun interface {
+	Next(context.Context) (runpkg.Event, error)
+	Cancel(runpkg.CancelScope) runpkg.Cancellation
+}
+
+type startRunFunc func(context.Context, runpkg.Spec) (activeRun, error)
+
 type Model struct {
-	Command               string
-	commandCursor         int
-	commandCursorValid    bool
-	commandSelection      int
-	commandSelecting      bool
-	Targets               []core.Target
-	Status                map[string]core.Status
-	Logs                  map[string]string
-	liveLogTruncated      map[string]bool
-	TargetStarted         map[string]time.Time
-	History               []string
-	RunHistory            []history.RunEntry
-	Focus                 Focus
-	Cursor                int
-	DirectoryOffset       int
-	HistoryPos            int
-	HistoryTab            historyTab
-	HistoryDepth          historyDepth
-	HistoryCommandPos     int
-	HistoryTargetPos      int
-	HistoryShowAll        bool
-	HistoryLog            string
-	HistoryLogError       string
-	HistoryLogLoading     bool
-	HistoryDetailOffset   int
-	historyLogRunID       string
-	historyLogTargetID    string
-	CommandHistoryPos     int
-	CommandDraft          string
-	Filter                string
-	ShowHelp              bool
-	ShowHistory           bool
-	ShowCommand           bool
-	ShowPalette           bool
-	ShowOptions           bool
-	OptionsTab            int
-	OptionsPos            int
-	ConfirmRun            bool
-	confirmRunCommand     string
-	confirmRunTargets     []core.Target
-	ConfirmCancelSelected bool
-	ConfirmCancelAll      bool
-	ConfirmQuit           bool
-	ConfirmQuitYes        bool
-	Zoom                  bool
-	Palette               string
-	PalettePos            int
-	HistoryFilter         string
-	HistorySearching      bool
-	LogFollow             bool
-	Running               bool
-	PendingRuns           int
-	spinnerFrame          int
-	runCtx                context.Context
-	runQueue              []core.Target
-	runLogRoot            string
-	completedResults      []core.RunResult
-	RunError              string
-	Notice                string
-	Width                 int
-	Height                int
-	Mode                  core.ExecutionMode
-	Workers               int
-	FailFast              bool
-	SaveLogs              bool
-	DisableLogging        bool
-	LogRoot               string
-	CommandHistoryPath    string
-	RunHistoryPath        string
-	commandBeforeEdit     string
-	commandReturnFocus    Focus
-	cancelRun             context.CancelFunc
-	targetCancels         map[string]context.CancelFunc
-	runFunc               func(context.Context, core.RunRequest) ([]core.RunResult, error)
-	runTracker            *runTracker
-	lifecycleCtx          context.Context
-	outputViewport        viewport.Model
-	historyLogViewport    viewport.Model
-}
-
-type runTracker struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	closed bool
-	active int
-}
-
-func newRunTracker() *runTracker {
-	tracker := &runTracker{}
-	tracker.cond = sync.NewCond(&tracker.mu)
-	return tracker
-}
-
-func (t *runTracker) TryStart() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.closed {
-		return false
-	}
-	t.active++
-	return true
-}
-
-func (t *runTracker) Done() {
-	t.mu.Lock()
-	t.active--
-	if t.active == 0 {
-		t.cond.Broadcast()
-	}
-	t.mu.Unlock()
-}
-
-func (t *runTracker) CloseAndWait() {
-	t.mu.Lock()
-	t.closed = true
-	for t.active > 0 {
-		t.cond.Wait()
-	}
-	t.mu.Unlock()
+	Command                string
+	commandCursor          int
+	commandCursorValid     bool
+	commandSelection       int
+	commandSelecting       bool
+	Targets                []core.Target
+	Status                 map[string]core.Status
+	Logs                   map[string]string
+	liveLogTruncated       map[string]bool
+	TargetStarted          map[string]time.Time
+	History                []string
+	RunHistory             []history.RunEntry
+	Focus                  Focus
+	Cursor                 int
+	DirectoryOffset        int
+	HistoryPos             int
+	HistoryTab             historyTab
+	HistoryDepth           historyDepth
+	HistoryCommandPos      int
+	HistoryTargetPos       int
+	HistoryShowAll         bool
+	HistoryLog             string
+	HistoryLogError        string
+	HistoryLogLoading      bool
+	HistoryDetailOffset    int
+	historyLogRunID        string
+	historyLogTargetID     string
+	CommandHistoryPos      int
+	CommandDraft           string
+	Filter                 string
+	ShowHelp               bool
+	ShowHistory            bool
+	ShowCommand            bool
+	ShowPalette            bool
+	ShowOptions            bool
+	OptionsTab             int
+	OptionsPos             int
+	ConfirmRun             bool
+	confirmRunCommand      string
+	confirmRunTargets      []core.Target
+	ConfirmCancelSelected  bool
+	confirmCancelTargetIDs []string
+	ConfirmCancelAll       bool
+	ConfirmQuit            bool
+	ConfirmQuitYes         bool
+	Zoom                   bool
+	Palette                string
+	PalettePos             int
+	HistoryFilter          string
+	HistorySearching       bool
+	LogFollow              bool
+	Running                bool
+	spinnerFrame           int
+	RunError               string
+	Notice                 string
+	Width                  int
+	Height                 int
+	Mode                   core.ExecutionMode
+	Workers                int
+	FailFast               bool
+	SaveLogs               bool
+	DisableLogging         bool
+	LogRoot                string
+	CommandHistoryPath     string
+	RunHistoryPath         string
+	commandBeforeEdit      string
+	commandReturnFocus     Focus
+	activeRun              activeRun
+	startLifecycle         startRunFunc
+	lifecycleCtx           context.Context
+	outputViewport         viewport.Model
+	historyLogViewport     viewport.Model
 }
 
 func NewModel(opts Options) Model {
@@ -176,9 +134,16 @@ func NewModel(opts Options) Model {
 		status[target.ID] = core.StatusIdle
 		logs[target.ID] = ""
 	}
-	runFunc := opts.runFunc
-	if runFunc == nil {
-		runFunc = runner.Run
+	startRun := opts.startRun
+	if startRun == nil {
+		runtime := runpkg.NewLocal(runpkg.LocalOptions{
+			CommandHistoryPath: opts.CommandHistoryPath,
+			RunHistoryPath:     opts.RunHistoryPath,
+			LogRoot:            opts.LogRoot,
+		})
+		startRun = func(ctx context.Context, spec runpkg.Spec) (activeRun, error) {
+			return runtime.Start(ctx, spec)
+		}
 	}
 	lifecycleCtx := opts.lifecycleCtx
 	if lifecycleCtx == nil {
@@ -201,9 +166,7 @@ func NewModel(opts Options) Model {
 		CommandHistoryPath: opts.CommandHistoryPath,
 		RunHistoryPath:     opts.RunHistoryPath,
 		CommandHistoryPos:  -1,
-		targetCancels:      map[string]context.CancelFunc{},
-		runFunc:            runFunc,
-		runTracker:         opts.runTracker,
+		startLifecycle:     startRun,
 		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
 		outputViewport:     newLogViewport(),
@@ -228,16 +191,9 @@ func NewModel(opts Options) Model {
 
 func (m Model) Init() tea.Cmd { return nil }
 
-type runDoneMsg struct {
-	targetID string
-	results  []core.RunResult
-	err      error
-}
-
-type runOutputMsg struct {
-	targetID string
-	chunk    string
-	stream   <-chan tea.Msg
+type runEventMsg struct {
+	event runpkg.Event
+	err   error
 }
 
 type shutdownMsg struct{}
@@ -311,17 +267,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if done, ok := msg.(runDoneMsg); ok {
-		cmd := m.applyRunDone(done)
-		return m, cmd
-	}
-	if output, ok := msg.(runOutputMsg); ok {
-		m.Logs[output.targetID], m.liveLogTruncated[output.targetID] = runner.AppendOutputTail(
-			m.Logs[output.targetID],
-			output.chunk,
-			m.liveLogTruncated[output.targetID],
-		)
-		return m, waitForRunStream(output.stream)
+	if next, ok := msg.(runEventMsg); ok {
+		return m.applyRunEvent(next)
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		if click.Button == tea.MouseLeft {
@@ -353,6 +300,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ConfirmRun = false
 		m.clearConfirmedRun()
 		m.ConfirmCancelSelected = false
+		m.confirmCancelTargetIDs = nil
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = true
 		m.ConfirmQuitYes = true
@@ -809,6 +757,7 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		}
 		m.ConfirmRun = false
 		m.ConfirmCancelSelected = false
+		m.confirmCancelTargetIDs = nil
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = false
 		m.ConfirmQuitYes = false
@@ -818,6 +767,7 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		}
 		m.ConfirmRun = false
 		m.ConfirmCancelSelected = false
+		m.confirmCancelTargetIDs = nil
 		m.ConfirmCancelAll = false
 		m.ConfirmQuit = false
 		m.ConfirmQuitYes = false
@@ -839,7 +789,9 @@ func (m Model) handleOverlayKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 		}
 		if m.ConfirmCancelSelected {
 			m.ConfirmCancelSelected = false
-			m.cancelSelectedImmediate()
+			ids := append([]string(nil), m.confirmCancelTargetIDs...)
+			m.confirmCancelTargetIDs = nil
+			m.setCancellationNotice(m.cancelTargetIDs(ids))
 			return m, nil
 		}
 		if m.ConfirmCancelAll {
@@ -1003,39 +955,33 @@ func (m Model) beginRun(command string, targets []core.Target) (tea.Model, tea.C
 	}
 	m.Command = command
 	m.Focus = FocusTargets
-	reqTargets := append([]core.Target(nil), targets...)
-	ctx, cancel := context.WithCancel(m.lifecycleCtx)
-	if m.targetCancels == nil {
-		m.targetCancels = map[string]context.CancelFunc{}
+	run, err := m.startLifecycle(m.lifecycleCtx, runpkg.Spec{
+		Command:        command,
+		Targets:        targets,
+		Mode:           m.Mode,
+		Workers:        m.Workers,
+		FailFast:       m.FailFast,
+		SaveLogs:       m.SaveLogs,
+		DisableLogging: m.DisableLogging,
+	})
+	if err != nil {
+		m.RunError = err.Error()
+		m.Notice = ""
+		return m, nil
 	}
-	m.cancelRun = cancel
-	m.runCtx = ctx
-	m.targetCancels = map[string]context.CancelFunc{}
+	m.activeRun = run
 	m.Running = true
-	m.PendingRuns = len(reqTargets)
-	m.runQueue = append([]core.Target(nil), reqTargets...)
-	m.runLogRoot = ""
-	if m.SaveLogs && !m.DisableLogging {
-		m.runLogRoot = filepath.Join(m.LogRoot, time.Now().UTC().Format("20060102T150405.000000000Z"))
-	}
-	m.completedResults = nil
 	m.RunError = ""
-	m.Notice = fmt.Sprintf("started %d target(s)", len(reqTargets))
+	m.Notice = fmt.Sprintf("started %d target(s)", len(targets))
 	m.addHistory(command)
 	m.resetCommandHistoryNavigation()
-	if m.CommandHistoryPath != "" {
-		if err := history.AppendCommand(m.CommandHistoryPath, history.CommandEntry{Command: command, Time: time.Now()}); err != nil {
-			m.RunError = err.Error()
-		}
-	}
-	for _, target := range reqTargets {
+	for _, target := range targets {
 		m.Status[target.ID] = core.StatusQueued
 		m.Logs[target.ID] = ""
 		m.liveLogTruncated[target.ID] = false
 		delete(m.TargetStarted, target.ID)
 	}
-	next, cmd := m.startQueuedRuns()
-	return next, tea.Batch(spinnerTick(), cmd)
+	return m, tea.Batch(spinnerTick(), waitForRunEvent(m.lifecycleCtx, run))
 }
 
 func (m Model) targetsForRun(failedOnly bool) []core.Target {
@@ -1054,191 +1000,68 @@ func (m Model) targetsForRun(failedOnly bool) []core.Target {
 	return targets
 }
 
-func (m *Model) applyRunDone(done runDoneMsg) tea.Cmd {
-	if done.targetID != "" {
-		delete(m.targetCancels, done.targetID)
+func (m Model) applyRunEvent(next runEventMsg) (tea.Model, tea.Cmd) {
+	if next.err != nil {
+		if errors.Is(next.err, io.EOF) {
+			m.activeRun = nil
+			return m, nil
+		}
+		if errors.Is(next.err, context.Canceled) && m.lifecycleCtx.Err() != nil {
+			return m, nil
+		}
+		m.RunError = next.err.Error()
+		return m, nil
 	}
-	if m.PendingRuns > 0 {
-		m.PendingRuns--
+	event := next.event
+	if event.Target != nil {
+		m.applyTargetSnapshot(*event.Target)
 	}
-	if done.err != nil {
-		m.RunError = done.err.Error()
-		if len(done.results) == 0 {
-			target, _ := m.targetByID(done.targetID)
-			done.results = []core.RunResult{{
-				Target:  target,
-				Status:  core.StatusFailed,
-				Error:   done.err.Error(),
-				Started: m.TargetStarted[done.targetID],
-				Ended:   time.Now(),
-			}}
+	switch event.Kind {
+	case runpkg.EventCommandHistoryFailed, runpkg.EventArchiveFailed:
+		if event.Err != nil {
+			m.RunError = event.Err.Error()
 		}
-	}
-	failedFast := false
-	for _, result := range done.results {
-		if m.Status[result.Target.ID] == core.StatusCancelled && result.Status != core.StatusCancelled {
-			result.Status = core.StatusCancelled
+	case runpkg.EventCompleted:
+		for _, target := range event.Run.Targets {
+			m.applyTargetSnapshot(target)
 		}
-		if result.Started.IsZero() {
-			result.Started = m.TargetStarted[result.Target.ID]
-		}
-		if result.Ended.IsZero() {
-			result.Ended = time.Now()
-		}
-		m.Status[result.Target.ID] = result.Status
-		m.recordCompletedResult(result)
-		log := m.Logs[result.Target.ID]
-		if log == "" {
-			log = result.Output
-		}
-		if result.Error != "" && !strings.Contains(log, result.Error) {
-			if log != "" && !strings.HasSuffix(log, "\n") {
-				log += "\n"
-			}
-			log += result.Error
-		}
-		m.Logs[result.Target.ID] = log
-		if m.FailFast && result.Status == core.StatusFailed {
-			failedFast = true
-		}
-	}
-	if failedFast {
-		m.cancelAll()
-	}
-	if m.PendingRuns == 0 {
-		if m.Running {
-			m.appendRunHistory()
-		}
+		m.prependRunHistory(runHistoryEntry(event.Run))
 		m.Running = false
-		m.runCtx = nil
-		m.runQueue = nil
-		m.cancelRun = nil
-		m.targetCancels = map[string]context.CancelFunc{}
+		m.activeRun = nil
 		m.Notice = m.completionNotice()
-		return nil
-	}
-	next, cmd := m.startQueuedRuns()
-	*m = next
-	return cmd
-}
-
-func (m *Model) recordCompletedResult(result core.RunResult) {
-	for i, existing := range m.completedResults {
-		if existing.Target.ID == result.Target.ID {
-			m.completedResults[i] = result
-			return
-		}
-	}
-	m.completedResults = append(m.completedResults, result)
-}
-
-func (m Model) startQueuedRuns() (Model, tea.Cmd) {
-	if !m.Running {
 		return m, nil
 	}
-	limit := m.workerLimit()
-	if limit <= 0 {
-		limit = 1
-	}
-	available := limit - len(m.targetCancels)
-	if available <= 0 || len(m.runQueue) == 0 {
+	if m.activeRun == nil {
 		return m, nil
 	}
-	cmds := make([]tea.Cmd, 0, available)
-	for available > 0 && len(m.runQueue) > 0 {
-		target := m.runQueue[0]
-		m.runQueue = m.runQueue[1:]
-		cmds = append(cmds, m.startTargetCmd(target))
-		available--
-	}
-	return m, tea.Batch(cmds...)
+	return m, waitForRunEvent(m.lifecycleCtx, m.activeRun)
 }
 
-func (m *Model) startTargetCmd(target core.Target) tea.Cmd {
-	ctx := m.runCtx
-	if ctx == nil {
-		ctx = context.Background()
+func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
+	id := target.Target.ID
+	m.Status[id] = target.Status
+	if !target.Started.IsZero() {
+		m.TargetStarted[id] = target.Started
 	}
-	targetCtx, targetCancel := context.WithCancel(ctx)
-	if m.targetCancels == nil {
-		m.targetCancels = map[string]context.CancelFunc{}
+	if target.OutputTail != "" || target.OutputTruncated {
+		m.Logs[id] = target.OutputTail
+		m.liveLogTruncated[id] = target.OutputTruncated
 	}
-	m.targetCancels[target.ID] = targetCancel
-	m.Status[target.ID] = core.StatusRunning
-	if m.TargetStarted == nil {
-		m.TargetStarted = map[string]time.Time{}
-	}
-	m.TargetStarted[target.ID] = time.Now()
-	runFunc := m.runFunc
-	if runFunc == nil {
-		runFunc = runner.Run
-	}
-	req := core.RunRequest{
-		Command:        strings.TrimSpace(m.Command),
-		Targets:        []core.Target{target},
-		Mode:           core.ModeSerial,
-		Workers:        1,
-		FailFast:       m.FailFast,
-		SaveLogs:       m.SaveLogs,
-		DisableLogging: m.DisableLogging,
-		LogRoot:        m.runLogRoot,
-	}
-	stream := make(chan tea.Msg)
-	req.OnEvent = func(event core.Event) {
-		if event.Type != core.EventOutput || event.TargetID != target.ID || event.Output == "" {
-			return
+	if target.Status.Terminal() && target.Error != "" && !strings.Contains(m.Logs[id], target.Error) {
+		if m.Logs[id] != "" && !strings.HasSuffix(m.Logs[id], "\n") {
+			m.Logs[id] += "\n"
 		}
-		select {
-		case stream <- runOutputMsg{targetID: target.ID, chunk: event.Output, stream: stream}:
-		case <-targetCtx.Done():
-		}
-	}
-	runTracker := m.runTracker
-	lifecycleCtx := m.lifecycleCtx
-	if lifecycleCtx == nil {
-		lifecycleCtx = context.Background()
-	}
-	return func() tea.Msg {
-		if runTracker != nil {
-			if !runTracker.TryStart() {
-				targetCancel()
-				now := time.Now()
-				return runDoneMsg{targetID: target.ID, results: []core.RunResult{{
-					Target:  target,
-					Status:  core.StatusCancelled,
-					Error:   context.Canceled.Error(),
-					Started: now,
-					Ended:   now,
-				}}}
-			}
-		}
-		go func() {
-			defer close(stream)
-			if runTracker != nil {
-				defer runTracker.Done()
-			}
-			results, err := runFunc(targetCtx, req)
-			done := runDoneMsg{targetID: target.ID, results: results, err: err}
-			select {
-			case stream <- done:
-			case <-lifecycleCtx.Done():
-			}
-		}()
-		select {
-		case msg := <-stream:
-			return msg
-		case <-lifecycleCtx.Done():
-			return nil
-		}
+		m.Logs[id] += target.Error
 	}
 }
 
-func waitForRunStream(stream <-chan tea.Msg) tea.Cmd {
-	if stream == nil {
+func waitForRunEvent(ctx context.Context, run activeRun) tea.Cmd {
+	if run == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		return <-stream
+		event, err := run.Next(ctx)
+		return runEventMsg{event: event, err: err}
 	}
 }
 
@@ -1250,69 +1073,36 @@ func deleteLastRune(value string) string {
 	return value[:len(value)-size]
 }
 
-func (m Model) workerLimit() int {
-	if m.mode() == core.ModeSerial {
-		return 1
+func runHistoryEntry(snapshot runpkg.Snapshot) history.RunEntry {
+	entry := history.RunEntry{
+		Command:   snapshot.Command,
+		Total:     snapshot.Total,
+		Succeeded: snapshot.Succeeded,
+		Failed:    snapshot.Failed,
+		Cancelled: snapshot.Cancelled,
+		Time:      snapshot.Ended,
+		Started:   snapshot.Started,
+		Ended:     snapshot.Ended,
+		LogID:     string(snapshot.LogID),
+		Targets:   make([]history.TargetEntry, 0, len(snapshot.Targets)),
 	}
-	if m.Workers > 0 {
-		return m.Workers
+	for _, target := range snapshot.Targets {
+		entry.Targets = append(entry.Targets, history.TargetEntry{
+			ID:       target.Target.ID,
+			RelPath:  target.Target.RelPath,
+			Status:   target.Status,
+			ExitCode: target.ExitCode,
+			Error:    target.Error,
+			Started:  target.Started,
+			Ended:    target.Ended,
+		})
 	}
-	cpus := runtime.NumCPU()
-	if cpus < 1 {
-		return 1
-	}
-	return cpus
+	return entry
 }
 
-func (m *Model) appendRunHistory() {
-	summary := history.RunEntry{Command: m.Command, Time: time.Now()}
-	if m.runLogRoot != "" {
-		summary.LogID = filepath.Base(m.runLogRoot)
-	}
-	results := make(map[string]core.RunResult, len(m.completedResults))
-	for _, result := range m.completedResults {
-		results[result.Target.ID] = result
-	}
-	for _, target := range m.Targets {
-		result, ok := results[target.ID]
-		if !ok {
-			continue
-		}
-		summary.Total++
-		summary.Targets = append(summary.Targets, history.TargetEntry{
-			ID:       target.ID,
-			RelPath:  target.RelPath,
-			Status:   result.Status,
-			ExitCode: result.ExitCode,
-			Error:    result.Error,
-			Started:  result.Started,
-			Ended:    result.Ended,
-		})
-		if !result.Started.IsZero() && (summary.Started.IsZero() || result.Started.Before(summary.Started)) {
-			summary.Started = result.Started
-		}
-		if !result.Ended.IsZero() && (summary.Ended.IsZero() || result.Ended.After(summary.Ended)) {
-			summary.Ended = result.Ended
-		}
-		switch result.Status {
-		case core.StatusSucceeded:
-			summary.Succeeded++
-		case core.StatusFailed:
-			summary.Failed++
-		case core.StatusCancelled:
-			summary.Cancelled++
-		}
-	}
+func (m *Model) prependRunHistory(summary history.RunEntry) {
 	if summary.Total == 0 {
 		return
-	}
-	if !summary.Ended.IsZero() {
-		summary.Time = summary.Ended
-	}
-	if m.RunHistoryPath != "" {
-		if err := history.AppendRun(m.RunHistoryPath, summary); err != nil && m.RunError == "" {
-			m.RunError = err.Error()
-		}
 	}
 	m.RunHistory = append([]history.RunEntry{summary}, m.RunHistory...)
 	if len(m.RunHistory) > 100 {
@@ -2908,6 +2698,7 @@ func (m *Model) setFolded(folded bool) {
 func (m *Model) cancelSelectedOrFocused() {
 	if m.selectedActiveCount() > 1 {
 		m.ConfirmCancelSelected = true
+		m.confirmCancelTargetIDs = m.selectedActiveTargetIDs()
 		m.Notice = ""
 		m.RunError = ""
 		return
@@ -2931,15 +2722,17 @@ func (m *Model) cancelSelectedImmediate() {
 }
 
 func (m *Model) cancelSelectedActive() int {
-	cancelled := 0
+	return m.cancelTargetIDs(m.selectedActiveTargetIDs())
+}
+
+func (m Model) selectedActiveTargetIDs() []string {
+	var ids []string
 	for _, target := range m.Targets {
-		if target.Selected {
-			if m.cancelTarget(target) {
-				cancelled++
-			}
+		if target.Selected && (m.Status[target.ID] == core.StatusRunning || m.Status[target.ID] == core.StatusQueued) {
+			ids = append(ids, target.ID)
 		}
 	}
-	return cancelled
+	return ids
 }
 
 func (m *Model) setCancellationNotice(cancelled int) {
@@ -2952,79 +2745,30 @@ func (m *Model) setCancellationNotice(cancelled int) {
 }
 
 func (m *Model) cancelTarget(target core.Target) bool {
-	switch m.Status[target.ID] {
-	case core.StatusRunning:
-		if cancel := m.targetCancels[target.ID]; cancel != nil {
-			cancel()
-		}
-		m.Status[target.ID] = core.StatusCancelled
-		return true
-	case core.StatusQueued:
-		if !m.removeQueuedTarget(target.ID) {
-			return false
-		}
-		m.Status[target.ID] = core.StatusCancelled
-		if m.PendingRuns > 0 {
-			m.PendingRuns--
-		}
-		m.recordCompletedResult(core.RunResult{Target: target, Status: core.StatusCancelled})
-		if m.PendingRuns == 0 {
-			m.appendRunHistory()
-			m.Running = false
-			m.runCtx = nil
-			m.cancelRun = nil
-			m.runQueue = nil
-			m.targetCancels = map[string]context.CancelFunc{}
-		}
-		return true
-	}
-	return false
+	return m.cancelTargetIDs([]string{target.ID}) == 1
 }
 
-func (m *Model) removeQueuedTarget(id string) bool {
-	for index, target := range m.runQueue {
-		if target.ID == id {
-			m.runQueue = append(m.runQueue[:index], m.runQueue[index+1:]...)
-			return true
-		}
+func (m *Model) cancelTargetIDs(ids []string) int {
+	if m.activeRun == nil || len(ids) == 0 {
+		return 0
 	}
-	return false
+	cancellation := m.activeRun.Cancel(runpkg.TargetIDs(ids...))
+	for _, id := range cancellation.Accepted {
+		m.Status[id] = core.StatusCancelled
+	}
+	return len(cancellation.Accepted)
 }
 
 func (m *Model) cancelAll() {
-	if m.cancelRun != nil {
-		m.cancelRun()
+	if m.activeRun == nil {
+		return
 	}
-	for _, cancel := range m.targetCancels {
-		if cancel != nil {
-			cancel()
-		}
+	cancellation := m.activeRun.Cancel(runpkg.AllTargets())
+	for _, id := range cancellation.Accepted {
+		m.Status[id] = core.StatusCancelled
 	}
-	cancelled := 0
-	for _, target := range m.Targets {
-		switch m.Status[target.ID] {
-		case core.StatusRunning:
-			m.Status[target.ID] = core.StatusCancelled
-			cancelled++
-		case core.StatusQueued:
-			m.Status[target.ID] = core.StatusCancelled
-			if m.PendingRuns > 0 {
-				m.PendingRuns--
-			}
-			m.recordCompletedResult(core.RunResult{Target: target, Status: core.StatusCancelled})
-			cancelled++
-		}
-	}
-	m.runQueue = nil
-	if m.PendingRuns == 0 {
-		m.appendRunHistory()
-		m.Running = false
-		m.runCtx = nil
-		m.cancelRun = nil
-		m.targetCancels = map[string]context.CancelFunc{}
-	}
-	if cancelled > 0 {
-		m.Notice = fmt.Sprintf("cancelled %d active target(s)", cancelled)
+	if len(cancellation.Accepted) > 0 {
+		m.Notice = fmt.Sprintf("cancelled %d active target(s)", len(cancellation.Accepted))
 	}
 }
 
