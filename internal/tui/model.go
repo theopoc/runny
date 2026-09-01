@@ -322,6 +322,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.Focus == FocusFilter {
 		return m.handleFilterKey(keyName, key)
 	}
+	if m.Focus == FocusTargets {
+		if updated, cmd, handled := m.handleTargetKey(keyName); handled {
+			return updated, cmd
+		}
+	}
 	switch {
 	case matchesKey(keyName, defaultKeys.Escape):
 		if m.Filter != "" {
@@ -344,32 +349,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case matchesKey(keyName, defaultKeys.Options):
 		m.ShowOptions = true
 		m.normalizeOptionsSelection()
-	case matchesKey(keyName, defaultKeys.Run):
-		return m.startRun(false)
-	case matchesKey(keyName, defaultKeys.Up):
-		if m.Focus == FocusTargets {
-			m.moveCursor(-1)
-		}
-	case matchesKey(keyName, defaultKeys.Down):
-		if m.Focus == FocusTargets {
-			m.moveCursor(1)
-		}
-	case matchesKey(keyName, defaultKeys.NextMatch):
-		if m.Focus == FocusTargets && m.Filter != "" {
-			m.moveFilterMatch(1)
-		}
-	case matchesKey(keyName, defaultKeys.PreviousMatch):
-		if m.Focus == FocusTargets && m.Filter != "" {
-			m.moveFilterMatch(-1)
-		}
-	case matchesKey(keyName, defaultKeys.First):
-		if m.Focus == FocusTargets {
-			m.moveCursorToEdge(false)
-		}
-	case matchesKey(keyName, defaultKeys.Last):
-		if m.Focus == FocusTargets {
-			m.moveCursorToEdge(true)
-		}
 	case matchesKey(keyName, defaultKeys.NextPane):
 		m.cycleFocus(1)
 	case matchesKey(keyName, defaultKeys.PreviousPane):
@@ -389,34 +368,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Notice = "split view enabled"
 		}
-	case matchesKey(keyName, defaultKeys.ToggleTarget):
-		if m.Focus == FocusTargets {
-			m.toggleFocused()
-		}
-	case matchesKey(keyName, defaultKeys.ToggleVisible):
-		if m.Focus == FocusTargets {
-			m.toggleVisibleSelected()
-		}
-	case matchesKey(keyName, defaultKeys.Unfold):
-		if m.Focus == FocusTargets {
-			m.setFolded(false)
-		}
-	case matchesKey(keyName, defaultKeys.Fold):
-		if m.Focus == FocusTargets {
-			m.setFolded(true)
-		}
-	case matchesKey(keyName, defaultKeys.Cancel):
-		if m.Focus == FocusTargets {
-			m.cancelSelectedOrFocused()
-		}
-	case matchesKey(keyName, defaultKeys.RerunFailed):
-		if !m.hasActiveRuns() && m.failedCount() > 0 {
-			m.ConfirmRun = true
-		} else if m.hasActiveRuns() {
-			m.Notice = "finish or cancel active run before rerun failed"
-		} else {
-			m.Notice = "no failed targets to rerun"
-		}
 	case matchesKey(keyName, defaultKeys.PageUp):
 		m.scrollPreview(-5)
 	case matchesKey(keyName, defaultKeys.PageDown):
@@ -429,6 +380,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LogFollow = !m.LogFollow
 	}
 	return m, nil
+}
+
+func (m Model) handleTargetKey(keyName string) (tea.Model, tea.Cmd, bool) {
+	switch {
+	case matchesKey(keyName, defaultKeys.Run):
+		updated, cmd := m.startRun(false)
+		return updated, cmd, true
+	case matchesKey(keyName, defaultKeys.Up):
+		m.moveCursor(-1)
+	case matchesKey(keyName, defaultKeys.Down):
+		m.moveCursor(1)
+	case matchesKey(keyName, defaultKeys.NextMatch):
+		if m.Filter != "" {
+			m.moveFilterMatch(1)
+		}
+	case matchesKey(keyName, defaultKeys.PreviousMatch):
+		if m.Filter != "" {
+			m.moveFilterMatch(-1)
+		}
+	case matchesKey(keyName, defaultKeys.First):
+		m.moveCursorToEdge(false)
+	case matchesKey(keyName, defaultKeys.Last):
+		m.moveCursorToEdge(true)
+	case matchesKey(keyName, defaultKeys.ToggleTarget):
+		m.toggleFocused()
+	case matchesKey(keyName, defaultKeys.ToggleVisible):
+		m.toggleVisibleSelected()
+	case matchesKey(keyName, defaultKeys.Unfold):
+		m.setFolded(false)
+	case matchesKey(keyName, defaultKeys.Fold):
+		m.setFolded(true)
+	case matchesKey(keyName, defaultKeys.Cancel):
+		m.cancelSelectedOrFocused()
+	case matchesKey(keyName, defaultKeys.RerunFailed):
+		if !m.hasActiveRuns() && m.failedCount() > 0 {
+			m.ConfirmRun = true
+		} else if m.hasActiveRuns() {
+			m.Notice = "finish or cancel active run before rerun failed"
+		} else {
+			m.Notice = "no failed targets to rerun"
+		}
+	default:
+		return m, nil, false
+	}
+	return m, nil, true
 }
 
 func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
