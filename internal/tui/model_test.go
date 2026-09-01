@@ -21,7 +21,7 @@ import (
 	runpkg "github.com/theopoc/runny/internal/run"
 )
 
-func TestModelToggleAllWithLowercaseAAndFilter(t *testing.T) {
+func TestModelToggleAllWithLowercaseA(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
@@ -32,28 +32,49 @@ func TestModelToggleAllWithLowercaseAAndFilter(t *testing.T) {
 	}
 	model, _ = updateKey(model, "a")
 	if !model.Targets[0].Selected || !model.Targets[1].Selected {
-		t.Fatal("a should select all visible targets when one is unselected")
+		t.Fatal("a should select all targets when one is unselected")
 	}
 	model, _ = updateKey(model, "a")
 	if model.Targets[0].Selected || model.Targets[1].Selected {
-		t.Fatal("a should deselect all visible targets when all are selected")
+		t.Fatal("a should deselect all targets when all are selected")
 	}
 	model, _ = updateKey(model, "A")
 	if model.Targets[0].Selected || model.Targets[1].Selected {
 		t.Fatal("uppercase A should not toggle bulk selection")
 	}
+	if model.Notice != "deselected all 2 target(s)" {
+		t.Fatalf("uppercase A should leave notice unchanged, got %q", model.Notice)
+	}
 
-	model.Filter = "api"
-	model, _ = updateKey(model, "a")
-	if !model.Targets[0].Selected {
-		t.Fatal("a should select matching targets when filtered")
-	}
-	if model.Targets[1].Selected {
-		t.Fatal("a should leave non-matching targets unchanged")
-	}
 	model, _ = updateKey(model, "/")
-	if model.Focus != FocusFilter {
-		t.Fatal("filter should be focused")
+	model, _ = updateKey(model, "a")
+	if model.Filter != "a" {
+		t.Fatalf("a should remain text while editing filter, got %q", model.Filter)
+	}
+}
+
+func TestModelToggleAllIncludesFoldedDescendants(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true, Folded: true, Children: []string{"api/cmd"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: false},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+
+	model, _ = updateKey(model, "a")
+	for _, target := range model.Targets {
+		if !target.Selected {
+			t.Fatalf("a should select folded target %q: %#v", target.ID, model.Targets)
+		}
+	}
+	if model.Notice != "selected all 3 target(s)" {
+		t.Fatalf("notice = %q", model.Notice)
+	}
+
+	model, _ = updateKey(model, "a")
+	for _, target := range model.Targets {
+		if target.Selected {
+			t.Fatalf("second a should deselect folded target %q: %#v", target.ID, model.Targets)
+		}
 	}
 }
 
@@ -1661,39 +1682,55 @@ func TestFilterSupportsFuzzyAndExactModes(t *testing.T) {
 	}
 }
 
-func TestFilteredBulkSelectionTargetsMatchesOnly(t *testing.T) {
+func TestFilteredBulkSelectionIsExclusiveToMatches(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
-		{ID: "api", RelPath: "api", Selected: false, Children: []string{"api/cmd"}},
+		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
 		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: false},
-		{ID: "web", RelPath: "web", Selected: false},
+		{ID: "web", RelPath: "web", Selected: true},
 	}})
 	model, _ = updateKey(model, "/")
 	model = typeText(model, "cmd")
-	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
 	model, _ = updateKey(model, "a")
 
 	if model.Targets[0].Selected {
-		t.Fatal("context parent should stay unselected when selecting filtered matches")
+		t.Fatal("context parent should be deselected by exclusive filtered selection")
 	}
 	if !model.Targets[1].Selected {
 		t.Fatal("direct filtered match should be selected")
 	}
 	if model.Targets[2].Selected {
-		t.Fatal("hidden sibling should stay unselected")
+		t.Fatal("hidden sibling should be deselected by exclusive filtered selection")
 	}
-	if model.Notice != "selected 1 matching target(s)" {
+	if model.Notice != "selected 1 matching target(s); deselected 2 outside filter" {
 		t.Fatalf("notice = %q", model.Notice)
 	}
 
 	model.Targets[0].Selected = true
 	model, _ = updateKey(model, "a")
-	if !model.Targets[0].Selected {
-		t.Fatal("context parent should stay selected when deselecting filtered matches")
+	for _, target := range model.Targets {
+		if target.Selected {
+			t.Fatalf("second a should deselect all targets, found %q selected", target.ID)
+		}
 	}
-	if model.Targets[1].Selected {
-		t.Fatal("direct filtered match should be deselected")
+	if model.Notice != "deselected 2 target(s)" {
+		t.Fatalf("notice = %q", model.Notice)
 	}
-	if model.Notice != "deselected 1 matching target(s)" {
+}
+
+func TestFilteredBulkSelectionDoesNothingWithoutMatches(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: false},
+	}})
+	model.Filter = "worker"
+
+	model, _ = updateKey(model, "a")
+
+	if !model.Targets[0].Selected || model.Targets[1].Selected {
+		t.Fatalf("zero-match a should preserve selection: %#v", model.Targets)
+	}
+	if model.Notice != "no matching targets" {
 		t.Fatalf("notice = %q", model.Notice)
 	}
 }
@@ -2546,6 +2583,29 @@ func TestViewUsesAltScreenAndTUIPanels(t *testing.T) {
 	}
 }
 
+func TestHelpBulkSelectionLabelFollowsFilter(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.ShowHelp = true
+	model, _ = updateWindowSize(model, 120, 32)
+
+	view := stripANSI(model.View().Content)
+	if !strings.Contains(view, "a select/unselect all") {
+		t.Fatalf("unfiltered help should describe all-target selection:\n%s", view)
+	}
+	if strings.Contains(view, "a select/unselect matches") {
+		t.Fatalf("unfiltered help should not describe filtered selection:\n%s", view)
+	}
+
+	model.Filter = "api"
+	view = stripANSI(model.View().Content)
+	if !strings.Contains(view, "a select/unselect matches") {
+		t.Fatalf("filtered help should describe matching-target selection:\n%s", view)
+	}
+	if strings.Contains(view, "a select/unselect all") {
+		t.Fatalf("filtered help should not describe unfiltered selection:\n%s", view)
+	}
+}
+
 func TestTUIColorHonorsNoColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	if _, ok := tuiColor("#FFFFFF").(lipgloss.NoColor); !ok {
@@ -3338,7 +3398,7 @@ func TestCommandEnterFocusesTasksWhenNoTargetIsSelected(t *testing.T) {
 	if updated.Focus != FocusTargets {
 		t.Fatalf("focus = %v, want tasks when no target is selected", updated.Focus)
 	}
-	if updated.RunError != "no selected targets; press a to toggle visible" {
+	if updated.RunError != "no selected targets; press a to select/unselect all" {
 		t.Fatalf("run error = %q", updated.RunError)
 	}
 }
@@ -3546,14 +3606,14 @@ func TestModelRunErrorsGuideNextAction(t *testing.T) {
 
 	model = NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
-	if model.RunError != "no selected targets; press a to toggle visible" {
+	if model.RunError != "no selected targets; press a to select/unselect all" {
 		t.Fatalf("run error = %q", model.RunError)
 	}
 
 	model = NewModel(Options{Command: "echo ok", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: false}}})
 	model.Filter = "api"
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
-	if model.RunError != "no selected targets; press a to toggle matching" {
+	if model.RunError != "no selected targets; press a to select/unselect matches" {
 		t.Fatalf("run error = %q", model.RunError)
 	}
 

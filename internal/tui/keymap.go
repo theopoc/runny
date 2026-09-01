@@ -29,7 +29,7 @@ type keyMap struct {
 	History       key.Binding
 	Zoom          key.Binding
 	ToggleTarget  key.Binding
-	ToggleVisible key.Binding
+	ToggleAll     key.Binding
 	Unfold        key.Binding
 	Fold          key.Binding
 	Cancel        key.Binding
@@ -65,7 +65,7 @@ func newKeyMap() keyMap {
 		History:       newBinding([]string{"H"}, "H", "history"),
 		Zoom:          newBinding([]string{"z"}, "z", "maximize panel / split"),
 		ToggleTarget:  newBinding([]string{" ", "space"}, "space", "toggle select tree"),
-		ToggleVisible: newBinding([]string{"a"}, "a", "toggle visible/matches"),
+		ToggleAll:     newBinding([]string{"a"}, "a", "select/unselect all"),
 		Unfold:        newBinding([]string{"right", "l"}, "right/l", "unfold"),
 		Fold:          newBinding([]string{"left", "h"}, "left/h", "fold"),
 		Cancel:        newBinding([]string{"delete", "x"}, "del/x", "cancel selected"),
