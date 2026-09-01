@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/theopoc/runny/compare/v0.5.0...v0.6.0) (2026-09-01)
+
+
+### Features
+
+* **release:** publish versioned Docker images ([#65](https://github.com/theopoc/runny/issues/65)) ([98dab41](https://github.com/theopoc/runny/commit/98dab41fadcc736d7108adc200a3ee16c3af9e09))
+
+
+### Bug Fixes
+
+* **release:** build Homebrew formula from source ([#68](https://github.com/theopoc/runny/issues/68)) ([a2e4cfe](https://github.com/theopoc/runny/commit/a2e4cfe45c2d43c43aadc878b8582fc39377f70a))
+* **tui:** clear active filter with escape ([#61](https://github.com/theopoc/runny/issues/61)) ([ff0eb80](https://github.com/theopoc/runny/commit/ff0eb806e2e2c3f83ffb66f65366cc1e5b4bef07))
+* **tui:** normalize bulk target selection ([#70](https://github.com/theopoc/runny/issues/70)) ([02b5fb9](https://github.com/theopoc/runny/commit/02b5fb9a3267a06e4bfe8ca9c3886832d30802d3))
+* **tui:** scope filter highlights to editing ([#69](https://github.com/theopoc/runny/issues/69)) ([46d3125](https://github.com/theopoc/runny/commit/46d3125ea925b06e8205d75c39246e2588a921f9))
+* **tui:** scope task keys to task focus ([#66](https://github.com/theopoc/runny/issues/66)) ([759de02](https://github.com/theopoc/runny/commit/759de02cca68182a8f3410f5225ae595005e4468))
+
 ## [0.5.0](https://github.com/theopoc/runny/compare/v0.4.0...v0.5.0) (2026-08-29)
 
 
