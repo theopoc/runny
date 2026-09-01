@@ -347,21 +347,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case matchesKey(keyName, defaultKeys.Run):
 		return m.startRun(false)
 	case matchesKey(keyName, defaultKeys.Up):
-		m.moveCursor(-1)
+		if m.Focus == FocusTargets {
+			m.moveCursor(-1)
+		}
 	case matchesKey(keyName, defaultKeys.Down):
-		m.moveCursor(1)
+		if m.Focus == FocusTargets {
+			m.moveCursor(1)
+		}
 	case matchesKey(keyName, defaultKeys.NextMatch):
-		if m.Filter != "" {
+		if m.Focus == FocusTargets && m.Filter != "" {
 			m.moveFilterMatch(1)
 		}
 	case matchesKey(keyName, defaultKeys.PreviousMatch):
-		if m.Filter != "" {
+		if m.Focus == FocusTargets && m.Filter != "" {
 			m.moveFilterMatch(-1)
 		}
 	case matchesKey(keyName, defaultKeys.First):
-		m.moveCursorToEdge(false)
+		if m.Focus == FocusTargets {
+			m.moveCursorToEdge(false)
+		}
 	case matchesKey(keyName, defaultKeys.Last):
-		m.moveCursorToEdge(true)
+		if m.Focus == FocusTargets {
+			m.moveCursorToEdge(true)
+		}
 	case matchesKey(keyName, defaultKeys.NextPane):
 		m.cycleFocus(1)
 	case matchesKey(keyName, defaultKeys.PreviousPane):
@@ -382,15 +390,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Notice = "split view enabled"
 		}
 	case matchesKey(keyName, defaultKeys.ToggleTarget):
-		m.toggleFocused()
+		if m.Focus == FocusTargets {
+			m.toggleFocused()
+		}
 	case matchesKey(keyName, defaultKeys.ToggleVisible):
-		m.toggleVisibleSelected()
+		if m.Focus == FocusTargets {
+			m.toggleVisibleSelected()
+		}
 	case matchesKey(keyName, defaultKeys.Unfold):
-		m.setFolded(false)
+		if m.Focus == FocusTargets {
+			m.setFolded(false)
+		}
 	case matchesKey(keyName, defaultKeys.Fold):
-		m.setFolded(true)
+		if m.Focus == FocusTargets {
+			m.setFolded(true)
+		}
 	case matchesKey(keyName, defaultKeys.Cancel):
-		m.cancelSelectedOrFocused()
+		if m.Focus == FocusTargets {
+			m.cancelSelectedOrFocused()
+		}
 	case matchesKey(keyName, defaultKeys.RerunFailed):
 		if !m.hasActiveRuns() && m.failedCount() > 0 {
 			m.ConfirmRun = true

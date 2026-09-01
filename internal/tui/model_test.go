@@ -201,6 +201,24 @@ func TestModelMovesCursorWithArrowKeys(t *testing.T) {
 	}
 }
 
+func TestOutputFocusIgnoresTaskArrowNavigation(t *testing.T) {
+	for _, key := range []rune{tea.KeyUp, tea.KeyDown} {
+		t.Run(tea.KeyPressMsg(tea.Key{Code: key}).String(), func(t *testing.T) {
+			model := NewModel(Options{Command: "test", Targets: []core.Target{
+				{ID: "api", RelPath: "api", Selected: true},
+				{ID: "web", RelPath: "web", Selected: true},
+			}})
+			model.Focus = FocusLogs
+
+			model, _ = updateSpecialKey(model, key)
+
+			if model.Cursor != 0 {
+				t.Fatalf("cursor = %d, want unchanged 0 while output is focused", model.Cursor)
+			}
+		})
+	}
+}
+
 func TestModelFocusAndFilteredMatchNavigation(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
