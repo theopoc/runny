@@ -65,13 +65,25 @@ Arguments after `--` keep their original boundaries. Shell metacharacters inside
 
 ## Docker
 
-Build the image:
+Run the published image:
 
 ```bash
-docker build -t runny .
+docker run --rm ghcr.io/theopoc/runny:latest --version
+docker run --rm -it -v "$PWD:/workspace" -w /workspace ghcr.io/theopoc/runny:latest
 ```
 
-Run the TUI in a container:
+Use a versioned release tag instead of `latest` when reproducibility matters,
+for example `ghcr.io/theopoc/runny:v0.5.0`.
+
+Build an image from the current checkout:
+
+```bash
+docker build \
+  --build-arg VERSION="$(git describe --tags --always --dirty --match 'v[0-9]*' | sed 's/^v//')" \
+  -t runny .
+```
+
+Run the locally built image:
 
 ```bash
 docker run --rm -it -v "$PWD:/workspace" -w /workspace runny

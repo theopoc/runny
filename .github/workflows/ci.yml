@@ -26,7 +26,29 @@ jobs:
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           args: check
-      - run: docker build -t runny:ci .
+      - name: Build local Docker image
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: docker build --build-arg VERSION="$VERSION" -t runny:ci .
+      - name: Smoke-test Docker version
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(docker run --rm runny:ci --version)" = "runny $VERSION"
+      - name: Smoke-test release Docker image
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          context="$(mktemp -d)"
+          mkdir -p "$context/linux/amd64"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath \
+            -ldflags="-s -w -X github.com/theopoc/runny/internal/app.Version=$VERSION" \
+            -o "$context/linux/amd64/runny" ./cmd/runny
+          cp Dockerfile.goreleaser "$context/Dockerfile"
+          docker build \
+            --build-arg TARGETPLATFORM=linux/amd64 \
+            -t runny:release-ci "$context"
+          test "$(docker run --rm runny:release-ci --version)" = "runny $VERSION"
       - name: Smoke-test Docker shell environment
         run: |
           fixture="$(mktemp -d)"
