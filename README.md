@@ -68,7 +68,9 @@ Arguments after `--` keep their original boundaries. Shell metacharacters inside
 Build the image:
 
 ```bash
-docker build -t runny .
+docker build \
+  --build-arg VERSION="$(git describe --tags --always --dirty --match 'v[0-9]*' | sed 's/^v//')" \
+  -t runny .
 ```
 
 Run the TUI in a container:
