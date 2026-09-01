@@ -322,6 +322,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.Focus == FocusFilter {
 		return m.handleFilterKey(keyName, key)
 	}
+	if m.Focus == FocusTargets {
+		if updated, cmd, handled := m.handleTargetKey(keyName); handled {
+			return updated, cmd
+		}
+	}
 	switch {
 	case matchesKey(keyName, defaultKeys.Escape):
 		if m.Filter != "" {
@@ -344,24 +349,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case matchesKey(keyName, defaultKeys.Options):
 		m.ShowOptions = true
 		m.normalizeOptionsSelection()
-	case matchesKey(keyName, defaultKeys.Run):
-		return m.startRun(false)
-	case matchesKey(keyName, defaultKeys.Up):
-		m.moveCursor(-1)
-	case matchesKey(keyName, defaultKeys.Down):
-		m.moveCursor(1)
-	case matchesKey(keyName, defaultKeys.NextMatch):
-		if m.Filter != "" {
-			m.moveFilterMatch(1)
-		}
-	case matchesKey(keyName, defaultKeys.PreviousMatch):
-		if m.Filter != "" {
-			m.moveFilterMatch(-1)
-		}
-	case matchesKey(keyName, defaultKeys.First):
-		m.moveCursorToEdge(false)
-	case matchesKey(keyName, defaultKeys.Last):
-		m.moveCursorToEdge(true)
 	case matchesKey(keyName, defaultKeys.NextPane):
 		m.cycleFocus(1)
 	case matchesKey(keyName, defaultKeys.PreviousPane):
@@ -381,6 +368,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Notice = "split view enabled"
 		}
+	case matchesKey(keyName, defaultKeys.PageUp):
+		m.scrollPreview(-5)
+	case matchesKey(keyName, defaultKeys.PageDown):
+		m.scrollPreview(5)
+	case matchesKey(keyName, defaultKeys.HalfPageUp):
+		m.scrollPreview(-3)
+	case matchesKey(keyName, defaultKeys.HalfPageDown):
+		m.scrollPreview(3)
+	case matchesKey(keyName, defaultKeys.Follow):
+		m.LogFollow = !m.LogFollow
+	}
+	return m, nil
+}
+
+func (m Model) handleTargetKey(keyName string) (tea.Model, tea.Cmd, bool) {
+	switch {
+	case matchesKey(keyName, defaultKeys.Run):
+		updated, cmd := m.startRun(false)
+		return updated, cmd, true
+	case matchesKey(keyName, defaultKeys.Up):
+		m.moveCursor(-1)
+	case matchesKey(keyName, defaultKeys.Down):
+		m.moveCursor(1)
+	case matchesKey(keyName, defaultKeys.NextMatch):
+		if m.Filter != "" {
+			m.moveFilterMatch(1)
+		}
+	case matchesKey(keyName, defaultKeys.PreviousMatch):
+		if m.Filter != "" {
+			m.moveFilterMatch(-1)
+		}
+	case matchesKey(keyName, defaultKeys.First):
+		m.moveCursorToEdge(false)
+	case matchesKey(keyName, defaultKeys.Last):
+		m.moveCursorToEdge(true)
 	case matchesKey(keyName, defaultKeys.ToggleTarget):
 		m.toggleFocused()
 	case matchesKey(keyName, defaultKeys.ToggleVisible):
@@ -399,18 +421,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Notice = "no failed targets to rerun"
 		}
-	case matchesKey(keyName, defaultKeys.PageUp):
-		m.scrollPreview(-5)
-	case matchesKey(keyName, defaultKeys.PageDown):
-		m.scrollPreview(5)
-	case matchesKey(keyName, defaultKeys.HalfPageUp):
-		m.scrollPreview(-3)
-	case matchesKey(keyName, defaultKeys.HalfPageDown):
-		m.scrollPreview(3)
-	case matchesKey(keyName, defaultKeys.Follow):
-		m.LogFollow = !m.LogFollow
+	default:
+		return m, nil, false
 	}
-	return m, nil
+	return m, nil, true
 }
 
 func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
