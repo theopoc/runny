@@ -26,7 +26,14 @@ jobs:
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           args: check
-      - run: docker build -t runny:ci .
+      - name: Build Docker image
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: docker build --build-arg VERSION="$VERSION" -t runny:ci .
+      - name: Smoke-test Docker version
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(docker run --rm runny:ci --version)" = "runny $VERSION"
       - name: Smoke-test Docker shell environment
         run: |
           fixture="$(mktemp -d)"
