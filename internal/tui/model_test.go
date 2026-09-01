@@ -16,6 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/theopoc/runny/internal/core"
 	"github.com/theopoc/runny/internal/history"
 	runpkg "github.com/theopoc/runny/internal/run"
@@ -138,6 +139,87 @@ func TestModelEscapeClearsFilterActivatedWithEnterAndRestoresTree(t *testing.T) 
 	}
 	if view := stripANSI(model.View().Content); !strings.Contains(view, "showing 1-2 of 2") || !strings.Contains(view, "web") {
 		t.Fatalf("escape should restore unfiltered directory tree:\n%s", view)
+	}
+}
+
+func TestModelEscapeClearsFilterWhileEditingAndRestoresTree(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model, _ = updateKey(model, "/")
+	model = typeText(model, "api")
+	if model.Filter != "api" || model.Focus != FocusFilter {
+		t.Fatalf("filter should be applied while editing, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+
+	if model.Filter != "" || model.Focus != FocusTargets {
+		t.Fatalf("escape should clear edited filter and return to tasks, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	if view := stripANSI(model.View().Content); !strings.Contains(view, "showing 1-2 of 2") || !strings.Contains(view, "web") {
+		t.Fatalf("escape should restore unfiltered directory tree:\n%s", view)
+	}
+}
+
+func TestFilterMatchHighlightFollowsEditFocus(t *testing.T) {
+	if os.Getenv("RUNNY_FILTER_COLOR_TEST") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestFilterMatchHighlightFollowsEditFocus$")
+		for _, entry := range os.Environ() {
+			if !strings.HasPrefix(entry, "NO_COLOR=") {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
+		cmd.Env = append(cmd.Env, "RUNNY_FILTER_COLOR_TEST=1")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("color subprocess: %v\n%s", err, output)
+		}
+		return
+	}
+	profile := lipgloss.Writer.Profile
+	lipgloss.Writer.Profile = colorprofile.TrueColor
+	t.Cleanup(func() { lipgloss.Writer.Profile = profile })
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "runny", RelPath: "runny"}}})
+	model.Focus = FocusFilter
+	model.Filter = "runny"
+
+	const yellowBackground = "48;2;253;230;138"
+	if name := model.renderTargetDisplayName("runny"); !strings.Contains(name, yellowBackground) {
+		t.Fatalf("filter edit should highlight matching characters: %q", name)
+	}
+	editingRow := model.renderTargetRow(0, model.Targets[0], 60)
+	if !strings.Contains(editingRow, yellowBackground) {
+		t.Fatalf("focused matching target should retain match highlight: %q", editingRow)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Filter != "runny" || model.Focus != FocusTargets {
+		t.Fatalf("enter should retain filter and return to tasks, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	if name := model.renderTargetDisplayName("runny"); containsANSIBackground(name) {
+		t.Fatalf("validated filter should remove match background: %q", name)
+	}
+	validatedRow := model.renderTargetRow(0, model.Targets[0], 60)
+
+	model, _ = updateKey(model, "/")
+	if name := model.renderTargetDisplayName("runny"); !strings.Contains(name, yellowBackground) {
+		t.Fatalf("reopened filter should restore match highlight: %q", name)
+	}
+
+	model.Filter = "'runny"
+	if name := model.renderTargetDisplayName("runny"); !strings.Contains(name, yellowBackground) {
+		t.Fatalf("exact filter edit should highlight matching characters: %q", name)
+	}
+
+	got := fmt.Sprintf("editing:\n%q\n\nvalidated:\n%q", editingRow, validatedRow)
+	want, err := os.ReadFile("testdata/TestFilterMatchHighlightFollowsEditFocus.golden")
+	if err != nil {
+		t.Fatalf("read golden: %v\n--- got ---\n%s", err, got)
+	}
+	if got != strings.TrimRight(string(want), "\n") {
+		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 
@@ -269,7 +351,7 @@ func TestModelFocusAndFilteredMatchNavigation(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want first filtered match", model.Cursor)
 	}
-	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
 	model, _ = updateKey(model, "n")
 	if model.Cursor != 2 {
 		t.Fatalf("cursor = %d, want next filtered match", model.Cursor)
@@ -278,10 +360,6 @@ func TestModelFocusAndFilteredMatchNavigation(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want previous filtered match", model.Cursor)
 	}
-	if view := model.renderTargetRow(model.Cursor, model.Targets[model.Cursor], 60); !strings.Contains(view, "\x1b[") {
-		t.Fatalf("filtered match should be highlighted with ANSI styling:\n%s", view)
-	}
-
 	model, _ = updateKey(model, "c")
 	if model.Focus != FocusTargets || model.ShowCommand {
 		t.Fatalf("c should have no action, focus/overlay = %v/%t", model.Focus, model.ShowCommand)
@@ -1619,7 +1697,7 @@ func TestFilterMatchNavigationSkipsContextParents(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want first direct match", model.Cursor)
 	}
-	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
 	model, _ = updateKey(model, "n")
 	if model.Cursor != 2 {
 		t.Fatalf("cursor = %d, want next direct match, skipping parent context", model.Cursor)
@@ -1669,7 +1747,7 @@ func TestFilteredBulkSelectionTargetsMatchesOnly(t *testing.T) {
 	}})
 	model, _ = updateKey(model, "/")
 	model = typeText(model, "cmd")
-	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
 	model, _ = updateKey(model, "a")
 
 	if model.Targets[0].Selected {
