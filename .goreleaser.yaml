@@ -60,3 +60,27 @@ homebrew_casks:
       To trust the tap before install:
         brew tap theopoc/tap
         brew trust --tap theopoc/tap
+
+dockers_v2:
+  - id: runny
+    ids: [runny]
+    images:
+      - ghcr.io/theopoc/runny
+    tags:
+      - "v{{ .Version }}"
+      - latest
+    dockerfile: Dockerfile.goreleaser
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: Run shell commands across selected child directories from a TUI
+      org.opencontainers.image.source: https://github.com/theopoc/runny
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: MIT
+    annotations:
+      org.opencontainers.image.source: https://github.com/theopoc/runny
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
