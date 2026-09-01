@@ -563,7 +563,15 @@ func (m *Model) cancelCommandOverlay() {
 
 func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch keyName {
-	case "esc", "enter":
+	case "esc":
+		m.Focus = FocusTargets
+		if m.Filter != "" {
+			m.Filter = ""
+			m.ensureCursorVisible()
+			m.Notice = "filter cleared"
+			m.RunError = ""
+		}
+	case "enter":
 		m.Focus = FocusTargets
 	case "ctrl+u":
 		m.Filter = ""
@@ -1622,7 +1630,7 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	fold := treeDisclosureStyle.Render(m.foldSymbol(target))
 	name := m.renderTargetName(target)
 	statusText := m.renderRowStatus(status)
-	if active || target.Selected || partial {
+	if (active || target.Selected || partial) && m.Focus != FocusFilter {
 		fold = m.foldSymbol(target)
 		name = m.renderTargetNamePlain(target)
 	}
@@ -1765,7 +1773,7 @@ func (m Model) targetHasSelectedDescendant(target core.Target) bool {
 }
 
 func (m Model) renderTargetDisplayName(name string) string {
-	if strings.TrimSpace(m.Filter) != "" {
+	if m.Focus == FocusFilter && strings.TrimSpace(m.Filter) != "" {
 		return folderNameStyle.Render(m.highlightMatch(name))
 	}
 	parent, base := splitTargetPath(name)
