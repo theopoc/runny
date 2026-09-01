@@ -189,8 +189,9 @@ func TestFilterMatchHighlightFollowsEditFocus(t *testing.T) {
 	if name := model.renderTargetDisplayName("runny"); !strings.Contains(name, yellowBackground) {
 		t.Fatalf("filter edit should highlight matching characters: %q", name)
 	}
-	if row := model.renderTargetRow(0, model.Targets[0], 60); !strings.Contains(row, yellowBackground) {
-		t.Fatalf("focused matching target should retain match highlight: %q", row)
+	editingRow := model.renderTargetRow(0, model.Targets[0], 60)
+	if !strings.Contains(editingRow, yellowBackground) {
+		t.Fatalf("focused matching target should retain match highlight: %q", editingRow)
 	}
 
 	model, _ = updateSpecialKey(model, tea.KeyEnter)
@@ -200,6 +201,7 @@ func TestFilterMatchHighlightFollowsEditFocus(t *testing.T) {
 	if name := model.renderTargetDisplayName("runny"); containsANSIBackground(name) {
 		t.Fatalf("validated filter should remove match background: %q", name)
 	}
+	validatedRow := model.renderTargetRow(0, model.Targets[0], 60)
 
 	model, _ = updateKey(model, "/")
 	if name := model.renderTargetDisplayName("runny"); !strings.Contains(name, yellowBackground) {
@@ -209,6 +211,15 @@ func TestFilterMatchHighlightFollowsEditFocus(t *testing.T) {
 	model.Filter = "'runny"
 	if name := model.renderTargetDisplayName("runny"); !strings.Contains(name, yellowBackground) {
 		t.Fatalf("exact filter edit should highlight matching characters: %q", name)
+	}
+
+	got := fmt.Sprintf("editing:\n%q\n\nvalidated:\n%q", editingRow, validatedRow)
+	want, err := os.ReadFile("testdata/TestFilterMatchHighlightFollowsEditFocus.golden")
+	if err != nil {
+		t.Fatalf("read golden: %v\n--- got ---\n%s", err, got)
+	}
+	if got != strings.TrimRight(string(want), "\n") {
+		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 
