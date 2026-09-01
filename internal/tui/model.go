@@ -405,8 +405,8 @@ func (m Model) handleTargetKey(keyName string) (tea.Model, tea.Cmd, bool) {
 		m.moveCursorToEdge(true)
 	case matchesKey(keyName, defaultKeys.ToggleTarget):
 		m.toggleFocused()
-	case matchesKey(keyName, defaultKeys.ToggleVisible):
-		m.toggleVisibleSelected()
+	case matchesKey(keyName, defaultKeys.ToggleAll):
+		m.toggleAllSelected()
 	case matchesKey(keyName, defaultKeys.Unfold):
 		m.setFolded(false)
 	case matchesKey(keyName, defaultKeys.Fold):
@@ -948,9 +948,9 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 		if len(m.Targets) == 0 {
 			m.RunError = "no target directories found"
 		} else if m.Filter != "" {
-			m.RunError = "no selected targets; press a to toggle matching"
+			m.RunError = "no selected targets; press a to select/unselect matches"
 		} else {
-			m.RunError = "no selected targets; press a to toggle visible"
+			m.RunError = "no selected targets; press a to select/unselect all"
 		}
 		m.Focus = FocusTargets
 		m.Notice = ""
@@ -2355,7 +2355,7 @@ func (m Model) helpRows(width ...int) []string {
 			title: "Tasks",
 			bindings: []helpBinding{
 				{"up/down", "move"}, {"j/k", "move"}, {"g/G", "first/last"},
-				{"space", "toggle select tree"}, {"a", "toggle visible/matches"},
+				{"space", "toggle select tree"}, {"a", m.bulkSelectionLabel()},
 				{"left/h", "fold"}, {"right/l", "unfold"}, {"enter", "run selected"},
 				{"del/x", "cancel selected"},
 			},
@@ -2644,42 +2644,66 @@ func (m *Model) cycleFocus(_ int) {
 	}
 }
 
-func (m *Model) toggleVisibleSelected() {
-	indexes := m.visibleTargetIndexes()
-	scope := "visible"
-	if m.Filter != "" {
-		indexes = m.matchingTargetIndexes()
-		scope = "matching"
+func (m *Model) toggleAllSelected() {
+	indexes := make([]int, len(m.Targets))
+	for i := range m.Targets {
+		indexes[i] = i
 	}
-	selected := false
+	filtered := m.Filter != ""
+	if filtered {
+		indexes = m.matchingTargetIndexes()
+		if len(indexes) == 0 {
+			m.Notice = "no matching targets"
+			m.RunError = ""
+			return
+		}
+	}
+
+	selectScope := false
 	for _, i := range indexes {
 		if !m.Targets[i].Selected {
-			selected = true
+			selectScope = true
 			break
 		}
 	}
-	m.setTargetIndexesSelected(indexes, scope, selected)
-}
 
-func (m *Model) setTargetIndexesSelected(indexes []int, scope string, selected bool) {
-	count := 0
+	selectedOutsideFilter := 0
+	if filtered {
+		matches := make([]bool, len(m.Targets))
+		for _, i := range indexes {
+			matches[i] = true
+		}
+		for i := range m.Targets {
+			if !matches[i] && m.Targets[i].Selected {
+				selectedOutsideFilter++
+			}
+			m.Targets[i].Selected = false
+		}
+	}
 	for _, i := range indexes {
-		m.Targets[i].Selected = selected
-		count++
+		m.Targets[i].Selected = selectScope
 	}
-	action := "selected"
-	if !selected {
-		action = "deselected"
+
+	switch {
+	case filtered && selectScope && selectedOutsideFilter > 0:
+		m.Notice = fmt.Sprintf("selected %d matching target(s); deselected %d outside filter", len(indexes), selectedOutsideFilter)
+	case filtered && selectScope:
+		m.Notice = fmt.Sprintf("selected %d matching target(s)", len(indexes))
+	case filtered:
+		m.Notice = fmt.Sprintf("deselected %d target(s)", len(indexes)+selectedOutsideFilter)
+	case selectScope:
+		m.Notice = fmt.Sprintf("selected all %d target(s)", len(indexes))
+	default:
+		m.Notice = fmt.Sprintf("deselected all %d target(s)", len(indexes))
 	}
-	m.Notice = fmt.Sprintf("%s %d %s target(s)", action, count, scope)
 	m.RunError = ""
 }
 
 func (m Model) bulkSelectionLabel() string {
 	if m.Filter != "" {
-		return "toggle matches"
+		return "select/unselect matches"
 	}
-	return "toggle visible"
+	return "select/unselect all"
 }
 
 func (m *Model) selectFailedTargets() {

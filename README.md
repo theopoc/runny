@@ -152,8 +152,7 @@ exclude:
 | Key | Action |
 | --- | --- |
 | `space` | Select/deselect focused directory |
-| `a` | Select all visible directories |
-| `A` | Deselect all visible directories |
+| `a` | Select/unselect all directories; with an active filter, exclusively select matching directories or deselect all |
 | `/` | Focus filter/search |
 | `:` | Open command overlay |
 | `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
