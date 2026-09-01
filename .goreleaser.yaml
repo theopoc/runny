@@ -40,27 +40,6 @@ changelog:
 release:
   mode: keep-existing
 
-homebrew_casks:
-  - name: runny
-    ids: [runny]
-    repository:
-      owner: theopoc
-      name: homebrew-tap
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    directory: Casks
-    homepage: https://github.com/theopoc/runny
-    description: Run shell commands across selected child directories from a TUI
-    license: MIT
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
-    binaries:
-      - runny
-    caveats: |
-      To trust the tap before install:
-        brew tap theopoc/tap
-        brew trust --tap theopoc/tap
-
 dockers_v2:
   - id: runny
     ids: [runny]

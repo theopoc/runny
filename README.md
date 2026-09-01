@@ -34,15 +34,23 @@ By default, `Runny` discovers directories up to depth 3, excludes hidden directo
 Install with Homebrew:
 
 ```bash
-brew install --cask theopoc/tap/runny
+brew install theopoc/tap/runny
 ```
 
-If your Homebrew setup requires trusted taps:
+Homebrew builds Runny from source, so macOS does not treat the installed binary
+as an unidentified downloaded executable. Go is installed as a build dependency.
+
+If you installed Runny as a cask before v0.6.0, migrate once:
 
 ```bash
-brew tap theopoc/tap
-brew trust --tap theopoc/tap
-brew install --cask runny
+brew uninstall --cask runny
+brew install theopoc/tap/runny
+```
+
+Alternatively, install directly with Go:
+
+```bash
+go install github.com/theopoc/runny/cmd/runny@latest
 ```
 
 ## Quick Start

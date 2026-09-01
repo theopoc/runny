@@ -96,4 +96,44 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Check out Homebrew tap
+        if: ${{ steps.release.outputs.release_created == 'true' || steps.recovery.outputs.tag != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: theopoc/homebrew-tap
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Build Homebrew formula
+        if: ${{ steps.release.outputs.release_created == 'true' || steps.recovery.outputs.tag != '' }}
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name || steps.recovery.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          source_sha256="$(curl --fail --location --retry 3 --silent --show-error "$source_url" | sha256sum | cut -d ' ' -f 1)"
+
+          mkdir -p homebrew-tap/Formula
+          scripts/render-homebrew-formula.sh "$RELEASE_TAG" "$source_sha256" homebrew-tap/Formula/runny.rb
+          rm -f homebrew-tap/Casks/runny.rb
+
+      - name: Publish Homebrew formula
+        if: ${{ steps.release.outputs.release_created == 'true' || steps.recovery.outputs.tag != '' }}
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name || steps.recovery.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          git -C homebrew-tap config user.name goreleaserbot
+          git -C homebrew-tap config user.email bot@goreleaser.com
+          git -C homebrew-tap add --all
+
+          if git -C homebrew-tap diff --cached --quiet; then
+            echo "Homebrew formula already matches ${RELEASE_TAG}"
+            exit 0
+          fi
+
+          git -C homebrew-tap commit -m "runny ${RELEASE_TAG}"
+          git -C homebrew-tap push origin HEAD:main
