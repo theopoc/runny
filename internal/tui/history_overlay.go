@@ -700,6 +700,10 @@ func formatHistoryExactTime(value time.Time) string {
 }
 
 func formatHistoryDuration(started, ended time.Time) string {
+	return formatExecutionDuration(started, ended)
+}
+
+func formatExecutionDuration(started, ended time.Time) string {
 	if started.IsZero() || ended.IsZero() || ended.Before(started) {
 		return "-"
 	}

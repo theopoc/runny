@@ -245,7 +245,10 @@ func visibleJoin(left string, right string, width int) string {
 }
 
 func fixedStatusJoin(left string, status string, width int) string {
-	statusWidth := 12
+	return fixedStatusJoinWidth(left, status, width, 12)
+}
+
+func fixedStatusJoinWidth(left string, status string, width int, statusWidth int) string {
 	gap := 2
 	if width < statusWidth+gap+8 {
 		return truncateVisible(left, width)
