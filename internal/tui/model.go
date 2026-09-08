@@ -259,6 +259,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.Width = size.Width
 		m.Height = size.Height
+		m.syncOutputViewport()
 		if m.ShowHistory && m.HistoryDepth == historyDepthLogs {
 			m.syncHistoryLogViewport()
 		}
