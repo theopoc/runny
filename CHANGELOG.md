@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/theopoc/runny/compare/v0.6.0...v0.7.0) (2026-09-09)
+
+
+### Features
+
+* **tui:** add regex target filters ([#82](https://github.com/theopoc/runny/issues/82)) ([4352e7e](https://github.com/theopoc/runny/commit/4352e7e54f12935ee3c5e85e4cfdb167b4368ed6))
+* **tui:** navigate directories with mouse clicks ([#81](https://github.com/theopoc/runny/issues/81)) ([b91fc61](https://github.com/theopoc/runny/commit/b91fc61508a94fc9494429461dcbe1b2fa1a1a28))
+* **tui:** show task execution times ([#74](https://github.com/theopoc/runny/issues/74)) ([f6db469](https://github.com/theopoc/runny/commit/f6db4697f30a571472a70c1162b74c5be36aaa10))
+
+
+### Bug Fixes
+
+* **runner:** automatically allow direnv environments ([#84](https://github.com/theopoc/runny/issues/84)) ([2d4fdaf](https://github.com/theopoc/runny/commit/2d4fdaf20033fd9fd7b29d517139dd17eb429024))
+* **tui:** wrap overflowing command output ([#73](https://github.com/theopoc/runny/issues/73)) ([e4f0a09](https://github.com/theopoc/runny/commit/e4f0a093fc8adf5221fbdf0098b72a2633f715d3))
+
 ## [0.6.0](https://github.com/theopoc/runny/compare/v0.5.0...v0.6.0) (2026-09-01)
 
 
