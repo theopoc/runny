@@ -271,9 +271,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyRunEvent(next)
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
-		if click.Button == tea.MouseLeft {
+		if click.Button == tea.MouseLeft && click.Mod == 0 {
+			targetIndex, targetHit := m.directoryTargetAt(click.X, click.Y)
 			if focus, hit := m.paneFocusAt(click.X, click.Y); hit {
 				m.Focus = focus
+				if targetHit {
+					m.Cursor = targetIndex
+				}
 			}
 		}
 		return m, nil
@@ -1275,6 +1279,31 @@ func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 	return 0, false
 }
 
+func (m Model) directoryTargetAt(x int, y int) (int, bool) {
+	focus, hit := m.paneFocusAt(x, y)
+	if !hit || focus != FocusTargets {
+		return 0, false
+	}
+
+	panelHeight, leftWidth, _ := m.panelDimensions(m.Width, m.Height)
+	panelWidth := leftWidth
+	if m.Zoom || m.compactMode(m.Width) {
+		panelWidth = m.singlePanelWidth(m.Width)
+	}
+	if x <= 0 || x >= panelWidth-1 {
+		return 0, false
+	}
+
+	const firstTargetRow = 3
+	panelTop := strings.Count(m.renderPanelPrefix(m.Width), "\n")
+	row := y - panelTop - firstTargetRow
+	visibleIndexes, offset, limit := m.visibleDirectoryRange(panelHeight)
+	if row < 0 || row >= limit || offset+row >= len(visibleIndexes) {
+		return 0, false
+	}
+	return visibleIndexes[offset+row], true
+}
+
 func (m Model) renderPanelPrefix(width int) string {
 	if m.hasOverlay() {
 		return ""
@@ -1559,18 +1588,7 @@ func (m Model) mode() core.ExecutionMode {
 
 func (m Model) renderDirectoryPanel(width int, height int) []string {
 	rows := []string{panelTitleStyle.Render(m.taskHeader(width - 4))}
-	visibleIndexes := m.visibleTargetIndexes()
-	limit := max(1, height-4)
-	if len(visibleIndexes) > 0 {
-		limit = max(1, height-5)
-	}
-	offset := m.DirectoryOffset
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > max(0, len(visibleIndexes)-1) {
-		offset = max(0, len(visibleIndexes)-1)
-	}
+	visibleIndexes, offset, limit := m.visibleDirectoryRange(height)
 	if len(visibleIndexes) > 0 {
 		rows = append(rows, subtleStyle.Render(m.directoryScrollLabel(offset, limit, len(visibleIndexes))))
 	}
@@ -1600,6 +1618,22 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 		}
 	}
 	return boxLines(width, height, "Tasks", rows, m.Focus == FocusTargets)
+}
+
+func (m Model) visibleDirectoryRange(height int) ([]int, int, int) {
+	visibleIndexes := m.visibleTargetIndexes()
+	limit := max(1, height-4)
+	if len(visibleIndexes) > 0 {
+		limit = max(1, height-5)
+	}
+	offset := m.DirectoryOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > max(0, len(visibleIndexes)-1) {
+		offset = max(0, len(visibleIndexes)-1)
+	}
+	return visibleIndexes, offset, limit
 }
 
 func (m Model) filterModeLabel() string {

@@ -663,6 +663,195 @@ func TestMouseClickFocusesSplitPaneWithoutChangingTaskState(t *testing.T) {
 	}
 }
 
+func TestMouseClickMovesCursorToVisibleDirectoryRow(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "apps", RelPath: "apps", Children: []string{"api"}, Folded: true, Selected: true},
+		{ID: "api", RelPath: "apps/api", ParentID: "apps", Selected: true},
+		{ID: "web", RelPath: "web"},
+	}})
+	model.Width = 120
+	model.Height = 26
+	model.Focus = FocusLogs
+	model.Notice = "keep me"
+	model.LogFollow = false
+	model.outputViewport.SetContentLines(strings.Split(strings.Repeat("line\n", 20), "\n"))
+	model.outputViewport.SetHeight(5)
+	model.outputViewport.SetYOffset(4)
+	model.Logs["web"] = "web output"
+
+	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+	_, leftWidth, _ := model.panelDimensions(model.Width, model.Height)
+	updated, _ := model.Update(tea.MouseClickMsg{X: leftWidth - 2, Y: panelTop + 4, Button: tea.MouseLeft})
+	model = updated.(Model)
+
+	if model.Focus != FocusTargets || model.Cursor != 2 {
+		t.Fatalf("directory click state = focus %v, cursor %d; want tasks, 2", model.Focus, model.Cursor)
+	}
+	if !model.Targets[0].Selected || !model.Targets[1].Selected || model.Targets[2].Selected || !model.Targets[0].Folded {
+		t.Fatalf("directory click changed selection or fold state: %#v", model.Targets)
+	}
+	if model.Notice != "keep me" || model.LogFollow || model.outputViewport.YOffset() != 4 {
+		t.Fatalf("directory click changed unrelated state: notice %q, follow %t, output offset %d", model.Notice, model.LogFollow, model.outputViewport.YOffset())
+	}
+	if output := strings.Join(model.renderLogPanel(60, 10), "\n"); !strings.Contains(output, "web output") {
+		t.Fatalf("directory click did not switch output target:\n%s", output)
+	}
+
+	updated, _ = model.Update(tea.MouseClickMsg{X: 2, Y: panelTop + 4, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.Cursor != 2 {
+		t.Fatalf("repeated directory click cursor = %d, want 2", model.Cursor)
+	}
+}
+
+func TestMouseClickDirectoryRowAccountsForViewportOffset(t *testing.T) {
+	targets := make([]core.Target, 20)
+	for i := range targets {
+		targets[i] = core.Target{ID: fmt.Sprintf("target-%d", i), RelPath: fmt.Sprintf("target-%d", i)}
+	}
+	model := NewModel(Options{Targets: targets})
+	model.Width = 120
+	model.Height = 20
+	model.DirectoryOffset = 5
+
+	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+	panelHeight, _, _ := model.panelDimensions(model.Width, model.Height)
+	lastVisibleRow := panelHeight - 6
+	for _, tt := range []struct {
+		name       string
+		row        int
+		wantCursor int
+	}{
+		{name: "first visible", row: 0, wantCursor: 5},
+		{name: "last visible", row: lastVisibleRow, wantCursor: 5 + lastVisibleRow},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			current := model
+			updated, _ := current.Update(tea.MouseClickMsg{X: 2, Y: panelTop + 3 + tt.row, Button: tea.MouseLeft})
+			current = updated.(Model)
+			if current.Cursor != tt.wantCursor || current.DirectoryOffset != 5 {
+				t.Fatalf("click row %d = cursor %d, offset %d; want cursor %d, offset 5", tt.row, current.Cursor, current.DirectoryOffset, tt.wantCursor)
+			}
+		})
+	}
+}
+
+func TestMouseClickDirectoryRowKeepsActiveFilter(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{
+		{ID: "apps", RelPath: "apps", Children: []string{"api"}},
+		{ID: "api", RelPath: "apps/api", ParentID: "apps"},
+		{ID: "web", RelPath: "web"},
+	}})
+	model.Width = 120
+	model.Height = 26
+	model.Focus = FocusFilter
+	model.Filter = "api"
+	model.Cursor = 1
+
+	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+	updated, _ := model.Update(tea.MouseClickMsg{X: 2, Y: panelTop + 3, Button: tea.MouseLeft})
+	model = updated.(Model)
+
+	if model.Focus != FocusTargets || model.Cursor != 0 {
+		t.Fatalf("filtered context click = focus %v, cursor %d; want tasks, 0", model.Focus, model.Cursor)
+	}
+	if model.Filter != "api" {
+		t.Fatalf("filtered context click changed query to %q", model.Filter)
+	}
+}
+
+func TestMouseClickDirectoryRowInSinglePaneLayouts(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		width int
+		zoom  bool
+	}{
+		{name: "sixty column compact", width: 60},
+		{name: "zoomed tasks", width: 120, zoom: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(Options{Targets: []core.Target{
+				{ID: "api", RelPath: "api"},
+				{ID: "web", RelPath: "web"},
+			}})
+			model.Width = tt.width
+			model.Height = 20
+			model.Zoom = tt.zoom
+			model.Focus = FocusCommand
+
+			panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+			updated, _ := model.Update(tea.MouseClickMsg{X: model.Width - 2, Y: panelTop + 4, Button: tea.MouseLeft})
+			model = updated.(Model)
+			if model.Focus != FocusTargets || model.Cursor != 1 {
+				t.Fatalf("single-pane directory click = focus %v, cursor %d; want tasks, 1", model.Focus, model.Cursor)
+			}
+		})
+	}
+}
+
+func TestMouseClickNonDirectoryAreaOnlyFocusesTasks(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{
+		{ID: "api", RelPath: "api"},
+		{ID: "web", RelPath: "web"},
+	}})
+	model.Width = 120
+	model.Height = 26
+	model.Focus = FocusLogs
+	model.Cursor = 1
+
+	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+	panelHeight, _, _ := model.panelDimensions(model.Width, model.Height)
+	for _, tt := range []struct {
+		name string
+		x    int
+		y    int
+	}{
+		{name: "top border", x: 2, y: panelTop},
+		{name: "header", x: 2, y: panelTop + 1},
+		{name: "scroll label", x: 2, y: panelTop + 2},
+		{name: "target row border", x: 0, y: panelTop + 3},
+		{name: "empty area", x: 2, y: panelTop + panelHeight - 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			current := model
+			updated, _ := current.Update(tea.MouseClickMsg{X: tt.x, Y: tt.y, Button: tea.MouseLeft})
+			current = updated.(Model)
+			if current.Focus != FocusTargets || current.Cursor != 1 {
+				t.Fatalf("non-directory click = focus %v, cursor %d; want tasks, 1", current.Focus, current.Cursor)
+			}
+		})
+	}
+}
+
+func TestMouseClickDirectoryRowIgnoresOtherButtonsAndModifiers(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{
+		{ID: "api", RelPath: "api"},
+		{ID: "web", RelPath: "web"},
+	}})
+	model.Width = 120
+	model.Height = 26
+	model.Focus = FocusLogs
+
+	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+	for _, tt := range []struct {
+		name  string
+		click tea.MouseClickMsg
+	}{
+		{name: "middle button", click: tea.MouseClickMsg{X: 2, Y: panelTop + 4, Button: tea.MouseMiddle}},
+		{name: "shift left click", click: tea.MouseClickMsg{X: 2, Y: panelTop + 4, Button: tea.MouseLeft, Mod: tea.ModShift}},
+		{name: "alt left click", click: tea.MouseClickMsg{X: 2, Y: panelTop + 4, Button: tea.MouseLeft, Mod: tea.ModAlt}},
+		{name: "ctrl left click", click: tea.MouseClickMsg{X: 2, Y: panelTop + 4, Button: tea.MouseLeft, Mod: tea.ModCtrl}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			updated, _ := model.Update(tt.click)
+			current := updated.(Model)
+			if current.Focus != FocusLogs || current.Cursor != 0 {
+				t.Fatalf("ignored click = focus %v, cursor %d; want output, 0", current.Focus, current.Cursor)
+			}
+		})
+	}
+}
+
 func TestPaneFocusAccountsForPersistentContextAndOptionalFilterRows(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
 	model.Width = 120
