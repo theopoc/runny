@@ -123,13 +123,42 @@ func waitForTerminalRead(terminal *os.File, readDone <-chan struct{}) {
 	}
 }
 
+func allowTargetDirenv(direnv, targetPath string) {
+	cmd := exec.Command(direnv, "allow", targetPath)
+	cmd.Dir = targetPath
+	// Missing environment files make allow fail, while direnv exec remains valid.
+	// Let direnv exec report any failure that should block command execution.
+	_ = cmd.Run()
+}
+
 func commandForTarget(command string, target core.Target) *exec.Cmd {
 	shell := currentShell()
 	command = disableJobControl(shell, command)
 	if direnv, err := exec.LookPath("direnv"); err == nil {
-		return exec.Command(direnv, "exec", target.AbsPath, shell, "-ic", command)
+		targetPath := target.AbsPath
+		if resolvedPath, err := filepath.EvalSymlinks(targetPath); err == nil {
+			targetPath = resolvedPath
+		}
+		if hasDirenvFile(targetPath) {
+			allowTargetDirenv(direnv, targetPath)
+		}
+		return exec.Command(direnv, "exec", targetPath, shell, "-ic", command)
 	}
 	return exec.Command(shell, "-ic", command)
+}
+
+func hasDirenvFile(targetPath string) bool {
+	for dir := targetPath; ; dir = filepath.Dir(dir) {
+		for _, name := range []string{".envrc", ".env"} {
+			_, err := os.Stat(filepath.Join(dir, name))
+			if err == nil || !errors.Is(err, os.ErrNotExist) {
+				return true
+			}
+		}
+		if filepath.Dir(dir) == dir {
+			return false
+		}
+	}
 }
 
 func currentShell() string {

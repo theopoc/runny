@@ -110,7 +110,7 @@ func TestExecuteLoadsZshAlias(t *testing.T) {
 	}
 }
 
-func TestExecuteLoadsTargetDirenvEnvironment(t *testing.T) {
+func TestExecuteAutomaticallyAllowsAndLoadsTargetDirenvEnvironment(t *testing.T) {
 	root := t.TempDir()
 	binDir := filepath.Join(root, "bin")
 	if err := os.Mkdir(binDir, 0o755); err != nil {
@@ -121,7 +121,25 @@ func TestExecuteLoadsTargetDirenvEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	direnv := filepath.Join(binDir, "direnv")
-	if err := os.WriteFile(direnv, []byte("#!/bin/sh\n[ \"$1\" = exec ] || exit 64\ntarget=$2\nshift 2\n. \"$target/.envrc\"\nexec \"$@\"\n"), 0o755); err != nil {
+	direnvScript := `#!/bin/sh
+case "$1" in
+allow)
+	target=$2
+	: > "$target/.direnv-allowed"
+	;;
+exec)
+	target=$2
+	[ -f "$target/.direnv-allowed" ] || exit 65
+	shift 2
+	. "$target/.envrc"
+	exec "$@"
+	;;
+*)
+	exit 64
+	;;
+esac
+`
+	if err := os.WriteFile(direnv, []byte(direnvScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("SHELL", shell)
@@ -141,6 +159,52 @@ func TestExecuteLoadsTargetDirenvEnvironment(t *testing.T) {
 	}
 	if output != "RUNNY_DIRENV_SENTINEL=loaded\n" {
 		t.Fatalf("output = %q, want target direnv environment", output)
+	}
+}
+
+func TestExecuteAutomaticallyAllowsRealTargetDirenvEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("direnv"); err != nil {
+		t.Skip("direnv is not available")
+	}
+	t.Setenv("DIRENV_CONFIG", t.TempDir())
+	t.Setenv("SHELL", "/bin/sh")
+	targetDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(targetDir, ".envrc"), []byte("export RUNNY_REAL_DIRENV_SENTINEL=loaded\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, output := executeCaptured(context.Background(), `printf 'RUNNY_REAL_DIRENV_SENTINEL=%s\n' "$RUNNY_REAL_DIRENV_SENTINEL"`, core.Target{ID: "api", AbsPath: targetDir})
+	if outcome.Status != core.StatusSucceeded {
+		t.Fatalf("outcome = %#v; output = %q", outcome, output)
+	}
+	if !strings.Contains(output, "RUNNY_REAL_DIRENV_SENTINEL=loaded\n") {
+		t.Fatalf("output = %q, want automatically allowed target direnv environment", output)
+	}
+}
+
+func TestHasDirenvFile(t *testing.T) {
+	root := t.TempDir()
+	targetDir := filepath.Join(root, "parent", "target")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if hasDirenvFile(targetDir) {
+		t.Fatal("hasDirenvFile() = true without an environment file")
+	}
+	if err := os.WriteFile(filepath.Join(root, "parent", ".envrc"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !hasDirenvFile(targetDir) {
+		t.Fatal("hasDirenvFile() = false with an ancestor .envrc")
+	}
+	if err := os.Remove(filepath.Join(root, "parent", ".envrc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, ".env"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !hasDirenvFile(targetDir) {
+		t.Fatal("hasDirenvFile() = false with a target .env")
 	}
 }
 
