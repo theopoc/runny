@@ -39,6 +39,7 @@
     .layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); gap: 18px; }
     .card { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
     .terminal {
+      position: relative;
       border: 1px solid var(--accent);
       border-radius: 5px;
       background: #0d0c10;
@@ -53,6 +54,18 @@
     .cell.selected { color: white; background: var(--selection); }
     .synthetic { color: #f0bb62; }
     .terminal-footer { padding: 5px 10px; color: var(--muted); border-top: 1px solid var(--border); }
+    .copy-toast {
+      position: absolute;
+      right: 10px;
+      bottom: 39px;
+      padding: 5px 9px;
+      border: 1px solid var(--ok);
+      border-radius: 4px;
+      color: var(--ok);
+      background: #0d0c10;
+      font-weight: 700;
+    }
+    .copy-toast[hidden] { display: none; }
     .mode { color: var(--ok); font-weight: 700; }
     button {
       border: 1px solid var(--border);
@@ -90,6 +103,7 @@
       <div class="terminal">
         <div class="terminal-title" id="title"></div>
         <div id="output" aria-label="Sortie simulée"></div>
+        <div id="toast" class="copy-toast" role="status" aria-live="polite" hidden></div>
         <div class="terminal-footer" id="footer"></div>
       </div>
       <div class="actions">
@@ -155,7 +169,7 @@
 
   <section class="verdict">
     <strong>Hypothèse recommandée</strong>
-    <p>Pointer-down fige snapshot et follow. Drag sélectionne graphèmes visibles. Release garde highlight. `y` copie puis reprend dernier état live ; `Esc` annule. Scroll et resize opèrent sur snapshot. Changement Target ou nouvelle Run annule sélection. Aucun auto-scroll de bord dans première version.</p>
+    <p>Pointer-down fige snapshot et follow. Drag sélectionne graphèmes visibles. Release garde highlight. `y` copie puis reprend dernier état live et affiche un toast bordé pendant 2,5 secondes ; `Esc` annule. Scroll et resize opèrent sur snapshot. Changement Target ou nouvelle Run annule sélection. Aucun auto-scroll de bord dans première version.</p>
   </section>
 </main>
 
@@ -189,7 +203,9 @@
     height: 6,
     pendingLive: 0,
     clipboard: "",
-    receipt: ""
+    receipt: "",
+    toast: null,
+    toastSequence: 0
   });
 
   const clone = state => structuredClone(state);
@@ -300,8 +316,13 @@
         const kind = selected ? "sélection copiée" : "journal complet copié";
         clearSelection(state);
         state.receipt = `${kind} ; live repris`;
+        state.toastSequence++;
+        state.toast = { id: state.toastSequence, message: "✓ Copied to clipboard" };
         break;
       }
+      case "DISMISS_TOAST":
+        if (state.toast?.id === action.id) state.toast = null;
+        break;
     }
     return state;
   }
@@ -364,12 +385,25 @@
       ["Bornes", state.anchor ? `${state.anchor.line}:${state.anchor.column} → ${state.head.line}:${state.head.column}` : "—"],
       ["Sélection", selection ? JSON.stringify(selection) : "—"],
       ["Live en attente", String(state.pendingLive)], ["Viewport", `${state.width}×${state.height}, offset ${state.offset}`],
+      ["Toast", state.toast ? `${state.toast.message} · 2,5 s` : "—"],
       ["Dernière action", state.receipt || "—"]
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
     document.querySelector("#clipboard").textContent = state.clipboard || "—";
+    const toast = document.querySelector("#toast");
+    toast.hidden = !state.toast;
+    toast.textContent = state.toast?.message ?? "";
   }
 
-  const dispatch = action => { state = reduce(state, action); render(); };
+  let toastTimer;
+  const dispatch = action => {
+    state = reduce(state, action);
+    render();
+    if (action.type === "COPY" && state.toast) {
+      clearTimeout(toastTimer);
+      const toastID = state.toast.id;
+      toastTimer = setTimeout(() => dispatch({ type: "DISMISS_TOAST", id: toastID }), 2500);
+    }
+  };
   const pointFrom = target => target?.classList?.contains("cell")
     ? { line: Number(target.dataset.line), column: Number(target.dataset.column) }
     : null;
