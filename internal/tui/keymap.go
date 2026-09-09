@@ -39,6 +39,7 @@ type keyMap struct {
 	HalfPageUp    key.Binding
 	HalfPageDown  key.Binding
 	Follow        key.Binding
+	Copy          key.Binding
 }
 
 var defaultKeys = newKeyMap()
@@ -75,6 +76,7 @@ func newKeyMap() keyMap {
 		HalfPageUp:    newBinding([]string{"ctrl+u"}, "ctrl+u", "half up"),
 		HalfPageDown:  newBinding([]string{"ctrl+d"}, "ctrl+d", "half down"),
 		Follow:        newBinding([]string{"f"}, "f", "tail"),
+		Copy:          newBinding([]string{"y"}, "y", "copy selection/all"),
 	}
 }
 

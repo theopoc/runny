@@ -75,21 +75,25 @@ var (
 	commandInputTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
 	commandInputBorderStyle = lipgloss.NewStyle().
 				Foreground(runnyTheme.accentCommand)
-	matchStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.warning).Bold(true)
-	overlayTitleStyle  = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
-	sectionStyle       = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
-	helpKeyStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Bold(true)
-	helpDescStyle      = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	paletteActiveStyle = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSelection).Bold(true)
-	dangerBorderStyle  = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	dangerTitleStyle   = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	dangerChoiceStyle  = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.error).Bold(true)
-	logNumberStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
-	logErrorStyle      = lipgloss.NewStyle().Foreground(runnyTheme.error)
-	logInfoStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
-	noticeStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary)
-	errorBarStyle      = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
-	statusStyles       = map[core.Status]lipgloss.Style{
+	matchStyle            = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.warning).Bold(true)
+	overlayTitleStyle     = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
+	sectionStyle          = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand).Bold(true)
+	helpKeyStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Bold(true)
+	helpDescStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	paletteActiveStyle    = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.bgSelection).Bold(true)
+	dangerBorderStyle     = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
+	dangerTitleStyle      = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
+	dangerChoiceStyle     = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis).Background(runnyTheme.error).Bold(true)
+	logNumberStyle        = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	logErrorStyle         = lipgloss.NewStyle().Foreground(runnyTheme.error)
+	logInfoStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgDefault)
+	outputSelectionStyle  = newOutputSelectionStyle()
+	copyToastSuccessStyle = lipgloss.NewStyle().Foreground(runnyTheme.success).Bold(true)
+	copyToastSentStyle    = lipgloss.NewStyle().Foreground(runnyTheme.info).Bold(true)
+	copyToastErrorStyle   = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
+	noticeStyle           = lipgloss.NewStyle().Foreground(runnyTheme.accentPrimary)
+	errorBarStyle         = lipgloss.NewStyle().Foreground(runnyTheme.error).Bold(true)
+	statusStyles          = map[core.Status]lipgloss.Style{
 		core.StatusIdle:      lipgloss.NewStyle().Foreground(runnyTheme.fgMuted),
 		core.StatusQueued:    lipgloss.NewStyle().Foreground(runnyTheme.info),
 		core.StatusRunning:   lipgloss.NewStyle().Foreground(runnyTheme.accentWarm).Bold(true),
@@ -109,6 +113,13 @@ func tuiColor(value string) color.Color {
 		return lipgloss.NoColor{}
 	}
 	return lipgloss.Color(value)
+}
+
+func newOutputSelectionStyle() lipgloss.Style {
+	if noColorEnabled() {
+		return lipgloss.NewStyle().Reverse(true)
+	}
+	return lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgSelection)
 }
 
 func noColorEnabled() bool {
