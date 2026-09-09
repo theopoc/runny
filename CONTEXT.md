@@ -12,6 +12,10 @@ _Avoid_: Session, batch, job
 A discovered child directory eligible for inclusion in a Run.
 _Avoid_: Task, project, folder
 
+**Target filter**:
+A user-entered view constraint that narrows visible Targets and defines the matching scope for navigation and filtered bulk selection without changing the discovered Target set.
+_Avoid_: Search, directory filter, discovery filter
+
 **Target execution**:
 One Target's participation in a Run, with its own lifecycle, output, and outcome.
 _Avoid_: Task, worker, process
