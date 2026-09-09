@@ -234,7 +234,36 @@ func TestFilterMatchHighlightFollowsEditFocus(t *testing.T) {
 		t.Fatalf("exact filter edit should highlight matching characters: %q", name)
 	}
 
-	got := fmt.Sprintf("editing:\n%q\n\nvalidated:\n%q", editingRow, validatedRow)
+	regexModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "runny-runny", RelPath: "runny-runny"}}})
+	regexModel.Focus = FocusFilter
+	regexModel.Filter = `re:runny`
+	regexEditingRow := regexModel.renderTargetRow(0, regexModel.Targets[0], 60)
+	if count := strings.Count(regexEditingRow, yellowBackground); count != 2 {
+		t.Fatalf("regex edit should highlight every match, got %d highlights: %q", count, regexEditingRow)
+	}
+	regexModel, _ = updateSpecialKey(regexModel, tea.KeyEnter)
+	regexValidatedRow := regexModel.renderTargetRow(0, regexModel.Targets[0], 60)
+	if containsANSIBackground(regexModel.renderTargetDisplayName("runny-runny")) {
+		t.Fatalf("validated regex filter should remove match backgrounds: %q", regexValidatedRow)
+	}
+
+	nestedModel := NewModel(Options{Targets: []core.Target{
+		{ID: "api", Name: "api", RelPath: "api", Children: []string{"api/cmd"}},
+		{ID: "api/cmd", Name: "cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2},
+	}})
+	nestedModel.Focus = FocusFilter
+	nestedModel.Filter = `re:^api/(cmd|pkg)$`
+	if name := nestedModel.renderTargetName(nestedModel.Targets[1]); !strings.Contains(name, yellowBackground) {
+		t.Fatalf("nested target should highlight visible basename portion of path match: %q", name)
+	}
+
+	got := fmt.Sprintf(
+		"editing:\n%q\n\nvalidated:\n%q\n\nregex editing:\n%q\n\nregex validated:\n%q",
+		editingRow,
+		validatedRow,
+		regexEditingRow,
+		regexValidatedRow,
+	)
 	want, err := os.ReadFile("testdata/TestFilterMatchHighlightFollowsEditFocus.golden")
 	if err != nil {
 		t.Fatalf("read golden: %v\n--- got ---\n%s", err, got)
@@ -1946,6 +1975,123 @@ func TestFilterSupportsFuzzyAndExactModes(t *testing.T) {
 	exactView := stripANSI(strings.Join(exact.renderDirectoryPanel(80, 10), "\n"))
 	if !strings.Contains(exactView, "No matches for /'acm") {
 		t.Fatalf("exact no-match state should mention exact query:\n%s", exactView)
+	}
+}
+
+func TestTargetRegexFilterNavigatesAndSelectsDirectMatches(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true, Folded: true, Children: []string{"api/cmd", "api/pkg"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: false},
+		{ID: "api/pkg", RelPath: "api/pkg", ParentID: "api", Depth: 2, Selected: false},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Focus = FocusFilter
+	model.Filter = `re:^api/(cmd|pkg)$`
+	model.ensureCursorVisible()
+
+	if matches := model.matchingTargetIndexes(); len(matches) != 2 || matches[0] != 1 || matches[1] != 2 {
+		t.Fatalf("regex direct matches = %v, want [1 2]", matches)
+	}
+	plain := stripANSI(strings.Join(model.renderDirectoryPanel(80, 12), "\n"))
+	for _, want := range []string{"api", "api/cmd", "api/pkg"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("regex filter should render direct matches and parent context %q:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "web") {
+		t.Fatalf("regex filter should hide non-matches:\n%s", plain)
+	}
+
+	model.moveFilterMatch(1)
+	if model.Cursor != 2 {
+		t.Fatalf("cursor = %d, want second direct regex match", model.Cursor)
+	}
+	model.Focus = FocusTargets
+	model.toggleAllSelected()
+	if model.Targets[0].Selected || !model.Targets[1].Selected || !model.Targets[2].Selected || model.Targets[3].Selected {
+		t.Fatalf("regex bulk selection should be exclusive to direct matches: %#v", model.Targets)
+	}
+}
+
+func TestInvalidTargetRegexStaysInEditorAndShowsError(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusFilter
+	model = typeText(model, `re:[`)
+
+	if !strings.Contains(model.RunError, "invalid regex") {
+		t.Fatalf("run error = %q, want invalid regex", model.RunError)
+	}
+	plain := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
+	if !strings.Contains(plain, "Invalid regex") || !strings.Contains(plain, "missing closing ]") {
+		t.Fatalf("invalid regex state should explain the error:\n%s", plain)
+	}
+	if rendered := strings.Join(model.renderDirectoryPanel(80, 10), "\n"); containsANSIBackground(rendered) {
+		t.Fatalf("invalid regex state should not use background colors:\n%q", rendered)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Focus != FocusFilter || model.Filter != `re:[` {
+		t.Fatalf("enter should keep invalid regex in editor, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+	model = typeText(model, "a]")
+	if model.RunError != "" {
+		t.Fatalf("valid edited regex should clear parse error, got %q", model.RunError)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Focus != FocusTargets || model.Filter != `re:[a]` {
+		t.Fatalf("fixed regex should activate, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEsc)
+	if model.Focus != FocusTargets || model.Filter != "" || model.RunError != "" {
+		t.Fatalf("escape should clear invalid regex, filter/focus/error = %q/%v/%q", model.Filter, model.Focus, model.RunError)
+	}
+}
+
+func TestInvalidTargetRegexKeepsTabBehavior(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Focus = FocusFilter
+	model = typeText(model, `re:[`)
+
+	model, _ = updateSpecialKey(model, tea.KeyTab)
+	if model.Focus != FocusTargets || model.Filter != `re:[` || !strings.Contains(model.RunError, "invalid regex") {
+		t.Fatalf("tab should keep filter state while cycling focus, filter/focus/error = %q/%v/%q", model.Filter, model.Focus, model.RunError)
+	}
+}
+
+func TestEmptyTargetRegexBehavesLikeEmptyFilter(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true, Folded: true, Children: []string{"api/cmd"}},
+		{ID: "api/cmd", RelPath: "api/cmd", ParentID: "api", Depth: 2, Selected: true},
+		{ID: "web", RelPath: "web", Selected: true},
+	}})
+	model.Focus = FocusFilter
+	model.Filter = "re:"
+	model.ensureCursorVisible()
+
+	if got := model.visibleTargetIndexes(); len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("empty regex visible indexes = %v, want folded unfiltered view [0 2]", got)
+	}
+	if label := model.bulkSelectionLabel(); label != "select/unselect all" {
+		t.Fatalf("empty regex bulk label = %q", label)
+	}
+
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+	if model.Filter != "" || model.Focus != FocusTargets {
+		t.Fatalf("enter should normalize empty regex, filter/focus = %q/%v", model.Filter, model.Focus)
+	}
+}
+
+func TestTargetRegexSyntaxDoesNotChangePaletteOrHistorySearch(t *testing.T) {
+	model := NewModel(Options{})
+	model.Palette = `re:^run$`
+	if matches := model.filteredPaletteCommands(); len(matches) != 0 {
+		t.Fatalf("palette should treat target regex prefix as fuzzy text: %#v", matches)
+	}
+	model.History = []string{"run"}
+	model.HistoryFilter = `re:^run$`
+	if matches := model.filteredHistoryCommands(); len(matches) != 0 {
+		t.Fatalf("history should treat target regex prefix as fuzzy text: %#v", matches)
 	}
 }
 

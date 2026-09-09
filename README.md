@@ -161,7 +161,7 @@ exclude:
 | --- | --- |
 | `space` | Select/deselect focused directory |
 | `a` | Select/unselect all directories; with an active filter, exclusively select matching directories or deselect all |
-| `/` | Focus filter/search |
+| `/` | Focus Target filter (`fuzzy` by default, `'` exact, `re:` regex) |
 | `:` | Open command overlay |
 | `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
 | `ctrl+p` | Open command palette |
@@ -183,6 +183,14 @@ exclude:
 | Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |
 | `f` | Toggle output tail mode |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
+
+Target filters match discovered relative paths. Prefix a query with `re:` to use
+Go regular-expression syntax, for example `re:^services/(api|web)$`. Regex
+matching is case-sensitive by default; use an inline flag such as
+`re:(?i)^api` for case-insensitive matching. Invalid expressions match no
+Targets, remain in the filter editor after `enter`, and show the parse error.
+Regex mode applies only to the Target filter; command palette and history
+search keep their existing fuzzy and exact modes.
 
 Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
