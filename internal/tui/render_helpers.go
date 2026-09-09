@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -8,6 +9,28 @@ import (
 )
 
 const panelSeparator = "  "
+
+const targetRegexFilterPrefix = "re:"
+
+type targetFilterMode uint8
+
+const (
+	targetFilterModeFuzzy targetFilterMode = iota
+	targetFilterModeExact
+	targetFilterModeRegex
+)
+
+type filterMatchRange struct {
+	start int
+	end   int
+}
+
+type targetFilter struct {
+	mode  targetFilterMode
+	query string
+	regex *regexp.Regexp
+	err   error
+}
 
 func joinPanels(left []string, right []string) string {
 	var b strings.Builder
@@ -285,6 +308,69 @@ func filterMatches(value string, query string) bool {
 		return true
 	}
 	return !exact && len(fuzzyIndexesFold(value, query)) > 0
+}
+
+func parseTargetFilter(query string) targetFilter {
+	if strings.HasPrefix(query, targetRegexFilterPrefix) {
+		pattern := strings.TrimPrefix(query, targetRegexFilterPrefix)
+		filter := targetFilter{mode: targetFilterModeRegex, query: pattern}
+		if pattern != "" {
+			filter.regex, filter.err = regexp.Compile(pattern)
+		}
+		return filter
+	}
+	query, exact := filterQuery(query)
+	mode := targetFilterModeFuzzy
+	if exact {
+		mode = targetFilterModeExact
+	}
+	return targetFilter{mode: mode, query: query}
+}
+
+func (f targetFilter) active() bool {
+	return f.query != "" || f.mode == targetFilterModeExact
+}
+
+func (f targetFilter) matches(value string) bool {
+	if !f.active() {
+		return true
+	}
+	if f.err != nil {
+		return false
+	}
+	if f.mode == targetFilterModeRegex {
+		return f.regex.MatchString(value)
+	}
+	if containsFold(value, f.query) {
+		return true
+	}
+	return f.mode == targetFilterModeFuzzy && len(fuzzyIndexesFold(value, f.query)) > 0
+}
+
+func (f targetFilter) matchRanges(value string) []filterMatchRange {
+	if !f.active() || f.err != nil || f.mode != targetFilterModeRegex {
+		return nil
+	}
+	indexes := f.regex.FindAllStringIndex(value, -1)
+	ranges := make([]filterMatchRange, 0, len(indexes))
+	for _, index := range indexes {
+		if index[0] == index[1] {
+			continue
+		}
+		ranges = append(ranges, filterMatchRange{start: index[0], end: index[1]})
+	}
+	return ranges
+}
+
+func (f targetFilter) modeLabel() string {
+	switch f.mode {
+	case targetFilterModeExact:
+		return "exact"
+	case targetFilterModeRegex:
+		return "regex"
+	default:
+		return "fuzzy"
+	}
 }
 
 func fuzzyIndexesFold(value string, query string) []int {

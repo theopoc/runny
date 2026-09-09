@@ -272,9 +272,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyRunEvent(next)
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
-		if click.Button == tea.MouseLeft {
+		if click.Button == tea.MouseLeft && click.Mod == 0 {
+			targetIndex, targetHit := m.directoryTargetAt(click.X, click.Y)
 			if focus, hit := m.paneFocusAt(click.X, click.Y); hit {
 				m.Focus = focus
+				if targetHit {
+					m.Cursor = targetIndex
+				}
 			}
 		}
 		return m, nil
@@ -393,11 +397,11 @@ func (m Model) handleTargetKey(keyName string) (tea.Model, tea.Cmd, bool) {
 	case matchesKey(keyName, defaultKeys.Down):
 		m.moveCursor(1)
 	case matchesKey(keyName, defaultKeys.NextMatch):
-		if m.Filter != "" {
+		if m.hasActiveTargetFilter() {
 			m.moveFilterMatch(1)
 		}
 	case matchesKey(keyName, defaultKeys.PreviousMatch):
-		if m.Filter != "" {
+		if m.hasActiveTargetFilter() {
 			m.moveFilterMatch(-1)
 		}
 	case matchesKey(keyName, defaultKeys.First):
@@ -570,9 +574,18 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 			m.Filter = ""
 			m.ensureCursorVisible()
 			m.Notice = "filter cleared"
-			m.RunError = ""
 		}
+		m.RunError = ""
 	case "enter":
+		filter := parseTargetFilter(m.Filter)
+		if filter.err != nil {
+			m.syncTargetFilterError()
+			return m, nil
+		}
+		if !filter.active() {
+			m.Filter = ""
+		}
+		m.clearTargetFilterError()
 		m.Focus = FocusTargets
 	case "ctrl+u":
 		m.Filter = ""
@@ -590,14 +603,17 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	case "backspace":
 		if m.Filter != "" {
 			m.Filter = deleteLastRune(m.Filter)
+			m.syncTargetFilterError()
 			m.ensureCursorVisible()
 		}
 	case "ctrl+w":
 		m.Filter = trimLastWord(m.Filter)
+		m.syncTargetFilterError()
 		m.ensureCursorVisible()
 	default:
 		if key.Key().Text != "" {
 			m.Filter += key.Key().Text
+			m.syncTargetFilterError()
 			m.ensureCursorVisible()
 		}
 	}
@@ -948,7 +964,7 @@ func (m Model) startRun(failedOnly bool) (tea.Model, tea.Cmd) {
 	if len(targets) == 0 {
 		if len(m.Targets) == 0 {
 			m.RunError = "no target directories found"
-		} else if m.Filter != "" {
+		} else if m.hasActiveTargetFilter() {
 			m.RunError = "no selected targets; press a to select/unselect matches"
 		} else {
 			m.RunError = "no selected targets; press a to select/unselect all"
@@ -1264,6 +1280,31 @@ func (m Model) paneFocusAt(x int, y int) (Focus, bool) {
 	return 0, false
 }
 
+func (m Model) directoryTargetAt(x int, y int) (int, bool) {
+	focus, hit := m.paneFocusAt(x, y)
+	if !hit || focus != FocusTargets {
+		return 0, false
+	}
+
+	panelHeight, leftWidth, _ := m.panelDimensions(m.Width, m.Height)
+	panelWidth := leftWidth
+	if m.Zoom || m.compactMode(m.Width) {
+		panelWidth = m.singlePanelWidth(m.Width)
+	}
+	if x <= 0 || x >= panelWidth-1 {
+		return 0, false
+	}
+
+	const firstTargetRow = 3
+	panelTop := strings.Count(m.renderPanelPrefix(m.Width), "\n")
+	row := y - panelTop - firstTargetRow
+	visibleIndexes, offset, limit := m.visibleDirectoryRange(panelHeight)
+	if row < 0 || row >= limit || offset+row >= len(visibleIndexes) {
+		return 0, false
+	}
+	return visibleIndexes[offset+row], true
+}
+
 func (m Model) renderPanelPrefix(width int) string {
 	if m.hasOverlay() {
 		return ""
@@ -1548,18 +1589,7 @@ func (m Model) mode() core.ExecutionMode {
 
 func (m Model) renderDirectoryPanel(width int, height int) []string {
 	rows := []string{panelTitleStyle.Render(m.taskHeader(width - 4))}
-	visibleIndexes := m.visibleTargetIndexes()
-	limit := max(1, height-4)
-	if len(visibleIndexes) > 0 {
-		limit = max(1, height-5)
-	}
-	offset := m.DirectoryOffset
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > max(0, len(visibleIndexes)-1) {
-		offset = max(0, len(visibleIndexes)-1)
-	}
+	visibleIndexes, offset, limit := m.visibleDirectoryRange(height)
 	if len(visibleIndexes) > 0 {
 		rows = append(rows, subtleStyle.Render(m.directoryScrollLabel(offset, limit, len(visibleIndexes))))
 	}
@@ -1573,10 +1603,15 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 		count++
 	}
 	if count == 0 {
-		if m.Filter == "" {
+		filter := parseTargetFilter(m.Filter)
+		if !filter.active() && filter.err == nil {
 			rows = append(rows, sectionStyle.Render("No target directories found"))
 			rows = append(rows, "  runny executes inside child directories of current cwd")
 			rows = append(rows, "  create directories or run from a project root")
+		} else if filter.err != nil {
+			rows = append(rows, sectionStyle.Render("Invalid regex for /"+m.Filter))
+			rows = append(rows, "  "+targetFilterErrorText(filter.err))
+			rows = append(rows, "  edit query, ctrl+u clears filter, esc returns to tasks")
 		} else {
 			rows = append(rows, sectionStyle.Render("No matches for /"+m.Filter))
 			rows = append(rows, "  "+m.filterModeLabel()+" filter has no visible target")
@@ -1586,12 +1621,24 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 	return boxLines(width, height, "Tasks", rows, m.Focus == FocusTargets)
 }
 
-func (m Model) filterModeLabel() string {
-	_, exact := filterQuery(strings.TrimSpace(m.Filter))
-	if exact {
-		return "exact"
+func (m Model) visibleDirectoryRange(height int) ([]int, int, int) {
+	visibleIndexes := m.visibleTargetIndexes()
+	limit := max(1, height-4)
+	if len(visibleIndexes) > 0 {
+		limit = max(1, height-5)
 	}
-	return "fuzzy"
+	offset := m.DirectoryOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > max(0, len(visibleIndexes)-1) {
+		offset = max(0, len(visibleIndexes)-1)
+	}
+	return visibleIndexes, offset, limit
+}
+
+func (m Model) filterModeLabel() string {
+	return parseTargetFilter(strings.TrimSpace(m.Filter)).modeLabel()
 }
 
 func (m Model) taskHeader(width int) string {
@@ -1670,7 +1717,7 @@ func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Sty
 }
 
 func (m Model) foldSymbol(target core.Target) string {
-	if len(target.Children) > 0 && target.Folded && m.Filter == "" {
+	if len(target.Children) > 0 && target.Folded && !m.hasActiveTargetFilter() {
 		return "▸"
 	}
 	if len(target.Children) > 0 {
@@ -1694,7 +1741,7 @@ func (m Model) renderTargetName(target core.Target) string {
 	if target.Name != "" {
 		name = target.Name
 	}
-	return guide + m.renderTargetDisplayName(name)
+	return guide + m.renderTargetDisplayNameForPath(name, strings.Trim(target.RelPath, "/"))
 }
 
 func (m Model) renderTargetNamePlain(target core.Target) string {
@@ -1774,7 +1821,16 @@ func (m Model) targetHasSelectedDescendant(target core.Target) bool {
 }
 
 func (m Model) renderTargetDisplayName(name string) string {
-	if m.Focus == FocusFilter && strings.TrimSpace(m.Filter) != "" {
+	return m.renderTargetDisplayNameForPath(name, name)
+}
+
+func (m Model) renderTargetDisplayNameForPath(name string, path string) string {
+	if m.Focus == FocusFilter && m.hasActiveTargetFilter() {
+		filter := parseTargetFilter(m.Filter)
+		if filter.mode == targetFilterModeRegex && filter.err == nil {
+			ranges := visibleMatchRanges(name, path, filter.matchRanges(path))
+			return folderNameStyle.Render(highlightMatchRanges(name, ranges))
+		}
 		return folderNameStyle.Render(m.highlightMatch(name))
 	}
 	parent, base := splitTargetPath(name)
@@ -1782,6 +1838,22 @@ func (m Model) renderTargetDisplayName(name string) string {
 		return folderNameStyle.Render(base)
 	}
 	return folderPathStyle.Render(parent+"/") + folderNameStyle.Render(base)
+}
+
+func visibleMatchRanges(value string, source string, ranges []filterMatchRange) []filterMatchRange {
+	if !strings.HasSuffix(source, value) {
+		return nil
+	}
+	offset := len(source) - len(value)
+	visible := make([]filterMatchRange, 0, len(ranges))
+	for _, match := range ranges {
+		start := max(match.start, offset)
+		end := min(match.end, len(source))
+		if start < end {
+			visible = append(visible, filterMatchRange{start: start - offset, end: end - offset})
+		}
+	}
+	return visible
 }
 
 func targetName(target core.Target) string {
@@ -2003,24 +2075,30 @@ func (m Model) renderFooter(width int) string {
 				hints = []string{"enter run", "esc cancel", "? help"}
 			}
 		case FocusFilter:
-			hints = []string{"type fuzzy", "' exact", "n/N matches", "ctrl+u clear", "enter/esc tasks", "? help"}
+			hints = []string{"type fuzzy", "' exact", "re: regex", "n/N matches", "ctrl+u clear", "enter/esc tasks", "? help"}
+			if width < 100 {
+				hints = []string{"type fuzzy", "' exact", "re: regex", "n/N match", "ctrl+u clear", "enter/esc", "? help"}
+			}
+			if width < 70 {
+				hints = []string{"' exact", "re: regex", "n/N", "esc", "? help"}
+			}
 		case FocusLogs:
 			hints = []string{": command", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 		default:
 			fullHints := []string{": command", "space select", "/ filter", "o options", "x cancel", "tab output", "? help", "q quit"}
-			if m.Filter != "" {
+			if m.hasActiveTargetFilter() {
 				fullHints[2] = "esc clear filter"
 			}
 			hints = fullHints
 			if footerHintContentWidth(fullHints) > width {
 				hints = []string{": cmd", "space sel", "o opts", "x stop", "tab pane", "? help", "q quit"}
-				if m.Filter != "" {
+				if m.hasActiveTargetFilter() {
 					hints[2] = "esc clear"
 				}
 			}
 			if width < 70 {
 				hints = []string{": cmd", "space sel", "o op", "tab out", "? help", "q quit"}
-				if m.Filter != "" {
+				if m.hasActiveTargetFilter() {
 					hints[2] = "esc clear"
 				}
 			}
@@ -2233,24 +2311,39 @@ func (m Model) singlePanelWidth(width int) int {
 }
 
 func (m Model) highlightMatch(value string) string {
-	if m.Filter == "" {
+	filter := parseTargetFilter(m.Filter)
+	if !filter.active() || filter.err != nil {
 		return value
 	}
-	query, exact := filterQuery(m.Filter)
-	if query == "" {
-		return value
+	if filter.mode == targetFilterModeRegex {
+		return highlightMatchRanges(value, filter.matchRanges(value))
 	}
-	index := indexFold(value, query)
+	index := indexFold(value, filter.query)
 	if index < 0 {
-		if exact {
+		if filter.mode == targetFilterModeExact {
 			return value
 		}
-		return highlightFuzzyMatch(value, query)
+		return highlightFuzzyMatch(value, filter.query)
 	}
 	before := value[:index]
-	match := value[index : index+len(query)]
-	after := value[index+len(query):]
+	match := value[index : index+len(filter.query)]
+	after := value[index+len(filter.query):]
 	return before + matchStyle.Render(match) + after
+}
+
+func highlightMatchRanges(value string, ranges []filterMatchRange) string {
+	if len(ranges) == 0 {
+		return value
+	}
+	var b strings.Builder
+	last := 0
+	for _, match := range ranges {
+		b.WriteString(value[last:match.start])
+		b.WriteString(matchStyle.Render(value[match.start:match.end]))
+		last = match.end
+	}
+	b.WriteString(value[last:])
+	return b.String()
 }
 
 func highlightFuzzyMatch(value string, query string) string {
@@ -2348,7 +2441,7 @@ func (m Model) helpRows(width ...int) []string {
 			bindings: []helpBinding{
 				{":", "run command"}, {"type", "insert text"}, {"backspace", "edit"},
 				{"up/down", "command history"}, {"ctrl+w", "word back"}, {"ctrl+u", "clear"},
-				{"/", "fuzzy filter"}, {"'", "exact filter"}, {"n/N", "next/prev match"},
+				{"/", "fuzzy filter"}, {"'/re:", "exact/regex filter"}, {"n/N", "next/prev match"},
 			},
 		},
 		{
@@ -2650,7 +2743,7 @@ func (m *Model) toggleAllSelected() {
 	for i := range m.Targets {
 		indexes[i] = i
 	}
-	filtered := m.Filter != ""
+	filtered := m.hasActiveTargetFilter()
 	if filtered {
 		indexes = m.matchingTargetIndexes()
 		if len(indexes) == 0 {
@@ -2701,7 +2794,7 @@ func (m *Model) toggleAllSelected() {
 }
 
 func (m Model) bulkSelectionLabel() string {
-	if m.Filter != "" {
+	if m.hasActiveTargetFilter() {
 		return "select/unselect matches"
 	}
 	return "select/unselect all"
@@ -2946,11 +3039,15 @@ func (m Model) statusCounts() map[core.Status]int {
 }
 
 func (m Model) visible(target core.Target) bool {
-	if m.Filter == "" || filterMatches(target.RelPath, m.Filter) {
+	return m.visibleWithFilter(target, parseTargetFilter(m.Filter))
+}
+
+func (m Model) visibleWithFilter(target core.Target, filter targetFilter) bool {
+	if !filter.active() || filter.matches(target.RelPath) {
 		return true
 	}
 	for _, candidate := range m.Targets {
-		if candidate.ParentID == target.ID && m.visible(candidate) {
+		if candidate.ParentID == target.ID && m.visibleWithFilter(candidate, filter) {
 			return true
 		}
 	}
@@ -3063,7 +3160,8 @@ func (m *Model) ensureCursorVisible() {
 		m.Cursor = 0
 		return
 	}
-	if m.Filter != "" && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !filterMatches(m.Targets[m.Cursor].RelPath, m.Filter) || m.hiddenByFold(m.Targets[m.Cursor])) {
+	filter := parseTargetFilter(m.Filter)
+	if filter.active() && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !filter.matches(m.Targets[m.Cursor].RelPath) || m.hiddenByFold(m.Targets[m.Cursor])) {
 		if indexes := m.matchingTargetIndexes(); len(indexes) > 0 {
 			m.Cursor = indexes[0]
 			m.ensureDirectoryOffset()
@@ -3124,9 +3222,10 @@ func (m Model) directoryViewportRows() int {
 }
 
 func (m Model) visibleTargetIndexes() []int {
+	filter := parseTargetFilter(m.Filter)
 	indexes := make([]int, 0, len(m.Targets))
 	for i, target := range m.Targets {
-		if m.isVisibleTarget(target) {
+		if m.isVisibleTargetWithFilter(target, filter) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -3134,12 +3233,13 @@ func (m Model) visibleTargetIndexes() []int {
 }
 
 func (m Model) matchingTargetIndexes() []int {
-	if m.Filter == "" {
+	filter := parseTargetFilter(m.Filter)
+	if !filter.active() || filter.err != nil {
 		return nil
 	}
 	indexes := make([]int, 0, len(m.Targets))
 	for i, target := range m.Targets {
-		if filterMatches(target.RelPath, m.Filter) {
+		if filter.matches(target.RelPath) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -3147,7 +3247,7 @@ func (m Model) matchingTargetIndexes() []int {
 }
 
 func (m Model) filterMatchLabel() string {
-	if m.Filter == "" {
+	if !m.hasActiveTargetFilter() {
 		return "match -"
 	}
 	indexes := m.matchingTargetIndexes()
@@ -3163,8 +3263,39 @@ func (m Model) filterMatchLabel() string {
 }
 
 func (m Model) isVisibleTarget(target core.Target) bool {
-	if m.Filter != "" {
-		return m.visible(target)
+	return m.isVisibleTargetWithFilter(target, parseTargetFilter(m.Filter))
+}
+
+func (m Model) isVisibleTargetWithFilter(target core.Target, filter targetFilter) bool {
+	if filter.active() {
+		return m.visibleWithFilter(target, filter)
 	}
-	return m.visible(target) && !m.hiddenByFold(target)
+	return m.visibleWithFilter(target, filter) && !m.hiddenByFold(target)
+}
+
+func (m Model) hasActiveTargetFilter() bool {
+	if strings.HasPrefix(m.Filter, targetRegexFilterPrefix) {
+		return strings.TrimPrefix(m.Filter, targetRegexFilterPrefix) != ""
+	}
+	return m.Filter != ""
+}
+
+func (m *Model) syncTargetFilterError() {
+	filter := parseTargetFilter(m.Filter)
+	if filter.err != nil {
+		m.RunError = targetFilterErrorText(filter.err)
+		return
+	}
+	m.clearTargetFilterError()
+}
+
+func (m *Model) clearTargetFilterError() {
+	if strings.HasPrefix(m.RunError, "invalid regex:") {
+		m.RunError = ""
+	}
+}
+
+func targetFilterErrorText(err error) string {
+	message := strings.TrimPrefix(err.Error(), "error parsing regexp: ")
+	return "invalid regex: " + message
 }
