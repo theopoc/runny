@@ -62,6 +62,9 @@ type Model struct {
 	Logs                   map[string]string
 	liveLogTruncated       map[string]bool
 	TargetStarted          map[string]time.Time
+	TargetEnded            map[string]time.Time
+	RunStarted             time.Time
+	RunEnded               time.Time
 	History                []string
 	RunHistory             []history.RunEntry
 	Focus                  Focus
@@ -124,12 +127,14 @@ type Model struct {
 	lifecycleCtx           context.Context
 	outputViewport         viewport.Model
 	historyLogViewport     viewport.Model
+	now                    func() time.Time
 }
 
 func NewModel(opts Options) Model {
 	status := map[string]core.Status{}
 	logs := map[string]string{}
 	started := map[string]time.Time{}
+	ended := map[string]time.Time{}
 	for _, target := range opts.Targets {
 		status[target.ID] = core.StatusIdle
 		logs[target.ID] = ""
@@ -156,6 +161,7 @@ func NewModel(opts Options) Model {
 		Logs:               logs,
 		liveLogTruncated:   map[string]bool{},
 		TargetStarted:      started,
+		TargetEnded:        ended,
 		Focus:              FocusTargets,
 		Mode:               opts.Mode,
 		Workers:            opts.Workers,
@@ -171,6 +177,7 @@ func NewModel(opts Options) Model {
 		LogFollow:          true,
 		outputViewport:     newLogViewport(),
 		historyLogViewport: newLogViewport(),
+		now:                time.Now,
 	}
 	if opts.CommandHistoryPath != "" {
 		if entries, err := history.ReadCommands(opts.CommandHistoryPath); err == nil {
@@ -1010,6 +1017,8 @@ func (m Model) beginRun(command string, targets []core.Target) (tea.Model, tea.C
 	}
 	m.activeRun = run
 	m.Running = true
+	m.RunStarted = time.Time{}
+	m.RunEnded = time.Time{}
 	m.RunError = ""
 	m.Notice = fmt.Sprintf("started %d target(s)", len(targets))
 	m.addHistory(command)
@@ -1019,6 +1028,7 @@ func (m Model) beginRun(command string, targets []core.Target) (tea.Model, tea.C
 		m.Logs[target.ID] = ""
 		m.liveLogTruncated[target.ID] = false
 		delete(m.TargetStarted, target.ID)
+		delete(m.TargetEnded, target.ID)
 	}
 	return m, tea.Batch(spinnerTick(), waitForRunEvent(m.lifecycleCtx, run))
 }
@@ -1052,6 +1062,12 @@ func (m Model) applyRunEvent(next runEventMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	event := next.event
+	if !event.Run.Started.IsZero() {
+		m.RunStarted = event.Run.Started
+	}
+	if !event.Run.Ended.IsZero() {
+		m.RunEnded = event.Run.Ended
+	}
 	if event.Target != nil {
 		m.applyTargetSnapshot(*event.Target)
 	}
@@ -1081,6 +1097,9 @@ func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
 	m.Status[id] = target.Status
 	if !target.Started.IsZero() {
 		m.TargetStarted[id] = target.Started
+	}
+	if !target.Ended.IsZero() {
+		m.TargetEnded[id] = target.Ended
 	}
 	if target.OutputTail != "" || target.OutputTruncated {
 		m.Logs[id] = target.OutputTail
@@ -1499,8 +1518,15 @@ func (m Model) renderCommandOverlay(width int, height int) string {
 
 func (m Model) renderDashboard(width int) string {
 	stats := m.statusCounts()
+	duration := ""
+	if !m.Running {
+		duration = formatExecutionDuration(m.RunStarted, m.RunEnded)
+		if duration == "-" {
+			duration = ""
+		}
+	}
 	segments := []string{}
-	if m.RunError != "" && width < 100 {
+	if width < 100 && (m.RunError != "" || duration != "") {
 		segments = []string{
 			metricRunningStyle.Render(fmt.Sprintf("●%d", stats[core.StatusRunning])),
 			metricQueuedStyle.Render(fmt.Sprintf("◌%d", stats[core.StatusQueued])),
@@ -1516,6 +1542,9 @@ func (m Model) renderDashboard(width int) string {
 		}
 	}
 	left := " " + strings.Join(segments, subtleStyle.Render(" · "))
+	if duration != "" {
+		left += subtleStyle.Render(" · ") + noticeStyle.Render(duration)
+	}
 
 	message := ""
 	if m.RunError != "" {
@@ -1643,7 +1672,9 @@ func (m Model) filterModeLabel() string {
 
 func (m Model) taskHeader(width int) string {
 	left := "DIRECTORY"
-	return fixedStatusJoin(left, statusHeaderStyle.Render("STATUS"), width)
+	status := statusHeaderStyle.Render(padRightVisible("STATUS", targetStatusWidth))
+	duration := statusHeaderStyle.Render(padLeftVisible("TIME", targetTimeWidth))
+	return fixedTargetColumns(left, status, duration, width)
 }
 
 func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
@@ -1678,15 +1709,16 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	fold := treeDisclosureStyle.Render(m.foldSymbol(target))
 	name := m.renderTargetName(target)
 	statusText := m.renderRowStatus(status)
+	timeText := m.renderRowTime(target.ID, status)
 	if (active || target.Selected || partial) && m.Focus != FocusFilter {
 		fold = m.foldSymbol(target)
 		name = m.renderTargetNamePlain(target)
 	}
 	left := cursor + " " + selection + " " + fold + " " + name
 	if active {
-		return m.renderActiveTargetRow(left, status, width)
+		return m.renderActiveTargetRow(left, target.ID, status, width)
 	}
-	row := fixedStatusJoin(left, statusText, width)
+	row := fixedTargetColumns(left, statusText, timeText, width)
 	if target.Selected {
 		return rowSelectedStyle.Render(padRightVisible(row, width))
 	}
@@ -1699,17 +1731,29 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 	return row
 }
 
-func (m Model) renderActiveTargetRow(left string, status core.Status, width int) string {
-	const (
-		statusWidth = 12
-		gap         = 2
-	)
-	if width < statusWidth+gap+8 {
-		return rowActiveStyle.Render(padRightVisible(fixedStatusJoin(left, m.statusLabel(status), width), width))
+const (
+	targetStatusWidth  = 11
+	targetTimeWidth    = 7
+	targetDirectoryGap = 2
+	targetTimeGap      = 1
+)
+
+func fixedTargetColumns(left string, status string, duration string, width int) string {
+	if width < targetStatusWidth+targetTimeWidth+targetDirectoryGap+targetTimeGap+8 {
+		return truncateVisible(left, width)
 	}
-	leftWidth := width - statusWidth - gap
-	leftSegment := padRightVisible(truncateVisible(left, leftWidth), leftWidth) + strings.Repeat(" ", gap)
-	return rowActiveStyle.Render(leftSegment) + m.renderRowStatus(status)
+	leftWidth := width - targetStatusWidth - targetTimeWidth - targetDirectoryGap - targetTimeGap
+	left = padRightVisible(truncateVisible(left, leftWidth), leftWidth)
+	return left + strings.Repeat(" ", targetDirectoryGap) + status + strings.Repeat(" ", targetTimeGap) + duration
+}
+
+func (m Model) renderActiveTargetRow(left string, targetID string, status core.Status, width int) string {
+	if width < targetStatusWidth+targetTimeWidth+targetDirectoryGap+targetTimeGap+8 {
+		return rowActiveStyle.Render(padRightVisible(truncateVisible(left, width), width))
+	}
+	leftWidth := width - targetStatusWidth - targetTimeWidth - targetDirectoryGap - targetTimeGap
+	leftSegment := padRightVisible(truncateVisible(left, leftWidth), leftWidth) + strings.Repeat(" ", targetDirectoryGap)
+	return rowActiveStyle.Render(leftSegment) + m.renderRowStatus(status) + strings.Repeat(" ", targetTimeGap) + m.renderRowTime(targetID, status)
 }
 
 func targetRowInlineStyle(style lipgloss.Style, status core.Status) lipgloss.Style {
@@ -1727,12 +1771,46 @@ func (m Model) foldSymbol(target core.Target) string {
 }
 
 func (m Model) renderRowStatus(status core.Status) string {
-	label := padRightVisible(m.statusLabel(status), 12)
+	label := truncateVisible(m.statusLabel(status), targetStatusWidth)
+	label = padRightVisible(label, targetStatusWidth)
 	if style, ok := statusStyles[status]; ok {
 		style = targetRowInlineStyle(style, status)
 		return style.Render(label)
 	}
 	return label
+}
+
+func (m Model) renderRowTime(targetID string, status core.Status) string {
+	label := truncateVisible(m.targetDuration(targetID, status), targetTimeWidth)
+	label = padLeftVisible(label, targetTimeWidth)
+	if style, ok := statusStyles[status]; ok {
+		style = targetRowInlineStyle(style, status)
+		return style.Render(label)
+	}
+	return label
+}
+
+func (m Model) targetDuration(targetID string, status core.Status) string {
+	started := m.TargetStarted[targetID]
+	if started.IsZero() {
+		return "—"
+	}
+	ended := m.TargetEnded[targetID]
+	if ended.IsZero() {
+		if status != core.StatusRunning {
+			return "—"
+		}
+		if m.now == nil {
+			ended = time.Now()
+		} else {
+			ended = m.now()
+		}
+	}
+	duration := formatExecutionDuration(started, ended)
+	if duration == "-" {
+		return "—"
+	}
+	return duration
 }
 
 func (m Model) renderTargetName(target core.Target) string {

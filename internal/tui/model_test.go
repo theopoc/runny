@@ -2261,7 +2261,7 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	wide := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
-	for _, want := range []string{"DIRECTORY", "STATUS"} {
+	for _, want := range []string{"DIRECTORY", "STATUS", "TIME"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide task header should contain %q:\n%s", want, wide)
 		}
@@ -2273,7 +2273,7 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	}
 
 	compact := stripANSI(model.taskHeader(46))
-	for _, want := range []string{"DIRECTORY", "STATUS"} {
+	for _, want := range []string{"DIRECTORY", "STATUS", "TIME"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact task header should contain %q:\n%s", want, compact)
 		}
@@ -2288,9 +2288,12 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	}
 }
 
-func TestTargetRowsAlignStatusColumn(t *testing.T) {
+func TestTargetRowsAlignStatusAndTimeColumns(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	now := time.Date(2026, 9, 8, 12, 0, 4, 0, time.UTC)
+	model.now = func() time.Time { return now }
 	model.Status["api"] = core.StatusRunning
+	model.TargetStarted["api"] = now.Add(-3400 * time.Millisecond)
 	width := 60
 	header := stripANSI(model.taskHeader(width))
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], width))
@@ -2302,6 +2305,70 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	prefix := strings.Replace(row[:statusIndex], "[●]", "", 1)
 	if strings.Contains(prefix, "●") || strings.Contains(prefix, "○") {
 		t.Fatalf("target row should not include status marker before status column:\n%s", row)
+	}
+	headerTimeIndex := strings.Index(header, "TIME")
+	rowTimeIndex := strings.Index(row, "3s")
+	if headerTimeIndex < 0 || rowTimeIndex < 0 || lipgloss.Width(header[:headerTimeIndex+len("TIME")]) != lipgloss.Width(row[:rowTimeIndex+len("3s")]) {
+		t.Fatalf("time column should be right aligned, header=%d row=%d\n%s\n%s", headerTimeIndex, rowTimeIndex, header, row)
+	}
+}
+
+func TestTargetRowShowsLiveExecutionDuration(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 4, 0, time.UTC)
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.now = func() time.Time { return now }
+	model.Status["api"] = core.StatusRunning
+	model.TargetStarted["api"] = now.Add(-3400 * time.Millisecond)
+
+	row := stripANSI(model.renderTargetRow(0, model.Targets[0], 46))
+	if !strings.Contains(row, "running") || !strings.HasSuffix(row, "     3s") {
+		t.Fatalf("running target should show live duration:\n%s", row)
+	}
+}
+
+func TestTargetRowFreezesTerminalExecutionDuration(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 20, 0, time.UTC)
+	started := now.Add(-10 * time.Second)
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.now = func() time.Time { return now }
+	model.Status["api"] = core.StatusSucceeded
+	model.TargetStarted["api"] = started
+	model.TargetEnded["api"] = started.Add(4 * time.Second)
+
+	row := stripANSI(model.renderTargetRow(0, model.Targets[0], 46))
+	if !strings.Contains(row, "ok") || !strings.HasSuffix(row, "     4s") {
+		t.Fatalf("completed target should show frozen duration:\n%s", row)
+	}
+	if strings.Contains(row, "10s") {
+		t.Fatalf("completed target should not keep counting:\n%s", row)
+	}
+}
+
+func TestTargetRowBoundsLongExecutionDuration(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.now = func() time.Time { return now }
+	model.Status["api"] = core.StatusRunning
+	model.TargetStarted["api"] = now.Add(-1000 * time.Hour)
+
+	const width = 38
+	row := model.renderTargetRow(0, model.Targets[0], width)
+	if got := lipgloss.Width(row); got != width {
+		t.Fatalf("long duration row width = %d, want %d:\n%s", got, width, stripANSI(row))
+	}
+}
+
+func TestTargetRowShowsMissingDurationForTargetsThatNeverStarted(t *testing.T) {
+	for _, status := range []core.Status{core.StatusQueued, core.StatusSkipped} {
+		t.Run(string(status), func(t *testing.T) {
+			model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+			model.Status["api"] = status
+
+			row := stripANSI(model.renderTargetRow(0, model.Targets[0], 46))
+			if !strings.Contains(row, model.statusLabel(status)) || !strings.HasSuffix(row, "      —") {
+				t.Fatalf("target that never started should show missing duration:\n%s", row)
+			}
+		})
 	}
 }
 
@@ -3230,6 +3297,7 @@ func TestViewShowsMinimumSizeGate(t *testing.T) {
 }
 
 func TestViewBeautifulDashboardGolden(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 4, 0, time.UTC)
 	model := NewModel(Options{Command: "pnpm test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true, Children: []string{"api/cmd"}},
 		{ID: "api/cmd", RelPath: "api/cmd", Selected: true, ParentID: "api", Depth: 2},
@@ -3240,6 +3308,10 @@ func TestViewBeautifulDashboardGolden(t *testing.T) {
 	model.Status["api/cmd"] = core.StatusQueued
 	model.Status["web"] = core.StatusSkipped
 	model.Status["worker"] = core.StatusFailed
+	model.now = func() time.Time { return now }
+	model.TargetStarted["api"] = now.Add(-3400 * time.Millisecond)
+	model.TargetStarted["worker"] = now.Add(-640 * time.Millisecond)
+	model.TargetEnded["worker"] = now
 	model, _ = updateWindowSize(model, 100, 26)
 
 	view := model.View()
@@ -3702,6 +3774,38 @@ func TestDashboardShowsStatusCountsWithoutProgressChrome(t *testing.T) {
 	}
 }
 
+func TestDashboardShowsCompletedRunDuration(t *testing.T) {
+	started := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.Status["api"] = core.StatusSucceeded
+	model.RunStarted = started
+	model.RunEnded = started.Add(12*time.Second + 400*time.Millisecond)
+
+	dashboard := stripANSI(model.renderDashboard(80))
+	if !strings.Contains(dashboard, "· 12s") {
+		t.Fatalf("completed dashboard should show run duration:\n%s", dashboard)
+	}
+}
+
+func TestStartingRunClearsPreviousExecutionTimes(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", Selected: true}
+	run := &fakeActiveRun{}
+	model := NewModel(Options{Command: "echo ok", Targets: []core.Target{target}, startRun: fakeStart(run, nil)})
+	model.TargetStarted["api"] = time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	model.TargetEnded["api"] = time.Date(2026, 9, 8, 12, 0, 2, 0, time.UTC)
+	model.RunStarted = time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	model.RunEnded = time.Date(2026, 9, 8, 12, 0, 3, 0, time.UTC)
+
+	model, _ = updateSpecialKey(model, tea.KeyEnter)
+
+	if !model.TargetStarted["api"].IsZero() || !model.TargetEnded["api"].IsZero() {
+		t.Fatalf("target execution times were not reset: started=%s ended=%s", model.TargetStarted["api"], model.TargetEnded["api"])
+	}
+	if !model.RunStarted.IsZero() || !model.RunEnded.IsZero() {
+		t.Fatalf("run execution times were not reset: started=%s ended=%s", model.RunStarted, model.RunEnded)
+	}
+}
+
 func TestModelProjectsRunLifecycle(t *testing.T) {
 	targets := []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
@@ -3750,6 +3854,48 @@ func TestModelProjectsRunLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(model.Logs["web"], "web bad") || !strings.Contains(model.Logs["web"], "exit status 1") {
 		t.Fatalf("web logs = %q", model.Logs["web"])
+	}
+}
+
+func TestModelProjectsTargetAndRunExecutionTimes(t *testing.T) {
+	target := core.Target{ID: "api", RelPath: "api", Selected: true}
+	started := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	ended := started.Add(2*time.Second + 400*time.Millisecond)
+	model := NewModel(Options{Targets: []core.Target{target}})
+
+	startedEvent := runpkg.Event{
+		Kind: runpkg.EventTargetStarted,
+		Run:  runpkg.Snapshot{Started: started},
+		Target: &runpkg.TargetSnapshot{
+			Target:  target,
+			Status:  core.StatusRunning,
+			Started: started,
+		},
+	}
+	updated, _ := model.Update(runEventMsg{event: startedEvent})
+	model = updated.(Model)
+
+	completedEvent := runpkg.Event{
+		Kind: runpkg.EventCompleted,
+		Run: runpkg.Snapshot{
+			Started: started,
+			Ended:   ended,
+			Targets: []runpkg.TargetSnapshot{{
+				Target:  target,
+				Status:  core.StatusSucceeded,
+				Started: started,
+				Ended:   ended,
+			}},
+		},
+	}
+	updated, _ = model.Update(runEventMsg{event: completedEvent})
+	model = updated.(Model)
+
+	if model.TargetStarted["api"] != started || model.TargetEnded["api"] != ended {
+		t.Fatalf("target times = %s/%s, want %s/%s", model.TargetStarted["api"], model.TargetEnded["api"], started, ended)
+	}
+	if model.RunStarted != started || model.RunEnded != ended {
+		t.Fatalf("run times = %s/%s, want %s/%s", model.RunStarted, model.RunEnded, started, ended)
 	}
 }
 
