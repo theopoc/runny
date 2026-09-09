@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — sélection souris Output</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #121018;
+      --panel: #191621;
+      --border: #655c79;
+      --accent: #a68cff;
+      --text: #eee9f7;
+      --muted: #a9a1b7;
+      --selection: #7357c7;
+      --ok: #79d8a1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+    }
+    main { max-width: 1100px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    h2 { margin: 0 0 12px; font-size: 16px; }
+    p { color: var(--muted); }
+    .warning {
+      display: inline-block;
+      margin-bottom: 22px;
+      padding: 5px 9px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); gap: 18px; }
+    .card { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    .terminal {
+      border: 1px solid var(--accent);
+      border-radius: 5px;
+      background: #0d0c10;
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      user-select: none;
+      overflow: hidden;
+    }
+    .terminal-title { padding: 4px 10px; color: var(--accent); border-bottom: 1px solid var(--border); }
+    #output { height: 189px; padding: 8px 10px; overflow: hidden; white-space: pre; cursor: text; }
+    .row { min-height: 21px; }
+    .cell { display: inline-block; min-width: .61em; }
+    .cell.selected { color: white; background: var(--selection); }
+    .synthetic { color: #f0bb62; }
+    .terminal-footer { padding: 5px 10px; color: var(--muted); border-top: 1px solid var(--border); }
+    .mode { color: var(--ok); font-weight: 700; }
+    button {
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: #24202e;
+      color: var(--text);
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .state { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0; }
+    .state dt { color: var(--muted); }
+    .state dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+    pre { max-height: 150px; overflow: auto; padding: 9px; background: #0d0c10; border-radius: 5px; white-space: pre-wrap; }
+    .walkthroughs { margin-top: 18px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .tabs button.active { border-color: var(--accent); color: var(--accent); }
+    .scenario { display: none; }
+    .scenario.active { display: block; }
+    .step { display: block; width: 100%; margin: 7px 0; text-align: left; }
+    .verdict { margin-top: 18px; border-left: 3px solid var(--ok); padding-left: 12px; }
+    @media (max-width: 780px) { body { padding: 16px; } .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="warning">PROTOTYPE JETABLE — pas du code produit</div>
+  <h1>Sélection souris dans Output</h1>
+  <p>Question testée : une sélection figée au pointer-down reste-t-elle prévisible pendant streaming, scroll et resize, tout en gardant le journal live en arrière-plan ? Glisse directement sur le texte.</p>
+
+  <div class="layout">
+    <section class="card">
+      <h2>Output simulé</h2>
+      <div class="terminal">
+        <div class="terminal-title" id="title"></div>
+        <div id="output" aria-label="Sortie simulée"></div>
+        <div class="terminal-footer" id="footer"></div>
+      </div>
+      <div class="actions">
+        <button data-action="stream">Ajouter sortie live</button>
+        <button data-action="scroll-up">Scroll ↑</button>
+        <button data-action="scroll-down">Scroll ↓</button>
+        <button data-action="resize">Resize</button>
+        <button data-action="switch">Changer Target</button>
+        <button data-action="new-run">Nouvelle Run</button>
+        <button data-action="copy">y — copier</button>
+        <button data-action="clear">Esc — annuler</button>
+      </div>
+    </section>
+
+    <aside class="card">
+      <h2>État complet</h2>
+      <dl class="state" id="state"></dl>
+      <h2 style="margin-top:16px">Texte copié simulé</h2>
+      <pre id="clipboard">—</pre>
+    </aside>
+  </div>
+
+  <section class="card walkthroughs">
+    <h2>Parcours guidés</h2>
+    <div class="tabs">
+      <button class="active" data-tab="normal">Sélection normale</button>
+      <button data-tab="streaming">Streaming</button>
+      <button data-tab="resize">Resize</button>
+      <button data-tab="target">Changement Target</button>
+      <button data-tab="long">Ligne longue</button>
+    </div>
+    <div class="scenario active" data-scenario="normal">
+      <p>Vérifie cycle simple : snapshot, highlight, copie, retour live.</p>
+      <button class="step" data-sequence="reset">1. Réinitialiser</button>
+      <button class="step" data-sequence="select">2. Simuler glisser de « build » à « passed »</button>
+      <button class="step" data-sequence="copy">3. Copier sélection et reprendre live</button>
+    </div>
+    <div class="scenario" data-scenario="streaming">
+      <p>Sortie continue pendant sélection. Vue reste figée ; compteur live augmente.</p>
+      <button class="step" data-sequence="reset-select">1. Réinitialiser et sélectionner</button>
+      <button class="step" data-sequence="stream-twice">2. Ajouter deux lignes live</button>
+      <button class="step" data-sequence="clear">3. Annuler et révéler dernières lignes</button>
+    </div>
+    <div class="scenario" data-scenario="resize">
+      <p>Bornes restent offsets logiques ; resize ne change pas texte sélectionné.</p>
+      <button class="step" data-sequence="reset-select-long">1. Sélectionner ligne avec Unicode</button>
+      <button class="step" data-sequence="resize">2. Passer largeur 46 ↔ 26</button>
+      <button class="step" data-sequence="copy">3. Copier même plage logique</button>
+    </div>
+    <div class="scenario" data-scenario="target">
+      <p>Changer cible invalide toujours sélection pour éviter copie ambiguë.</p>
+      <button class="step" data-sequence="reset-select">1. Créer sélection</button>
+      <button class="step" data-sequence="switch">2. Changer Target</button>
+    </div>
+    <div class="scenario" data-scenario="long">
+      <p>`~` est chrome synthétique : jamais sélectionnable. Copie complète garde suffixe caché.</p>
+      <button class="step" data-sequence="reset-long">1. Afficher ligne longue</button>
+      <button class="step" data-sequence="select-visible-long">2. Sélectionner partie visible</button>
+      <button class="step" data-sequence="copy">3. Copier partie visible</button>
+      <button class="step" data-sequence="copy-all">4. Sans sélection, copier journal complet</button>
+    </div>
+  </section>
+
+  <section class="verdict">
+    <strong>Hypothèse recommandée</strong>
+    <p>Pointer-down fige snapshot et follow. Drag sélectionne graphèmes visibles. Release garde highlight. `y` copie puis reprend dernier état live ; `Esc` annule. Scroll et resize opèrent sur snapshot. Changement Target ou nouvelle Run annule sélection. Aucun auto-scroll de bord dans première version.</p>
+  </section>
+</main>
+
+<script>
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const split = text => [...segmenter.segment(text)].map(x => x.segment);
+  const initialLogs = {
+    api: [
+      "starting api build",
+      "compile packages…",
+      "tests passed ✓",
+      "deploy preview: https://example.test/very/long/path/hidden-after-terminal-edge",
+      "Unicode: café 👨‍💻 élan",
+      "done"
+    ],
+    web: ["starting web build", "bundle assets…", "ready on :3000"]
+  };
+
+  const fresh = () => ({
+    target: "api",
+    logs: structuredClone(initialLogs),
+    snapshot: null,
+    phase: "idle",
+    anchor: null,
+    head: null,
+    moved: false,
+    follow: true,
+    followBeforeSelection: true,
+    width: 46,
+    offset: 0,
+    height: 6,
+    pendingLive: 0,
+    clipboard: "",
+    receipt: ""
+  });
+
+  const clone = state => structuredClone(state);
+  const ordered = (a, b) => a.line === b.line ? a.column - b.column : a.line - b.line;
+  const clampOffset = state => {
+    const lines = state.snapshot ?? state.logs[state.target];
+    state.offset = Math.max(0, Math.min(state.offset, Math.max(0, lines.length - state.height)));
+  };
+  const selectionText = state => {
+    if (!state.anchor || !state.head || !state.moved) return "";
+    let [start, end] = ordered(state.anchor, state.head) <= 0
+      ? [state.anchor, state.head]
+      : [state.head, state.anchor];
+    const lines = state.snapshot;
+    const picked = [];
+    for (let line = start.line; line <= end.line; line++) {
+      const chars = split(lines[line] ?? "");
+      const from = line === start.line ? start.column : 0;
+      const to = line === end.line ? end.column + 1 : chars.length;
+      picked.push(chars.slice(from, to).join(""));
+    }
+    return picked.join("\n");
+  };
+  const clearSelection = state => {
+    state.phase = "idle";
+    state.snapshot = null;
+    state.anchor = null;
+    state.head = null;
+    state.moved = false;
+    state.pendingLive = 0;
+    state.follow = state.followBeforeSelection;
+    if (state.follow) {
+      state.offset = Math.max(0, state.logs[state.target].length - state.height);
+    } else {
+      clampOffset(state);
+    }
+  };
+
+  function reduce(previous, action) {
+    const state = clone(previous);
+    switch (action.type) {
+      case "RESET": return fresh();
+      case "START":
+        state.snapshot = [...state.logs[state.target]];
+        state.phase = "dragging";
+        state.anchor = action.at;
+        state.head = action.at;
+        state.moved = false;
+        state.followBeforeSelection = state.follow;
+        state.follow = false;
+        state.pendingLive = 0;
+        state.receipt = "snapshot figé";
+        break;
+      case "EXTEND":
+        if (state.phase === "dragging") {
+          state.head = action.at;
+          state.moved ||= ordered(state.anchor, action.at) !== 0;
+        }
+        break;
+      case "RELEASE":
+        if (state.phase === "dragging" && state.moved) {
+          state.phase = "selected";
+          state.receipt = `${split(selectionText(state)).length} graphèmes sélectionnés`;
+        } else if (state.phase === "dragging") {
+          clearSelection(state);
+          state.receipt = "clic simple : sélection effacée";
+        }
+        break;
+      case "STREAM": {
+        const next = `live event ${state.logs[state.target].length + 1}`;
+        state.logs[state.target].push(next);
+        if (state.snapshot) state.pendingLive++;
+        if (state.follow && !state.snapshot) state.offset = Math.max(0, state.logs[state.target].length - state.height);
+        state.receipt = state.snapshot ? "sortie reçue en arrière-plan" : "sortie live affichée";
+        break;
+      }
+      case "SCROLL":
+        state.follow = false;
+        state.offset += action.delta;
+        clampOffset(state);
+        state.receipt = "scroll manuel";
+        break;
+      case "RESIZE":
+        state.width = state.width === 46 ? 26 : 46;
+        state.receipt = `largeur ${state.width} cellules`;
+        break;
+      case "SWITCH":
+        clearSelection(state);
+        state.target = state.target === "api" ? "web" : "api";
+        state.follow = true;
+        state.followBeforeSelection = true;
+        state.offset = Math.max(0, state.logs[state.target].length - state.height);
+        state.receipt = "sélection annulée : Target changée";
+        break;
+      case "NEW_RUN":
+        clearSelection(state);
+        state.logs[state.target] = ["new run accepted"];
+        state.offset = 0;
+        state.receipt = "sélection annulée : nouvelle Run";
+        break;
+      case "CLEAR":
+        clearSelection(state);
+        state.receipt = "sélection annulée ; live repris";
+        break;
+      case "COPY": {
+        const selected = selectionText(state);
+        state.clipboard = selected || state.logs[state.target].join("\n");
+        const kind = selected ? "sélection copiée" : "journal complet copié";
+        clearSelection(state);
+        state.receipt = `${kind} ; live repris`;
+        break;
+      }
+    }
+    return state;
+  }
+
+  let state = fresh();
+  let pointerDown = false;
+  const cellWidth = grapheme => /[\u{1F300}-\u{1FAFF}\u{1100}-\u{11FF}\u{2E80}-\u{A4CF}]/u.test(grapheme) ? 2 : 1;
+  const visibleCells = (line, width) => {
+    const graphemes = split(line);
+    const out = [];
+    let cells = 0;
+    for (let i = 0; i < graphemes.length; i++) {
+      const w = cellWidth(graphemes[i]);
+      if (cells + w > width) return { out: out.slice(0, Math.max(0, out.length - 1)), truncated: true };
+      out.push({ text: graphemes[i], column: i });
+      cells += w;
+    }
+    return { out, truncated: false };
+  };
+  const isSelected = at => {
+    if (!state.moved || !state.anchor || !state.head) return false;
+    const [start, end] = ordered(state.anchor, state.head) <= 0
+      ? [state.anchor, state.head]
+      : [state.head, state.anchor];
+    return ordered(at, start) >= 0 && ordered(at, end) <= 0;
+  };
+
+  function render() {
+    const lines = state.snapshot ?? state.logs[state.target];
+    const output = document.querySelector("#output");
+    output.replaceChildren();
+    for (let i = state.offset; i < Math.min(lines.length, state.offset + state.height); i++) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const visible = visibleCells(lines[i], state.width);
+      for (const item of visible.out) {
+        const span = document.createElement("span");
+        span.className = "cell" + (isSelected({ line: i, column: item.column }) ? " selected" : "");
+        span.textContent = item.text;
+        span.dataset.line = i;
+        span.dataset.column = item.column;
+        row.append(span);
+      }
+      if (visible.truncated) {
+        const marker = document.createElement("span");
+        marker.className = "synthetic";
+        marker.textContent = "~";
+        row.append(marker);
+      }
+      output.append(row);
+    }
+    const selection = selectionText(state);
+    document.querySelector("#title").textContent = `Output — ${state.target} · ${state.phase === "idle" ? (state.follow ? "follow" : "manual") : "select · live paused"}`;
+    document.querySelector("#footer").innerHTML = state.phase === "idle"
+      ? `<span class="mode">OUTPUT</span>  drag select  [y] copy all  [f] follow  [tab] focus`
+      : `<span class="mode">SELECT</span>  [y] copy  [esc] clear  ${state.pendingLive ? `+${state.pendingLive} live` : "snapshot"}`;
+    document.querySelector("#state").innerHTML = [
+      ["Target", state.target], ["Phase", state.phase], ["Follow", String(state.follow)],
+      ["Snapshot", state.snapshot ? `${state.snapshot.length} lignes` : "non"],
+      ["Bornes", state.anchor ? `${state.anchor.line}:${state.anchor.column} → ${state.head.line}:${state.head.column}` : "—"],
+      ["Sélection", selection ? JSON.stringify(selection) : "—"],
+      ["Live en attente", String(state.pendingLive)], ["Viewport", `${state.width}×${state.height}, offset ${state.offset}`],
+      ["Dernière action", state.receipt || "—"]
+    ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    document.querySelector("#clipboard").textContent = state.clipboard || "—";
+  }
+
+  const dispatch = action => { state = reduce(state, action); render(); };
+  const pointFrom = target => target?.classList?.contains("cell")
+    ? { line: Number(target.dataset.line), column: Number(target.dataset.column) }
+    : null;
+  document.querySelector("#output").addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    const at = pointFrom(event.target);
+    if (!at) { dispatch({ type: "CLEAR" }); return; }
+    pointerDown = true;
+    event.target.setPointerCapture(event.pointerId);
+    dispatch({ type: "START", at });
+  });
+  document.querySelector("#output").addEventListener("pointermove", event => {
+    if (!pointerDown) return;
+    const under = document.elementFromPoint(event.clientX, event.clientY);
+    const at = pointFrom(under);
+    if (at) dispatch({ type: "EXTEND", at });
+  });
+  document.addEventListener("pointerup", () => {
+    if (!pointerDown) return;
+    pointerDown = false;
+    dispatch({ type: "RELEASE" });
+  });
+
+  const actionMap = {
+    stream: { type: "STREAM" }, "scroll-up": { type: "SCROLL", delta: -1 },
+    "scroll-down": { type: "SCROLL", delta: 1 }, resize: { type: "RESIZE" },
+    switch: { type: "SWITCH" }, "new-run": { type: "NEW_RUN" }, copy: { type: "COPY" }, clear: { type: "CLEAR" }
+  };
+  document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => dispatch(actionMap[button.dataset.action])));
+
+  const scriptedSelection = (from, to) => {
+    dispatch({ type: "START", at: from });
+    dispatch({ type: "EXTEND", at: to });
+    dispatch({ type: "RELEASE" });
+  };
+  const sequences = {
+    reset: () => dispatch({ type: "RESET" }),
+    select: () => scriptedSelection({ line: 0, column: 9 }, { line: 2, column: 11 }),
+    "reset-select": () => { dispatch({ type: "RESET" }); scriptedSelection({ line: 0, column: 9 }, { line: 2, column: 11 }); },
+    "stream-twice": () => { dispatch({ type: "STREAM" }); dispatch({ type: "STREAM" }); },
+    clear: () => dispatch({ type: "CLEAR" }),
+    copy: () => dispatch({ type: "COPY" }),
+    resize: () => dispatch({ type: "RESIZE" }),
+    switch: () => dispatch({ type: "SWITCH" }),
+    "reset-select-long": () => { dispatch({ type: "RESET" }); scriptedSelection({ line: 4, column: 0 }, { line: 4, column: 18 }); },
+    "reset-long": () => dispatch({ type: "RESET" }),
+    "select-visible-long": () => scriptedSelection({ line: 3, column: 0 }, { line: 3, column: 22 }),
+    "copy-all": () => { dispatch({ type: "CLEAR" }); dispatch({ type: "COPY" }); }
+  };
+  document.querySelectorAll("[data-sequence]").forEach(button => button.addEventListener("click", () => sequences[button.dataset.sequence]()));
+  document.querySelectorAll("[data-tab]").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x === button));
+    document.querySelectorAll("[data-scenario]").forEach(x => x.classList.toggle("active", x.dataset.scenario === button.dataset.tab));
+  }));
+  render();
+</script>
+</body>
+</html>
