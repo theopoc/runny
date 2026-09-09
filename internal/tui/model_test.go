@@ -2261,7 +2261,7 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 
 	wide := stripANSI(strings.Join(model.renderDirectoryPanel(80, 10), "\n"))
-	for _, want := range []string{"DIRECTORY", "STATUS"} {
+	for _, want := range []string{"DIRECTORY", "STATUS", "TIME"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide task header should contain %q:\n%s", want, wide)
 		}
@@ -2273,7 +2273,7 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	}
 
 	compact := stripANSI(model.taskHeader(46))
-	for _, want := range []string{"DIRECTORY", "STATUS"} {
+	for _, want := range []string{"DIRECTORY", "STATUS", "TIME"} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("compact task header should contain %q:\n%s", want, compact)
 		}
@@ -2288,9 +2288,12 @@ func TestDirectoryPanelHeaderIsSelfExplanatory(t *testing.T) {
 	}
 }
 
-func TestTargetRowsAlignStatusColumn(t *testing.T) {
+func TestTargetRowsAlignStatusAndTimeColumns(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	now := time.Date(2026, 9, 8, 12, 0, 4, 0, time.UTC)
+	model.now = func() time.Time { return now }
 	model.Status["api"] = core.StatusRunning
+	model.TargetStarted["api"] = now.Add(-3400 * time.Millisecond)
 	width := 60
 	header := stripANSI(model.taskHeader(width))
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], width))
@@ -2303,6 +2306,11 @@ func TestTargetRowsAlignStatusColumn(t *testing.T) {
 	if strings.Contains(prefix, "●") || strings.Contains(prefix, "○") {
 		t.Fatalf("target row should not include status marker before status column:\n%s", row)
 	}
+	headerTimeIndex := strings.Index(header, "TIME")
+	rowTimeIndex := strings.Index(row, "3s")
+	if headerTimeIndex < 0 || rowTimeIndex < 0 || lipgloss.Width(header[:headerTimeIndex+len("TIME")]) != lipgloss.Width(row[:rowTimeIndex+len("3s")]) {
+		t.Fatalf("time column should be right aligned, header=%d row=%d\n%s\n%s", headerTimeIndex, rowTimeIndex, header, row)
+	}
 }
 
 func TestTargetRowShowsLiveExecutionDuration(t *testing.T) {
@@ -2313,7 +2321,7 @@ func TestTargetRowShowsLiveExecutionDuration(t *testing.T) {
 	model.TargetStarted["api"] = now.Add(-3400 * time.Millisecond)
 
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], 46))
-	if !strings.Contains(row, "running 3s") {
+	if !strings.Contains(row, "running") || !strings.HasSuffix(row, "     3s") {
 		t.Fatalf("running target should show live duration:\n%s", row)
 	}
 }
@@ -2328,7 +2336,7 @@ func TestTargetRowFreezesTerminalExecutionDuration(t *testing.T) {
 	model.TargetEnded["api"] = started.Add(4 * time.Second)
 
 	row := stripANSI(model.renderTargetRow(0, model.Targets[0], 46))
-	if !strings.Contains(row, "ok 4s") {
+	if !strings.Contains(row, "ok") || !strings.HasSuffix(row, "     4s") {
 		t.Fatalf("completed target should show frozen duration:\n%s", row)
 	}
 	if strings.Contains(row, "10s") {
@@ -2357,7 +2365,7 @@ func TestTargetRowShowsMissingDurationForTargetsThatNeverStarted(t *testing.T) {
 			model.Status["api"] = status
 
 			row := stripANSI(model.renderTargetRow(0, model.Targets[0], 46))
-			if !strings.Contains(row, model.statusLabel(status)+" —") {
+			if !strings.Contains(row, model.statusLabel(status)) || !strings.HasSuffix(row, "      —") {
 				t.Fatalf("target that never started should show missing duration:\n%s", row)
 			}
 		})
@@ -2463,7 +2471,7 @@ func TestTargetStatusColorsSurviveSelectionAndFocus(t *testing.T) {
 				"focused":  model.renderTargetRow(0, model.Targets[0], 70),
 				"selected": model.renderTargetRow(1, model.Targets[1], 70),
 			} {
-				want := model.renderRowStatus(name, tt.status)
+				want := model.renderRowStatus(tt.status)
 				if !strings.Contains(row, want) {
 					t.Fatalf("%s %s row missing semantic status rendering: %q", name, tt.name, row)
 				}
