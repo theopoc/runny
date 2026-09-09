@@ -521,22 +521,22 @@ func TestMouseWheelScrollsFocusedOutputThreeLines(t *testing.T) {
 
 	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.outputViewport.YOffset() != 49 || model.LogFollow {
-		t.Fatalf("wheel up output state = offset %d, follow %t; want 49, false", model.outputViewport.YOffset(), model.LogFollow)
+	if model.outputViewport.YOffset() != 50 || model.LogFollow {
+		t.Fatalf("wheel up output state = offset %d, follow %t; want 50, false", model.outputViewport.YOffset(), model.LogFollow)
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
-	if model.outputViewport.YOffset() != 52 {
-		t.Fatalf("wheel down output offset = %d, want 52", model.outputViewport.YOffset())
+	if model.outputViewport.YOffset() != 53 {
+		t.Fatalf("wheel down output offset = %d, want 53", model.outputViewport.YOffset())
 	}
 
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
 	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	model = updated.(Model)
-	if model.outputViewport.YOffset() != 49 {
-		t.Fatalf("wheel up after overscroll offset = %d, want 49", model.outputViewport.YOffset())
+	if model.outputViewport.YOffset() != 50 {
+		t.Fatalf("wheel up after overscroll offset = %d, want 50", model.outputViewport.YOffset())
 	}
 }
 
@@ -562,6 +562,7 @@ func TestMouseWheelIsIgnoredOutsidePaneInteraction(t *testing.T) {
 				{ID: "api", RelPath: "api", Selected: true},
 				{ID: "web", RelPath: "web", Selected: true},
 			}})
+			model.outputViewport.SetWidth(80)
 			model.outputViewport.SetContentLines(strings.Split(strings.Repeat("line\n", 20), "\n"))
 			model.outputViewport.SetHeight(5)
 			model.outputViewport.SetYOffset(6)
@@ -3275,6 +3276,23 @@ func TestViewResponsiveWidths(t *testing.T) {
 	}
 }
 
+func TestViewKeepsLongOutputPanelTitleWithinTerminal(t *testing.T) {
+	for _, width := range []int{60, 80, 100, 120} {
+		model := NewModel(Options{Command: "printf ok", Targets: []core.Target{{
+			ID:       "checkout-api",
+			RelPath:  "services/payments/checkout-api",
+			Selected: true,
+		}}})
+		model.Focus = FocusLogs
+		model.Logs["checkout-api"] = "ok\n"
+		model, _ = updateWindowSize(model, width, 24)
+
+		if got := maxLineWidth(model.View().Content); got > width {
+			t.Errorf("width %d rendered line width = %d", width, got)
+		}
+	}
+}
+
 func TestRunContextPersistsCommandScopeAndExecutionModeAtBreakpoints(t *testing.T) {
 	for _, test := range []struct {
 		width int
@@ -3514,16 +3532,21 @@ func TestRunOutputMessageFollowsTailAndPreservesManualScroll(t *testing.T) {
 	}
 }
 
-func TestOutputViewportPreservesPanelTruncationMarker(t *testing.T) {
+func TestOutputViewportWrapsTerraformPlanLinesWithoutTruncation(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
-	model.Logs["api"] = "123456789"
+	planLine := "\x1b[32mmodule.network.aws_security_group_rule.allow_https_from_private_networks[\"10.0.0.0/8\"]\x1b[0m"
+	model.Logs["api"] = planLine
 
-	rows := model.renderOutputLines("api", 8, 1)
-	if len(rows) != 1 {
-		t.Fatalf("rendered rows = %d, want 1", len(rows))
+	rows := model.renderOutputLines("api", 24, 10)
+	if len(rows) < 2 {
+		t.Fatalf("rendered rows = %d, want wrapped output", len(rows))
 	}
-	if got := stripANSI(rows[0]); got != "1234567~" {
-		t.Fatalf("rendered row = %q, want truncation marker", got)
+	var reconstructed strings.Builder
+	for _, row := range rows {
+		reconstructed.WriteString(stripANSI(row))
+	}
+	if got, want := reconstructed.String(), stripANSI(planLine); got != want {
+		t.Fatalf("wrapped output = %q, want %q", got, want)
 	}
 }
 
@@ -4738,6 +4761,31 @@ func TestHistoryLoadsPersistedTargetLogAsynchronously(t *testing.T) {
 	model, _ = updateKey(model, "a")
 	if model.HistoryShowAll || model.HistoryDepth != historyDepthLogs || model.HistoryLog != "line one\nline two\n" {
 		t.Fatalf("a should not mutate log selection: showAll=%v depth=%v content=%q", model.HistoryShowAll, model.HistoryDepth, model.HistoryLog)
+	}
+}
+
+func TestHistoryLogWrapsTerraformPlanLinesWithoutTruncation(t *testing.T) {
+	planLine := "module.network.aws_security_group_rule.allow_https_from_private_networks[\"10.0.0.0/8\"]"
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
+	model.RunHistory = []history.RunEntry{{
+		Command: "terraform plan",
+		Total:   1,
+		Failed:  1,
+		Targets: []history.TargetEntry{{ID: "api", RelPath: "api", Status: core.StatusFailed}},
+	}}
+	model.ShowHistory = true
+	model.HistoryDepth = historyDepthLogs
+	model.HistoryLog = planLine
+	model, _ = updateWindowSize(model, 60, 20)
+
+	view := stripANSI(model.View().Content)
+	for _, want := range []string{"module.network.aws_security", "[\"10.0.0.0/8\"]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("history log missing %q:\n%s", want, view)
+		}
+	}
+	if got := maxLineWidth(view); got > 60 {
+		t.Fatalf("history log width = %d, want at most 60", got)
 	}
 }
 

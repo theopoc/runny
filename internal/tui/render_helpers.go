@@ -166,13 +166,14 @@ func boxLines(width int, height int, title string, rows []string, active bool) [
 }
 
 func boxLinesWithTitle(width int, height int, title string, rows []string, active bool, titleStyle lipgloss.Style, borderStyle lipgloss.Style) []string {
-	width = max(width, len(title)+6)
+	width = max(width, 5)
 	height = max(height, 3)
 	lines := make([]string, 0, height)
 	border := panelBorder(active)
 	if title == "" {
 		lines = append(lines, borderStyle.Render(border.topLeft+strings.Repeat(border.horizontal, width-2)+border.topRight))
 	} else {
+		title = truncateVisible(title, width-5)
 		titleText := " " + titleStyle.Render(title) + " "
 		topFill := max(0, width-lipgloss.Width(titleText)-3)
 		lines = append(lines, borderStyle.Render(border.topLeft+border.horizontal)+titleText+borderStyle.Render(strings.Repeat(border.horizontal, topFill)+border.topRight))

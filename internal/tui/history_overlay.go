@@ -537,10 +537,8 @@ func (m Model) maxHistoryLogOffset() int {
 	if m.HistoryLog == "" {
 		return 0
 	}
-	panelHeight, _, _ := m.panelDimensions(m.Width, m.Height)
-	bodyHeight := max(1, panelHeight-3)
-	visible := max(1, bodyHeight-1)
-	model := m.configuredHistoryLogViewport(1, visible)
+	width, height := m.historyLogViewportDimensions()
+	model := m.configuredHistoryLogViewport(width, height)
 	model.GotoBottom()
 	return model.YOffset()
 }
