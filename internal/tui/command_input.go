@@ -106,11 +106,12 @@ func (m Model) renderFilterInputValue(width int) string {
 	editor := m.filterLineEditor()
 	cursor := editor.cursorPosition()
 	graphemes := splitGraphemes(m.Filter)
+	reserveCursor := cursor == len(graphemes)
 	contentWidth := max(1, width)
 	start, end := 0, 0
 	leftHidden, rightHidden := false, false
 	for range 3 {
-		start, end = lineEditorViewport(graphemes, cursor, contentWidth, true)
+		start, end = lineEditorViewport(graphemes, cursor, contentWidth, reserveCursor)
 		leftHidden = start > 0
 		rightHidden = end < len(graphemes)
 		markerWidth := 0
@@ -133,17 +134,18 @@ func (m Model) renderFilterInputValue(width int) string {
 		value.WriteString(commandInputBorderStyle.Render("‹"))
 	}
 	for i := start; i < end; i++ {
-		if i == cursor {
-			value.WriteString(commandInputStyle.Render("▌"))
-		}
 		style := commandInputStyle
 		if selected && i >= selectionStart && i < selectionEnd {
 			style = commandSelectionStyle
 		}
+		isSelected := selected && i >= selectionStart && i < selectionEnd
+		if i == cursor && !isSelected {
+			style = style.Reverse(true)
+		}
 		value.WriteString(style.Render(graphemes[i]))
 	}
-	if cursor == end {
-		value.WriteString(commandInputStyle.Render("▌"))
+	if cursor == len(graphemes) {
+		value.WriteString(commandInputStyle.Reverse(true).Render(" "))
 	}
 	if rightHidden {
 		value.WriteString(commandInputBorderStyle.Render("›"))

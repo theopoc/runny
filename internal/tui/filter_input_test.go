@@ -240,6 +240,43 @@ func TestFilterInputViewportFollowsCursorAndMarksHiddenText(t *testing.T) {
 	}
 }
 
+func TestFilterInputCursorDoesNotInsertVisualCell(t *testing.T) {
+	profile := lipgloss.Writer.Profile
+	lipgloss.Writer.Profile = colorprofile.TrueColor
+	t.Cleanup(func() { lipgloss.Writer.Profile = profile })
+
+	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+	model.Filter = "api"
+	model.openFilterEditor()
+	model, _ = updateSpecialKey(model, tea.KeyLeft)
+
+	rendered := model.renderFilterInputValue(20)
+	if got := stripANSI(rendered); got != "api" {
+		t.Fatalf("filter cursor inserted a visual cell: %q, want api", got)
+	}
+	if !containsANSIReverse(rendered) {
+		t.Fatalf("filter cursor should reverse character under cursor: %q", rendered)
+	}
+
+	model.setFilterCursor(len(splitGraphemes(model.Filter)), false)
+	rendered = model.renderFilterInputValue(20)
+	if got := stripANSI(rendered); got != "api" || ansi.StringWidth(rendered) != 4 || !containsANSIReverse(rendered) {
+		t.Fatalf("filter end cursor = %q, want reverse-video trailing cell", rendered)
+	}
+}
+
+func containsANSIReverse(value string) bool {
+	for _, match := range ansiSGRPattern.FindAllStringSubmatch(value, -1) {
+		for _, parameter := range strings.Split(match[1], ";") {
+			code, err := strconv.Atoi(parameter)
+			if err == nil && code == 7 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestFilterInputEditingGolden(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
 	model.Filter = "prefix-0123456789-suffix"
