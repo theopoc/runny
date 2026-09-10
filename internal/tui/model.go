@@ -42,6 +42,7 @@ type Options struct {
 	startRun           startRunFunc
 	lifecycleCtx       context.Context
 	programOptions     []tea.ProgramOption
+	clipboardCopy      clipboardCopyFunc
 }
 
 type activeRun interface {
@@ -126,6 +127,9 @@ type Model struct {
 	startLifecycle         startRunFunc
 	lifecycleCtx           context.Context
 	outputViewport         viewport.Model
+	outputSelection        outputSelection
+	copyToast              copyToast
+	clipboardCopy          clipboardCopyFunc
 	historyLogViewport     viewport.Model
 	now                    func() time.Time
 }
@@ -154,6 +158,13 @@ func NewModel(opts Options) Model {
 	if lifecycleCtx == nil {
 		lifecycleCtx = context.Background()
 	}
+	clipboardCopy := opts.clipboardCopy
+	if clipboardCopy == nil {
+		system := defaultClipboardRuntime()
+		clipboardCopy = func(ctx context.Context, text string) tea.Msg {
+			return copyToSystemClipboard(ctx, text, system)
+		}
+	}
 	model := Model{
 		Command:            opts.Command,
 		Targets:            opts.Targets,
@@ -176,6 +187,7 @@ func NewModel(opts Options) Model {
 		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
 		outputViewport:     newLogViewport(),
+		clipboardCopy:      clipboardCopy,
 		historyLogViewport: newLogViewport(),
 		now:                time.Now,
 	}
@@ -234,6 +246,19 @@ var paletteCommands = []paletteCommand{
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if result, ok := msg.(clipboardResultMsg); ok {
+		return m, m.showCopyToast(result.status)
+	}
+	if osc, ok := msg.(clipboardOSCMsg); ok {
+		timer := m.showCopyToast(clipboardSent)
+		return m, tea.Batch(tea.SetClipboard(osc.text), timer)
+	}
+	if dismiss, ok := msg.(dismissCopyToastMsg); ok {
+		if m.copyToast.generation == dismiss.generation {
+			m.copyToast = copyToast{}
+		}
+		return m, nil
+	}
 	if paste, ok := msg.(tea.PasteMsg); ok {
 		if m.Focus == FocusCommand && m.ShowCommand && !m.ShowHelp {
 			m.insertCommandText(paste.Content)
@@ -267,6 +292,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = size.Width
 		m.Height = size.Height
 		m.syncOutputViewport()
+		m.refreshOutputSelection()
 		if m.ShowHistory && m.HistoryDepth == historyDepthLogs {
 			m.syncHistoryLogViewport()
 		}
@@ -282,11 +308,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if click.Button == tea.MouseLeft && click.Mod == 0 {
 			targetIndex, targetHit := m.directoryTargetAt(click.X, click.Y)
 			if focus, hit := m.paneFocusAt(click.X, click.Y); hit {
+				if focus == FocusLogs {
+					m.Focus = focus
+					m.startOutputSelection(click.X, click.Y)
+					return m, nil
+				}
 				m.Focus = focus
 				if targetHit {
-					m.Cursor = targetIndex
+					m.setCursor(targetIndex)
 				}
 			}
+		}
+		return m, nil
+	}
+	if motion, ok := msg.(tea.MouseMotionMsg); ok {
+		if motion.Button == tea.MouseLeft && motion.Mod == 0 {
+			m.extendOutputSelection(motion.X, motion.Y)
+		}
+		return m, nil
+	}
+	if release, ok := msg.(tea.MouseReleaseMsg); ok {
+		if release.Button == tea.MouseLeft && release.Mod == 0 {
+			m.extendOutputSelection(release.X, release.Y)
+			m.finishOutputSelection()
 		}
 		return m, nil
 	}
@@ -341,6 +385,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case matchesKey(keyName, defaultKeys.Escape):
+		if m.outputSelection.active() {
+			m.clearOutputSelection()
+			return m, nil
+		}
 		if m.Filter != "" {
 			m.Filter = ""
 			m.ensureCursorVisible()
@@ -390,6 +438,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scrollPreview(3)
 	case matchesKey(keyName, defaultKeys.Follow):
 		m.LogFollow = !m.LogFollow
+	case matchesKey(keyName, defaultKeys.Copy):
+		if m.Focus == FocusLogs {
+			return m.copyCurrentOutput()
+		}
 	}
 	return m, nil
 }
@@ -458,6 +510,10 @@ func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
 	case FocusTargets:
 		m.moveCursor(direction)
 	case FocusLogs:
+		if m.outputSelection.active() {
+			m.scrollOutputSelection(direction * 3)
+			return
+		}
 		m.syncOutputViewport()
 		if m.LogFollow {
 			m.outputViewport.GotoBottom()
@@ -1015,6 +1071,7 @@ func (m Model) beginRun(command string, targets []core.Target) (tea.Model, tea.C
 		m.Notice = ""
 		return m, nil
 	}
+	m.clearOutputSelection()
 	m.activeRun = run
 	m.Running = true
 	m.RunStarted = time.Time{}
@@ -1094,6 +1151,7 @@ func (m Model) applyRunEvent(next runEventMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
 	id := target.Target.ID
+	previousOutput := m.Logs[id]
 	m.Status[id] = target.Status
 	if !target.Started.IsZero() {
 		m.TargetStarted[id] = target.Started
@@ -1110,6 +1168,10 @@ func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
 			m.Logs[id] += "\n"
 		}
 		m.Logs[id] += target.Error
+	}
+	if m.outputSelection.active() && m.outputSelection.targetID == id && m.Logs[id] != previousOutput {
+		delta := outputLineCount(m.Logs[id]) - outputLineCount(previousOutput)
+		m.outputSelection.pendingLive += max(1, delta)
 	}
 }
 
@@ -1956,16 +2018,29 @@ func (m Model) renderLogPanel(width int, height int) []string {
 	title := "Output"
 	if len(m.Targets) > 0 && m.Cursor >= 0 && m.Cursor < len(m.Targets) {
 		target := m.Targets[m.Cursor]
-		lines = append(lines, m.renderOutputLines(target.ID, max(1, width-4), max(1, height-2))...)
-		title = fmt.Sprintf(
-			"Output — %s [%s] · follow:%s · %d lines",
-			target.RelPath,
-			outputStatusLabel(m.Status[target.ID]),
-			ternary(m.LogFollow, "on", "off"),
-			outputLineCount(m.Logs[target.ID]),
-		)
+		if m.outputSelection.active() && m.outputSelection.targetID == target.ID {
+			lines = append(lines, m.renderSelectedOutputRows(max(1, width-4), max(1, height-2))...)
+			selectionStatus := "SELECT"
+			if m.outputSelection.pendingLive > 0 {
+				selectionStatus += fmt.Sprintf(" · +%d live", m.outputSelection.pendingLive)
+			}
+			title = fmt.Sprintf("Output — %s [%s] · %s · %d lines", target.RelPath, outputStatusLabel(m.Status[target.ID]), selectionStatus, outputLineCount(m.outputSelection.snapshot))
+		} else {
+			lines = append(lines, m.renderOutputLines(target.ID, max(1, width-4), max(1, height-2))...)
+			title = fmt.Sprintf(
+				"Output — %s [%s] · follow:%s · %d lines",
+				target.RelPath,
+				outputStatusLabel(m.Status[target.ID]),
+				ternary(m.LogFollow, "on", "off"),
+				outputLineCount(m.Logs[target.ID]),
+			)
+		}
 	}
-	return boxLines(width, height, title, lines, m.Focus == FocusLogs)
+	panel := boxLines(width, height, title, lines, m.Focus == FocusLogs)
+	if toast := m.renderCopyToast(width); len(toast) > 0 {
+		panel = placeBottomRightRows(panel, toast, 2, 1)
+	}
+	return panel
 }
 
 func outputStatusLabel(status core.Status) string {
@@ -2086,11 +2161,15 @@ func (m Model) previewScrollLabel(targetID string, height int) string {
 }
 
 func (m Model) styleLogLine(line string) string {
+	return m.logStyle(line).Render(line)
+}
+
+func (m Model) logStyle(line string) lipgloss.Style {
 	lower := strings.ToLower(line)
 	if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "exit status") {
-		return logErrorStyle.Render(line)
+		return logErrorStyle
 	}
-	return logInfoStyle.Render(line)
+	return logInfoStyle
 }
 
 func (m Model) hiddenByFold(target core.Target) bool {
@@ -2161,7 +2240,11 @@ func (m Model) renderFooter(width int) string {
 				hints = []string{"' exact", "re: regex", "n/N", "esc", "? help"}
 			}
 		case FocusLogs:
-			hints = []string{": command", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
+			if m.outputSelection.active() {
+				hints = []string{"SELECT", "y copy", "esc clear", "pgup/pgdn scroll", "tab tasks", "? help"}
+			} else {
+				hints = []string{"y copy all", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
+			}
 		default:
 			fullHints := []string{": command", "space select", "/ filter", "o options", "x cancel", "tab output", "? help", "q quit"}
 			if m.hasActiveTargetFilter() {
@@ -2246,6 +2329,9 @@ func footerHintCellsWidth(cells []footerHint) int {
 }
 
 func parseFooterHint(hint string) footerHint {
+	if hint == "SELECT" {
+		return footerHint{label: hint}
+	}
 	key, label, ok := strings.Cut(hint, " ")
 	if !ok {
 		return footerHint{key: hint}
@@ -2573,6 +2659,8 @@ func (m Model) helpRows(width ...int) []string {
 				helpBindingFrom(defaultKeys.HalfPageUp),
 				helpBindingFrom(defaultKeys.HalfPageDown),
 				helpBindingFrom(defaultKeys.Follow),
+				helpBindingFrom(defaultKeys.Copy),
+				{"mouse drag", "select text"},
 			},
 		},
 	}
@@ -3146,7 +3234,7 @@ func (m *Model) moveCursor(delta int) {
 			next = 0
 		}
 		if m.isVisibleTarget(m.Targets[next]) {
-			m.Cursor = next
+			m.setCursor(next)
 			m.ensureDirectoryOffset()
 			return
 		}
@@ -3170,7 +3258,7 @@ func (m *Model) moveFilterMatch(delta int) {
 		position += len(indexes)
 	}
 	position %= len(indexes)
-	m.Cursor = indexes[position]
+	m.setCursor(indexes[position])
 	m.ensureDirectoryOffset()
 }
 
@@ -3180,14 +3268,18 @@ func (m *Model) moveCursorToEdge(last bool) {
 		return
 	}
 	if last {
-		m.Cursor = indexes[len(indexes)-1]
+		m.setCursor(indexes[len(indexes)-1])
 	} else {
-		m.Cursor = indexes[0]
+		m.setCursor(indexes[0])
 	}
 	m.ensureDirectoryOffset()
 }
 
 func (m *Model) scrollPreview(delta int) {
+	if m.outputSelection.active() {
+		m.scrollOutputSelection(delta)
+		return
+	}
 	m.syncOutputViewport()
 	if delta < 0 {
 		m.outputViewport.ScrollUp(-delta)
@@ -3235,13 +3327,13 @@ func panelHeightForInput(height int, inputRows int) int {
 
 func (m *Model) ensureCursorVisible() {
 	if len(m.Targets) == 0 {
-		m.Cursor = 0
+		m.setCursor(0)
 		return
 	}
 	filter := parseTargetFilter(m.Filter)
 	if filter.active() && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !filter.matches(m.Targets[m.Cursor].RelPath) || m.hiddenByFold(m.Targets[m.Cursor])) {
 		if indexes := m.matchingTargetIndexes(); len(indexes) > 0 {
-			m.Cursor = indexes[0]
+			m.setCursor(indexes[0])
 			m.ensureDirectoryOffset()
 			return
 		}
@@ -3249,12 +3341,12 @@ func (m *Model) ensureCursorVisible() {
 	if m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.isVisibleTarget(m.Targets[m.Cursor]) {
 		for i, target := range m.Targets {
 			if m.isVisibleTarget(target) {
-				m.Cursor = i
+				m.setCursor(i)
 				m.ensureDirectoryOffset()
 				return
 			}
 		}
-		m.Cursor = 0
+		m.setCursor(0)
 	}
 	m.ensureDirectoryOffset()
 }

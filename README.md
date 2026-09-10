@@ -181,6 +181,8 @@ exclude:
 | `pageup`, `pagedown` | Scroll output |
 | Mouse wheel | Move one task when Tasks is focused; scroll three lines when Output is focused |
 | `f` | Toggle output tail mode |
+| `y` | With Output focused, copy its active mouse selection or all retained output for the current Target |
+| Left-button drag in Output | Select text to copy; a simple click or `esc` clears the selection |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
 Target filters match discovered relative paths. Prefix a query with `re:` to use
@@ -190,6 +192,12 @@ matching is case-sensitive by default; use an inline flag such as
 Targets, remain in the filter editor after `enter`, and show the parse error.
 Regex mode applies only to the Target filter; command palette and history
 search keep their existing fuzzy and exact modes.
+
+Output copy is limited to the current Target and excludes History. Local sessions
+use the platform clipboard tool when available (`pbcopy`, `clip.exe`, `wl-copy`,
+`xclip`, or `xsel`). tmux and remote SSH sessions use terminal clipboard
+forwarding; Runny reports the request as sent because those transports provide no
+clipboard acknowledgement.
 
 Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 
