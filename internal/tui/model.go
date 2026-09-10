@@ -127,10 +127,12 @@ type Model struct {
 	startLifecycle         startRunFunc
 	lifecycleCtx           context.Context
 	outputViewport         viewport.Model
+	outputLayout           *logLayoutCache
 	outputSelection        outputSelection
 	copyToast              copyToast
 	clipboardCopy          clipboardCopyFunc
 	historyLogViewport     viewport.Model
+	historyLogLayout       *logLayoutCache
 	now                    func() time.Time
 }
 
@@ -187,8 +189,10 @@ func NewModel(opts Options) Model {
 		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
 		outputViewport:     newLogViewport(),
+		outputLayout:       &logLayoutCache{},
 		clipboardCopy:      clipboardCopy,
 		historyLogViewport: newLogViewport(),
+		historyLogLayout:   &logLayoutCache{},
 		now:                time.Now,
 	}
 	if opts.CommandHistoryPath != "" {
@@ -518,7 +522,7 @@ func (m *Model) handleMouseWheel(wheel tea.MouseWheelMsg) {
 		if m.LogFollow {
 			m.outputViewport.GotoBottom()
 		}
-		m.scrollPreview(direction * 3)
+		m.scrollPreparedOutput(direction * 3)
 	}
 }
 
@@ -2032,7 +2036,7 @@ func (m Model) renderLogPanel(width int, height int) []string {
 				target.RelPath,
 				outputStatusLabel(m.Status[target.ID]),
 				ternary(m.LogFollow, "on", "off"),
-				outputLineCount(m.Logs[target.ID]),
+				m.cachedOutputLineCount(target.ID),
 			)
 		}
 	}
@@ -2127,10 +2131,17 @@ func (m Model) outputRangeLabel(targetID string, height int) string {
 }
 
 func (m Model) renderOutputLines(targetID string, width, height int) []string {
-	if len(outputLines(m.Logs[targetID])) == 0 {
+	if m.Logs[targetID] == "" {
 		return nil
 	}
 	return viewportRows(m.configuredOutputViewport(targetID, width, height))
+}
+
+func (m Model) cachedOutputLineCount(targetID string) int {
+	if m.outputLayout != nil && m.outputLayout.width > 0 && m.outputLayout.text == m.Logs[targetID] {
+		return m.outputLayout.lineCount
+	}
+	return outputLineCount(m.Logs[targetID])
 }
 
 func (m Model) previewOutputOffset(total int, visible int) int {
@@ -2165,8 +2176,7 @@ func (m Model) styleLogLine(line string) string {
 }
 
 func (m Model) logStyle(line string) lipgloss.Style {
-	lower := strings.ToLower(line)
-	if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "exit status") {
+	if logLineIsError(line) {
 		return logErrorStyle
 	}
 	return logInfoStyle
@@ -3281,6 +3291,10 @@ func (m *Model) scrollPreview(delta int) {
 		return
 	}
 	m.syncOutputViewport()
+	m.scrollPreparedOutput(delta)
+}
+
+func (m *Model) scrollPreparedOutput(delta int) {
 	if delta < 0 {
 		m.outputViewport.ScrollUp(-delta)
 	} else {
