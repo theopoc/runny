@@ -77,10 +77,10 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	model := NewModel(Options{Command: "prefix-0123456789-suffix"})
 	model.openCommandOverlay()
 
-	runes := []rune(model.Command)
-	cursor := len(runes)
-	start, end := commandInputViewport(runes, cursor, 8)
-	view := string(runes[start:end])
+	graphemes := splitGraphemes(model.Command)
+	cursor := len(graphemes)
+	start, end := lineEditorViewport(graphemes, cursor, 8, true)
+	view := strings.Join(graphemes[start:end], "")
 	if view != "-suffix" {
 		t.Fatalf("long command viewport at end = %q", view)
 	}
@@ -91,8 +91,8 @@ func TestCommandInputKeepsCursorVisibleWhenCommandExceedsWidth(t *testing.T) {
 	for range 6 {
 		model, _ = updateSpecialKey(model, tea.KeyLeft)
 	}
-	start, end = commandInputViewport(runes, model.commandCursor, 8)
-	view = string(runes[start:end])
+	start, end = lineEditorViewport(graphemes, model.commandCursor, 8, false)
+	view = strings.Join(graphemes[start:end], "")
 	if view != "789-suff" || model.commandCursor != len([]rune(model.Command))-6 {
 		t.Fatalf("viewport should follow cursor moved inside command:\n%s", view)
 	}

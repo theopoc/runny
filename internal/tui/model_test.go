@@ -1032,13 +1032,13 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	filterModel.Focus = FocusFilter
 	filterFooter := stripANSI(filterModel.renderFooter(120))
-	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[n/N] Matches", "[ctrl+u] Clear", "[enter/esc] Tasks", "[?] Help"} {
+	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[left/right] Edit", "[up/down] History", "[ctrl+u] Clear", "[enter/esc] Tasks", "[?] Help"} {
 		if !strings.Contains(strings.Join(strings.Fields(filterFooter), " "), want) {
 			t.Fatalf("filter footer should contain %q:\n%s", want, filterFooter)
 		}
 	}
 	compactFilterFooter := stripANSI(filterModel.renderFooter(80))
-	for _, want := range []string{"[type]", "[']", "[n/N]", "[ctrl+u]", "[enter/esc]", "[?]"} {
+	for _, want := range []string{"[type]", "[left/right]", "[up/down]", "[ctrl+u]", "[enter/esc]", "[?]"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactFilterFooter), " "), want) {
 			t.Fatalf("compact filter footer should contain %q:\n%s", want, compactFilterFooter)
 		}
@@ -1569,8 +1569,8 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want 1", model.Cursor)
 	}
-	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "w▌") {
-		t.Fatalf("filter focus should show cursor:\n%s", view)
+	if view := stripANSI(model.renderSubHeader(100)); !strings.Contains(view, "w") || model.filterCursor != 1 {
+		t.Fatalf("filter focus should keep text and cursor position:\n%s", view)
 	}
 	model, _ = updateKey(model, " ")
 	model, _ = updateKey(model, "x")
@@ -1603,7 +1603,22 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	}
 }
 
-func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
+func TestFilterInputEditsAtCursor(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+	}})
+	model, _ = updateKey(model, "/")
+	model = typeText(model, "api")
+
+	model, _ = updateSpecialKey(model, tea.KeyLeft)
+	model, _ = updateKey(model, "x")
+
+	if model.Filter != "apxi" {
+		t.Fatalf("filter = %q, want insertion at cursor", model.Filter)
+	}
+}
+
+func TestFilterFocusArrowsNavigateFilterHistory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
@@ -1614,17 +1629,18 @@ func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want first match", model.Cursor)
 	}
-	model, _ = updateSpecialKey(model, tea.KeyDown)
-	if model.Cursor != 2 {
-		t.Fatalf("cursor = %d, want next match from filter focus", model.Cursor)
+	model.filterHistory = []string{"worker", "web"}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Filter != "worker" || model.Cursor != 2 {
+		t.Fatalf("first history recall = filter %q cursor %d", model.Filter, model.Cursor)
 	}
 	model, _ = updateSpecialKey(model, tea.KeyUp)
-	if model.Cursor != 1 {
-		t.Fatalf("cursor = %d, want previous match from filter focus", model.Cursor)
+	if model.Filter != "web" || model.Cursor != 1 {
+		t.Fatalf("older history recall = filter %q cursor %d", model.Filter, model.Cursor)
 	}
 	footer := stripANSI(model.renderFooter(120))
-	if !strings.Contains(normalizeFooterText(footer), "[n/N] Matches") {
-		t.Fatalf("filter footer should mention arrow match navigation:\n%s", footer)
+	if !strings.Contains(normalizeFooterText(footer), "[up/down] History") {
+		t.Fatalf("filter footer should mention arrow history navigation:\n%s", footer)
 	}
 }
 
@@ -1705,31 +1721,28 @@ func TestFilterInputOmitsSlashAndPlaceholder(t *testing.T) {
 	if strings.Contains(empty, "/ <filter>") {
 		t.Fatalf("empty filter input should not show slash or placeholder:\n%s", empty)
 	}
-	if !strings.Contains(empty, "▌") {
-		t.Fatalf("empty focused filter should show cursor:\n%s", empty)
-	}
 
 	model, _ = updateKey(model, "a")
 	model, _ = updateKey(model, "p")
 	model, _ = updateKey(model, "i")
 	filled := stripANSI(model.View().Content)
-	if strings.Contains(filled, "/ api▌") {
+	if strings.Contains(filled, "/ api") {
 		t.Fatalf("filled filter input should not show slash:\n%s", filled)
 	}
-	if !strings.Contains(filled, "api▌") {
-		t.Fatalf("filled filter input should show text and cursor:\n%s", filled)
+	if !strings.Contains(filled, "api") {
+		t.Fatalf("filled filter input should show text:\n%s", filled)
 	}
 }
 
 func TestFilterInputDisplayGolden(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model, _ = updateKey(model, "/")
-	empty := model.commandInputValue()
+	empty := strings.TrimRight(stripANSI(model.commandInputValue()), " ")
 
 	model, _ = updateKey(model, "a")
 	model, _ = updateKey(model, "p")
 	model, _ = updateKey(model, "i")
-	filled := model.commandInputValue()
+	filled := strings.TrimRight(stripANSI(model.commandInputValue()), " ")
 
 	want, err := os.ReadFile("testdata/TestFilterInputDisplayGolden.golden")
 	if err != nil {
