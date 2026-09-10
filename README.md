@@ -168,11 +168,12 @@ exclude:
 | `tab` | Change focus |
 | `up`, `k` | Move cursor up |
 | `down`, `j` | Move cursor down |
+| `n`, `N` | Move to next/previous direct Target-filter match while Tasks is focused |
 | `g` | Move to first visible directory |
 | `G` | Move to last visible directory |
 | `right`, `l` | Unfold focused directory |
 | `left`, `h` | Fold focused directory |
-| `esc` | Leave filter focus |
+| `esc` | Clear active Target filter and return to Tasks |
 | `H` | Show command/run history |
 | `?` | Show shortcuts |
 | `del`, `x` | Cancel selected running or queued runs, or focused run; multiple selected active runs require confirmation |
@@ -198,6 +199,14 @@ use the platform clipboard tool when available (`pbcopy`, `clip.exe`, `wl-copy`,
 `xclip`, or `xsel`). tmux and remote SSH sessions use terminal clipboard
 forwarding; Runny reports the request as sent because those transports provide no
 clipboard acknowledgement.
+
+While the Target-filter editor is focused, `left`/`right`, `home`/`end`, and
+word motions edit at the cursor; hold `shift` to select text. Copy, cut, and
+paste use the same bindings as the command editor. `up`/`down` browse up to 50
+unique filters accepted by the current Runny process, newest first; moving
+back down restores the draft. `enter`, `tab`, or clicking Tasks accepts a valid,
+non-empty filter into this in-memory history. Long filters remain one line and
+scroll horizontally with `‹`/`›` markers.
 
 Palette commands include `run`, `options`, `workers N|auto`, `serial`, `parallel`, `failed`, `rerun-failed`, `cancel`, `cancel-all`, `logs`, `history`, and `clear-filter`.
 

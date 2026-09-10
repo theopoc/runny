@@ -58,6 +58,10 @@ type Model struct {
 	commandCursorValid     bool
 	commandSelection       int
 	commandSelecting       bool
+	filterCursor           int
+	filterCursorValid      bool
+	filterSelection        int
+	filterSelecting        bool
 	Targets                []core.Target
 	Status                 map[string]core.Status
 	Logs                   map[string]string
@@ -86,6 +90,9 @@ type Model struct {
 	CommandHistoryPos      int
 	CommandDraft           string
 	Filter                 string
+	filterHistory          []string
+	filterHistoryPos       int
+	filterDraft            string
 	ShowHelp               bool
 	ShowHistory            bool
 	ShowCommand            bool
@@ -185,6 +192,7 @@ func NewModel(opts Options) Model {
 		CommandHistoryPath: opts.CommandHistoryPath,
 		RunHistoryPath:     opts.RunHistoryPath,
 		CommandHistoryPos:  -1,
+		filterHistoryPos:   -1,
 		startLifecycle:     startRun,
 		lifecycleCtx:       lifecycleCtx,
 		LogFollow:          true,
@@ -268,11 +276,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.insertCommandText(paste.Content)
 			return m, nil
 		}
+		if m.Focus == FocusFilter && !m.ShowHelp {
+			m.insertFilterText(paste.Content)
+			return m, nil
+		}
 		return m, nil
 	}
 	if clipboard, ok := msg.(tea.ClipboardMsg); ok {
 		if m.Focus == FocusCommand && m.ShowCommand && !m.ShowHelp {
 			m.insertCommandText(clipboard.Content)
+			return m, nil
+		}
+		if m.Focus == FocusFilter && !m.ShowHelp {
+			m.insertFilterText(clipboard.Content)
 			return m, nil
 		}
 		return m, nil
@@ -317,6 +333,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startOutputSelection(click.X, click.Y)
 					return m, nil
 				}
+				if m.Focus == FocusFilter && focus == FocusTargets {
+					m.commitFilterHistory()
+				}
 				m.Focus = focus
 				if targetHit {
 					m.setCursor(targetIndex)
@@ -352,7 +371,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	} else if key.Key().Text != "" {
 		keyName = key.Key().Text
 	}
-	if matchesKey(keyName, defaultKeys.ConfirmQuit) && !(m.Focus == FocusCommand && m.hasCommandSelection()) {
+	if matchesKey(keyName, defaultKeys.ConfirmQuit) && !((m.Focus == FocusCommand && m.hasCommandSelection()) || (m.Focus == FocusFilter && m.hasFilterSelection())) {
 		m.ShowHelp = false
 		m.ShowHistory = false
 		m.ShowPalette = false
@@ -394,10 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.Filter != "" {
-			m.Filter = ""
-			m.ensureCursorVisible()
-			m.Notice = "filter cleared"
-			m.RunError = ""
+			m.clearFilterInput()
 		}
 		return m, nil
 	case matchesKey(keyName, defaultKeys.Quit):
@@ -418,7 +434,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case matchesKey(keyName, defaultKeys.PreviousPane):
 		m.cycleFocus(-1)
 	case matchesKey(keyName, defaultKeys.Filter):
-		m.Focus = FocusFilter
+		m.openFilterEditor()
 	case matchesKey(keyName, defaultKeys.History):
 		if m.ShowHistory {
 			m.ShowHistory = false
@@ -571,14 +587,17 @@ func (m Model) handleCommandKey(keyName string, key tea.KeyPressMsg) (tea.Model,
 	case "home", "ctrl+a":
 		m.setCommandCursor(0, false)
 	case "end", "ctrl+e":
-		m.setCommandCursor(len([]rune(m.Command)), false)
+		m.setCommandCursor(len(splitGraphemes(m.Command)), false)
+	case "shift+home":
+		m.setCommandCursor(0, true)
+	case "shift+end":
+		m.setCommandCursor(len(splitGraphemes(m.Command)), true)
 	case "backspace":
 		m.deleteCommandBackward()
 	case "delete":
 		m.deleteCommandForward()
 	case "ctrl+u":
-		m.Command = ""
-		m.setCommandCursor(0, false)
+		m.commandLineEditor().clear()
 		m.Notice = "command cleared"
 		m.RunError = ""
 		m.resetCommandHistoryNavigation()
@@ -638,11 +657,11 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	case "esc":
 		m.Focus = FocusTargets
 		if m.Filter != "" {
-			m.Filter = ""
-			m.ensureCursorVisible()
-			m.Notice = "filter cleared"
+			m.clearFilterInput()
+		} else {
+			m.resetFilterHistoryNavigation()
+			m.RunError = ""
 		}
-		m.RunError = ""
 	case "enter":
 		filter := parseTargetFilter(m.Filter)
 		if filter.err != nil {
@@ -650,38 +669,69 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 			return m, nil
 		}
 		if !filter.active() {
-			m.Filter = ""
+			m.filterLineEditor().clear()
+		} else {
+			m.commitFilterHistory()
 		}
 		m.clearTargetFilterError()
 		m.Focus = FocusTargets
 	case "ctrl+u":
-		m.Filter = ""
-		m.ensureCursorVisible()
-		m.Notice = "filter cleared"
-		m.RunError = ""
+		m.clearFilterInput()
 	case "tab":
+		m.commitFilterHistory()
 		m.cycleFocus(1)
 	case "shift+tab":
+		m.commitFilterHistory()
 		m.cycleFocus(-1)
 	case "up":
-		m.moveFilterMatch(-1)
+		m.previousFilterHistory()
 	case "down":
-		m.moveFilterMatch(1)
+		m.nextFilterHistory()
+	case "left":
+		m.moveFilterCursor(-1, false)
+	case "right":
+		m.moveFilterCursor(1, false)
+	case "shift+left":
+		m.moveFilterCursor(-1, true)
+	case "shift+right":
+		m.moveFilterCursor(1, true)
+	case "alt+left", "alt+b":
+		m.moveFilterCursorByWord(-1, false)
+	case "alt+right", "alt+f":
+		m.moveFilterCursorByWord(1, false)
+	case "alt+shift+left", "alt+shift+b":
+		m.moveFilterCursorByWord(-1, true)
+	case "alt+shift+right", "alt+shift+f":
+		m.moveFilterCursorByWord(1, true)
+	case "home", "ctrl+a":
+		m.setFilterCursor(0, false)
+	case "end", "ctrl+e":
+		m.setFilterCursor(len(splitGraphemes(m.Filter)), false)
+	case "shift+home":
+		m.setFilterCursor(0, true)
+	case "shift+end":
+		m.setFilterCursor(len(splitGraphemes(m.Filter)), true)
 	case "backspace":
-		if m.Filter != "" {
-			m.Filter = deleteLastRune(m.Filter)
-			m.syncTargetFilterError()
-			m.ensureCursorVisible()
-		}
+		m.deleteFilterBackward()
+	case "delete":
+		m.deleteFilterForward()
 	case "ctrl+w":
-		m.Filter = trimLastWord(m.Filter)
-		m.syncTargetFilterError()
-		m.ensureCursorVisible()
+		m.deleteFilterWordBackward()
+	case "ctrl+c", "super+c":
+		return m, tea.SetClipboard(m.selectedFilterText())
+	case "ctrl+x", "super+x":
+		selected := m.selectedFilterText()
+		if selected != "" {
+			m.deleteFilterSelection()
+			return m, tea.SetClipboard(selected)
+		}
+	case "ctrl+v", "super+v":
+		return m, func() tea.Msg { return tea.ReadClipboard() }
+	case " ", "space":
+		m.insertFilterText(" ")
 	default:
 		if key.Key().Text != "" {
-			m.Filter += key.Key().Text
-			m.syncTargetFilterError()
-			m.ensureCursorVisible()
+			m.insertFilterText(key.Key().Text)
 		}
 	}
 	return m, nil
@@ -829,10 +879,7 @@ func (m Model) executePaletteCommand(command string) (tea.Model, tea.Cmd) {
 		m.openHistory()
 		m.Notice = "opened history"
 	case "clear-filter":
-		m.Filter = ""
-		m.ensureCursorVisible()
-		m.Notice = "filter cleared"
-		m.RunError = ""
+		m.clearFilterInput()
 	default:
 		m.RunError = "unknown command: " + fields[0]
 	}
@@ -1642,7 +1689,7 @@ func (m Model) commandInputBoxLines(width int) []string {
 	width = max(width, lipgloss.Width(title)+2)
 	contentWidth := max(0, width-4)
 	topFill := max(0, width-lipgloss.Width(title)-2)
-	values := []string{commandInputStyle.Render(m.commandInputValue())}
+	values := []string{m.renderFilterInputValue(contentWidth)}
 	lines := []string{
 		commandInputBorderStyle.Render("┌") + title + commandInputBorderStyle.Render(strings.Repeat("─", topFill)+"┐"),
 	}
@@ -1656,7 +1703,7 @@ func (m Model) commandInputBoxLines(width int) []string {
 
 func (m Model) commandInputValue() string {
 	if m.Focus == FocusFilter {
-		return m.Filter + "▌"
+		return m.renderFilterInputValue(ansi.StringWidth(m.Filter) + 1)
 	}
 	if m.Focus == FocusCommand {
 		return m.renderCommandInputValue(len([]rune(m.Command)) + 1)
@@ -2242,12 +2289,12 @@ func (m Model) renderFooter(width int) string {
 				hints = []string{"enter run", "esc cancel", "? help"}
 			}
 		case FocusFilter:
-			hints = []string{"type fuzzy", "' exact", "re: regex", "n/N matches", "ctrl+u clear", "enter/esc tasks", "? help"}
+			hints = []string{"type fuzzy", "' exact", "re: regex", "left/right edit", "up/down history", "ctrl+u clear", "enter/esc tasks", "? help"}
 			if width < 100 {
-				hints = []string{"type fuzzy", "' exact", "re: regex", "n/N match", "ctrl+u clear", "enter/esc", "? help"}
+				hints = []string{"type fuzzy", "left/right edit", "up/down history", "ctrl+u clear", "enter/esc", "? help"}
 			}
 			if width < 70 {
-				hints = []string{"' exact", "re: regex", "n/N", "esc", "? help"}
+				hints = []string{"left/right edit", "up/down hist", "esc", "? help"}
 			}
 		case FocusLogs:
 			if m.outputSelection.active() {
@@ -2613,16 +2660,16 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "input",
 			title: "Input and filter",
 			bindings: []helpBinding{
-				{":", "run command"}, {"type", "insert text"}, {"backspace", "edit"},
-				{"up/down", "command history"}, {"ctrl+w", "word back"}, {"ctrl+u", "clear"},
-				{"/", "fuzzy filter"}, {"'/re:", "exact/regex filter"}, {"n/N", "next/prev match"},
+				{":", "run command"}, {"type/backspace", "edit text"}, {"left/right", "cursor; shift selects"},
+				{"alt+left/right", "word; shift selects"}, {"home/end", "edge; shift selects"}, {"up/down", "input history"},
+				{"ctrl+u", "clear"}, {"/", "fuzzy filter"}, {"'/re:", "exact/regex filter"},
 			},
 		},
 		{
 			id:    "tasks",
 			title: "Tasks",
 			bindings: []helpBinding{
-				{"up/down", "move"}, {"j/k", "move"}, {"g/G", "first/last"},
+				{"up/down · j/k", "move"}, {"n/N", "next/prev match"}, {"g/G", "first/last"},
 				{"space", "toggle select tree"}, {"a", m.bulkSelectionLabel()},
 				{"left/h", "fold"}, {"right/l", "unfold"}, {"enter", "run selected"},
 				{"del/x", "cancel selected"},
