@@ -2,92 +2,39 @@ package tui
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/rivo/uniseg"
 )
 
 type commandVisualCell struct {
-	text      string
-	runeStart int
-	runeEnd   int
-	width     int
-	cursor    bool
-	selected  bool
+	text     string
+	width    int
+	cursor   bool
+	selected bool
 }
 
 func (m *Model) ensureCommandCursor() {
-	if !m.commandCursorValid {
-		m.commandCursor = len([]rune(m.Command))
-		m.commandCursorValid = true
-	}
-	length := len([]rune(m.Command))
-	m.commandCursor = min(max(m.commandCursor, 0), length)
+	m.commandLineEditor().ensure()
 }
 
 func (m *Model) moveCommandCursor(delta int, selecting bool) {
-	m.ensureCommandCursor()
-	if selecting && !m.commandSelecting {
-		m.commandSelection = m.commandCursor
-		m.commandSelecting = true
-	}
-	m.commandCursor = min(max(m.commandCursor+delta, 0), len([]rune(m.Command)))
-	if !selecting || m.commandCursor == m.commandSelection {
-		m.commandSelecting = false
-	}
+	m.commandLineEditor().move(delta, selecting)
 }
 
 func (m *Model) moveCommandCursorByWord(direction int, selecting bool) {
-	m.ensureCommandCursor()
-	runes := []rune(m.Command)
-	position := m.commandCursor
-	if direction < 0 {
-		for position > 0 && unicode.IsSpace(runes[position-1]) {
-			position--
-		}
-		for position > 0 && !unicode.IsSpace(runes[position-1]) {
-			position--
-		}
-	} else if direction > 0 {
-		for position < len(runes) && !unicode.IsSpace(runes[position]) {
-			position++
-		}
-		for position < len(runes) && unicode.IsSpace(runes[position]) {
-			position++
-		}
-	}
-	m.setCommandCursor(position, selecting)
+	m.commandLineEditor().moveByWord(direction, selecting)
 }
 
 func (m *Model) setCommandCursor(position int, selecting bool) {
-	m.ensureCommandCursor()
-	if selecting && !m.commandSelecting {
-		m.commandSelection = m.commandCursor
-		m.commandSelecting = true
-	}
-	m.commandCursor = min(max(position, 0), len([]rune(m.Command)))
-	if !selecting || m.commandCursor == m.commandSelection {
-		m.commandSelecting = false
-	}
+	m.commandLineEditor().setCursor(position, selecting)
 }
 
 func (m *Model) moveCommandCursorToEnd() {
-	m.commandCursor = len([]rune(m.Command))
-	m.commandCursorValid = true
-	m.commandSelecting = false
+	m.commandLineEditor().moveToEnd()
 }
 
 func (m Model) commandSelectionRange() (int, int, bool) {
-	if !m.commandSelecting || m.commandCursor == m.commandSelection {
-		return 0, 0, false
-	}
-	start, end := m.commandSelection, m.commandCursor
-	if start > end {
-		start, end = end, start
-	}
-	return start, end, true
+	return m.commandLineEditor().selectionRange()
 }
 
 func (m Model) hasCommandSelection() bool {
@@ -96,101 +43,49 @@ func (m Model) hasCommandSelection() bool {
 }
 
 func (m Model) selectedCommandText() string {
-	start, end, ok := m.commandSelectionRange()
-	if !ok {
-		return ""
-	}
-	runes := []rune(m.Command)
-	start = min(max(start, 0), len(runes))
-	end = min(max(end, start), len(runes))
-	return string(runes[start:end])
+	return m.commandLineEditor().selectedText()
 }
 
 func (m *Model) deleteCommandSelection() bool {
-	start, end, ok := m.commandSelectionRange()
-	if !ok {
-		return false
-	}
-	runes := []rune(m.Command)
-	m.Command = string(append(runes[:start], runes[end:]...))
-	m.commandCursor = start
-	m.commandCursorValid = true
-	m.commandSelecting = false
-	return true
+	return m.commandLineEditor().deleteSelection()
 }
 
 func (m *Model) insertCommandText(value string) {
-	m.ensureCommandCursor()
-	m.deleteCommandSelection()
-	value = strings.ReplaceAll(value, "\r\n", " ")
-	value = strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
-	runes := []rune(m.Command)
-	inserted := []rune(value)
-	m.Command = string(append(append(append([]rune(nil), runes[:m.commandCursor]...), inserted...), runes[m.commandCursor:]...))
-	m.commandCursor += len(inserted)
-	m.commandCursorValid = true
-	m.commandSelecting = false
+	m.commandLineEditor().insert(value)
 	m.resetCommandHistoryNavigation()
 }
 
 func (m *Model) deleteCommandBackward() {
-	m.ensureCommandCursor()
-	if !m.deleteCommandSelection() && m.commandCursor > 0 {
-		runes := []rune(m.Command)
-		m.Command = string(append(runes[:m.commandCursor-1], runes[m.commandCursor:]...))
-		m.commandCursor--
-	}
+	m.commandLineEditor().deleteBackward()
 	m.resetCommandHistoryNavigation()
 }
 
 func (m *Model) deleteCommandForward() {
-	m.ensureCommandCursor()
-	if !m.deleteCommandSelection() {
-		runes := []rune(m.Command)
-		if m.commandCursor < len(runes) {
-			m.Command = string(append(runes[:m.commandCursor], runes[m.commandCursor+1:]...))
-		}
-	}
+	m.commandLineEditor().deleteForward()
 	m.resetCommandHistoryNavigation()
 }
 
 func (m *Model) deleteCommandWordBackward() {
-	m.ensureCommandCursor()
-	if m.deleteCommandSelection() {
-		m.resetCommandHistoryNavigation()
-		return
-	}
-	runes := []rune(m.Command)
-	start := m.commandCursor
-	for start > 0 && unicode.IsSpace(runes[start-1]) {
-		start--
-	}
-	for start > 0 && !unicode.IsSpace(runes[start-1]) {
-		start--
-	}
-	for start > 0 && unicode.IsSpace(runes[start-1]) {
-		start--
-	}
-	m.Command = string(append(runes[:start], runes[m.commandCursor:]...))
-	m.commandCursor = start
+	m.commandLineEditor().deleteWordBackward()
 	m.resetCommandHistoryNavigation()
 }
 
+func (m *Model) commandLineEditor() lineEditor {
+	return newLineEditor(&m.Command, &m.commandCursor, &m.commandCursorValid, &m.commandSelection, &m.commandSelecting)
+}
+
+func (m *Model) filterLineEditor() lineEditor {
+	return newLineEditor(&m.Filter, &m.filterCursor, &m.filterCursorValid, &m.filterSelection, &m.filterSelecting)
+}
+
 func (m Model) renderCommandInputValue(width int) string {
-	runes := []rune(m.Command)
-	cursor := m.commandCursor
-	if !m.commandCursorValid {
-		cursor = len(runes)
-	}
-	cursor = min(max(cursor, 0), len(runes))
-	viewportStart, viewportEnd := commandInputViewport(runes, cursor, width)
-	runes = runes[viewportStart:viewportEnd]
-	cursor -= viewportStart
+	editor := m.commandLineEditor()
+	cursor := editor.cursorPosition()
+	graphemes := splitGraphemes(m.Command)
+	viewportStart, viewportEnd := lineEditorViewport(graphemes, cursor, width, cursor == len(graphemes))
 	selectionStart, selectionEnd, selected := m.commandSelectionRange()
-	selectionStart -= viewportStart
-	selectionEnd -= viewportStart
 	var value strings.Builder
-	for i, r := range runes {
+	for i := viewportStart; i < viewportEnd; i++ {
 		style := commandInputStyle
 		if selected && i >= selectionStart && i < selectionEnd {
 			style = commandSelectionStyle
@@ -199,10 +94,59 @@ func (m Model) renderCommandInputValue(width int) string {
 		if i == cursor && !isSelected {
 			style = style.Reverse(true)
 		}
-		value.WriteString(style.Render(string(r)))
+		value.WriteString(style.Render(graphemes[i]))
 	}
-	if cursor == len(runes) {
+	if cursor == len(graphemes) {
 		value.WriteString(commandInputStyle.Reverse(true).Render(" "))
+	}
+	return value.String()
+}
+
+func (m Model) renderFilterInputValue(width int) string {
+	editor := m.filterLineEditor()
+	cursor := editor.cursorPosition()
+	graphemes := splitGraphemes(m.Filter)
+	contentWidth := max(1, width)
+	start, end := 0, 0
+	leftHidden, rightHidden := false, false
+	for range 3 {
+		start, end = lineEditorViewport(graphemes, cursor, contentWidth, true)
+		leftHidden = start > 0
+		rightHidden = end < len(graphemes)
+		markerWidth := 0
+		if leftHidden {
+			markerWidth++
+		}
+		if rightHidden {
+			markerWidth++
+		}
+		nextWidth := max(1, width-markerWidth)
+		if nextWidth == contentWidth {
+			break
+		}
+		contentWidth = nextWidth
+	}
+
+	selectionStart, selectionEnd, selected := editor.selectionRange()
+	var value strings.Builder
+	if leftHidden {
+		value.WriteString(commandInputBorderStyle.Render("‹"))
+	}
+	for i := start; i < end; i++ {
+		if i == cursor {
+			value.WriteString(commandInputStyle.Render("▌"))
+		}
+		style := commandInputStyle
+		if selected && i >= selectionStart && i < selectionEnd {
+			style = commandSelectionStyle
+		}
+		value.WriteString(style.Render(graphemes[i]))
+	}
+	if cursor == end {
+		value.WriteString(commandInputStyle.Render("▌"))
+	}
+	if rightHidden {
+		value.WriteString(commandInputBorderStyle.Render("›"))
 	}
 	return value.String()
 }
@@ -210,37 +154,26 @@ func (m Model) renderCommandInputValue(width int) string {
 func (m Model) renderWrappedCommandInput(width int, maxRows int) (rows []string, hiddenAbove bool, hiddenBelow bool) {
 	width = max(1, width)
 	maxRows = max(1, maxRows)
-	cursor := m.commandCursor
-	if !m.commandCursorValid {
-		cursor = len([]rune(m.Command))
-	}
-	cursor = min(max(cursor, 0), len([]rune(m.Command)))
-	selectionStart, selectionEnd, selected := m.commandSelectionRange()
+	editor := m.commandLineEditor()
+	cursor := editor.cursorPosition()
+	selectionStart, selectionEnd, selected := editor.selectionRange()
 
-	cells := make([]commandVisualCell, 0, len([]rune(m.Command))+1)
-	graphemes := uniseg.NewGraphemes(m.Command)
-	runeOffset := 0
-	for graphemes.Next() {
-		text := graphemes.Str()
-		runeCount := utf8.RuneCountInString(text)
+	graphemes := splitGraphemes(m.Command)
+	cells := make([]commandVisualCell, 0, len(graphemes)+1)
+	for index, text := range graphemes {
 		cell := commandVisualCell{
-			text:      text,
-			runeStart: runeOffset,
-			runeEnd:   runeOffset + runeCount,
-			width:     max(0, ansi.StringWidth(text)),
+			text:  text,
+			width: max(0, ansi.StringWidth(text)),
 		}
-		cell.cursor = cursor >= cell.runeStart && cursor < cell.runeEnd
-		cell.selected = selected && cell.runeStart < selectionEnd && cell.runeEnd > selectionStart
+		cell.cursor = cursor == index
+		cell.selected = selected && index >= selectionStart && index < selectionEnd
 		cells = append(cells, cell)
-		runeOffset += runeCount
 	}
-	if cursor == runeOffset {
+	if cursor == len(graphemes) {
 		cells = append(cells, commandVisualCell{
-			text:      " ",
-			runeStart: runeOffset,
-			runeEnd:   runeOffset,
-			width:     1,
-			cursor:    true,
+			text:   " ",
+			width:  1,
+			cursor: true,
 		})
 	}
 
@@ -287,39 +220,41 @@ func (m Model) renderWrappedCommandInput(width int, maxRows int) (rows []string,
 	return rows, hiddenAbove, hiddenBelow
 }
 
-func commandInputViewport(runes []rune, cursor int, width int) (int, int) {
+func lineEditorViewport(graphemes []string, cursor int, width int, reserveCursor bool) (int, int) {
+	cursor = min(max(cursor, 0), len(graphemes))
 	if width <= 0 {
 		return cursor, cursor
 	}
 	remaining := width
-	if cursor == len(runes) {
+	if reserveCursor {
 		remaining--
 	}
+	remaining = max(0, remaining)
 	start, end := cursor, cursor
 	rightBudget := remaining / 2
-	for end < len(runes) {
-		charWidth := ansi.StringWidth(string(runes[end]))
-		if charWidth > rightBudget {
+	for end < len(graphemes) {
+		cellWidth := max(0, ansi.StringWidth(graphemes[end]))
+		if cellWidth > rightBudget {
 			break
 		}
-		rightBudget -= charWidth
-		remaining -= charWidth
+		rightBudget -= cellWidth
+		remaining -= cellWidth
 		end++
 	}
 	for start > 0 {
-		charWidth := ansi.StringWidth(string(runes[start-1]))
-		if charWidth > remaining {
+		cellWidth := max(0, ansi.StringWidth(graphemes[start-1]))
+		if cellWidth > remaining {
 			break
 		}
-		remaining -= charWidth
+		remaining -= cellWidth
 		start--
 	}
-	for end < len(runes) {
-		charWidth := ansi.StringWidth(string(runes[end]))
-		if charWidth > remaining {
+	for end < len(graphemes) {
+		cellWidth := max(0, ansi.StringWidth(graphemes[end]))
+		if cellWidth > remaining {
 			break
 		}
-		remaining -= charWidth
+		remaining -= cellWidth
 		end++
 	}
 	return start, end

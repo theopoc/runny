@@ -1032,13 +1032,13 @@ func TestFooterIsContextual(t *testing.T) {
 	filterModel := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	filterModel.Focus = FocusFilter
 	filterFooter := stripANSI(filterModel.renderFooter(120))
-	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[n/N] Matches", "[ctrl+u] Clear", "[enter/esc] Tasks", "[?] Help"} {
+	for _, want := range []string{"[type] Fuzzy", "['] Exact", "[left/right] Edit", "[up/down] History", "[ctrl+u] Clear", "[enter/esc] Tasks", "[?] Help"} {
 		if !strings.Contains(strings.Join(strings.Fields(filterFooter), " "), want) {
 			t.Fatalf("filter footer should contain %q:\n%s", want, filterFooter)
 		}
 	}
 	compactFilterFooter := stripANSI(filterModel.renderFooter(80))
-	for _, want := range []string{"[type]", "[']", "[n/N]", "[ctrl+u]", "[enter/esc]", "[?]"} {
+	for _, want := range []string{"[type]", "[left/right]", "[up/down]", "[ctrl+u]", "[enter/esc]", "[?]"} {
 		if !strings.Contains(strings.Join(strings.Fields(compactFilterFooter), " "), want) {
 			t.Fatalf("compact filter footer should contain %q:\n%s", want, compactFilterFooter)
 		}
@@ -1603,7 +1603,22 @@ func TestModelFilterTextLimitsVisibleCursor(t *testing.T) {
 	}
 }
 
-func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
+func TestFilterInputEditsAtCursor(t *testing.T) {
+	model := NewModel(Options{Command: "test", Targets: []core.Target{
+		{ID: "api", RelPath: "api", Selected: true},
+	}})
+	model, _ = updateKey(model, "/")
+	model = typeText(model, "api")
+
+	model, _ = updateSpecialKey(model, tea.KeyLeft)
+	model, _ = updateKey(model, "x")
+
+	if model.Filter != "apxi" {
+		t.Fatalf("filter = %q, want insertion at cursor", model.Filter)
+	}
+}
+
+func TestFilterFocusArrowsNavigateFilterHistory(t *testing.T) {
 	model := NewModel(Options{Command: "test", Targets: []core.Target{
 		{ID: "api", RelPath: "api", Selected: true},
 		{ID: "web", RelPath: "web", Selected: true},
@@ -1614,17 +1629,18 @@ func TestFilterFocusArrowsNavigateMatches(t *testing.T) {
 	if model.Cursor != 1 {
 		t.Fatalf("cursor = %d, want first match", model.Cursor)
 	}
-	model, _ = updateSpecialKey(model, tea.KeyDown)
-	if model.Cursor != 2 {
-		t.Fatalf("cursor = %d, want next match from filter focus", model.Cursor)
+	model.filterHistory = []string{"worker", "web"}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Filter != "worker" || model.Cursor != 2 {
+		t.Fatalf("first history recall = filter %q cursor %d", model.Filter, model.Cursor)
 	}
 	model, _ = updateSpecialKey(model, tea.KeyUp)
-	if model.Cursor != 1 {
-		t.Fatalf("cursor = %d, want previous match from filter focus", model.Cursor)
+	if model.Filter != "web" || model.Cursor != 1 {
+		t.Fatalf("older history recall = filter %q cursor %d", model.Filter, model.Cursor)
 	}
 	footer := stripANSI(model.renderFooter(120))
-	if !strings.Contains(normalizeFooterText(footer), "[n/N] Matches") {
-		t.Fatalf("filter footer should mention arrow match navigation:\n%s", footer)
+	if !strings.Contains(normalizeFooterText(footer), "[up/down] History") {
+		t.Fatalf("filter footer should mention arrow history navigation:\n%s", footer)
 	}
 }
 
