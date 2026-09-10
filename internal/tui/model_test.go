@@ -1740,12 +1740,12 @@ func TestFilterInputOmitsSlashAndPlaceholder(t *testing.T) {
 func TestFilterInputDisplayGolden(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model, _ = updateKey(model, "/")
-	empty := model.commandInputValue()
+	empty := stripANSI(model.commandInputValue())
 
 	model, _ = updateKey(model, "a")
 	model, _ = updateKey(model, "p")
 	model, _ = updateKey(model, "i")
-	filled := model.commandInputValue()
+	filled := stripANSI(model.commandInputValue())
 
 	want, err := os.ReadFile("testdata/TestFilterInputDisplayGolden.golden")
 	if err != nil {
