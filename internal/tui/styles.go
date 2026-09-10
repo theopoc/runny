@@ -56,6 +56,8 @@ var (
 	panelActiveStyle        = lipgloss.NewStyle().Foreground(runnyTheme.accentCommand)
 	panelTitleStyle         = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentCommand)
 	panelInactiveTitle      = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.fgMuted)
+	panelDividerStyle       = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
+	panelDividerActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(runnyTheme.accentPrimary)
 	selectedStyle           = lipgloss.NewStyle().Foreground(runnyTheme.fgEmphasis)
 	unselectedStyle         = lipgloss.NewStyle().Foreground(runnyTheme.fgMuted)
 	rowActiveStyle          = lipgloss.NewStyle().Foreground(runnyTheme.fgInverse).Background(runnyTheme.bgFocus).Bold(true)

@@ -32,7 +32,7 @@ type targetFilter struct {
 	err   error
 }
 
-func joinPanels(left []string, right []string) string {
+func joinPanels(left []string, right []string, dividerVisible, dividerActive bool) string {
 	var b strings.Builder
 	height := max(len(left), len(right))
 	for i := range height {
@@ -41,7 +41,7 @@ func joinPanels(left []string, right []string) string {
 		} else {
 			b.WriteString(strings.Repeat(" ", len(left[0])))
 		}
-		b.WriteString(panelSeparator)
+		b.WriteString(renderPanelSeparator(i, height, dividerVisible, dividerActive))
 		if i < len(right) {
 			b.WriteString(right[i])
 		}

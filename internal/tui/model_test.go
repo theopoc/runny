@@ -1189,10 +1189,12 @@ func TestFooterShortcutColorsUseTrueColorAndInheritedBackground(t *testing.T) {
 func TestNonSelectionChromeInheritsTerminalBackground(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	styles := map[string]lipgloss.Style{
-		"command prompt": commandPromptStyle,
-		"overlay title":  overlayTitleStyle,
-		"error message":  errorBarStyle,
-		"running row":    rowRunningStyle,
+		"command prompt":      commandPromptStyle,
+		"overlay title":       overlayTitleStyle,
+		"error message":       errorBarStyle,
+		"running row":         rowRunningStyle,
+		"pane divider":        panelDividerStyle,
+		"active pane divider": panelDividerActiveStyle,
 	}
 	for name, style := range styles {
 		background := style.GetBackground()
@@ -1207,9 +1209,11 @@ func TestNonSelectionChromeInheritsTerminalBackground(t *testing.T) {
 	model.Focus = FocusFilter
 
 	views := map[string]string{
-		"filter row":      model.renderSubHeader(100),
-		"footer":          model.renderFooter(100),
-		"command overlay": model.renderCommandOverlay(100, 20),
+		"filter row":          model.renderSubHeader(100),
+		"footer":              model.renderFooter(100),
+		"command overlay":     model.renderCommandOverlay(100, 20),
+		"pane divider":        renderPanelSeparator(4, 8, true, false),
+		"active pane divider": renderPanelSeparator(4, 8, true, true),
 	}
 	model.Focus = FocusTargets
 	model.RunError = "boom"
