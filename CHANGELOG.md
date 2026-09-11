@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/theopoc/runny/compare/v0.8.0...v0.9.0) (2026-09-11)
+
+
+### Features
+
+* **tui:** resize panes with mouse ([#90](https://github.com/theopoc/runny/issues/90)) ([0f2cf60](https://github.com/theopoc/runny/commit/0f2cf60e7c76bafcf63f9ff86df4277073c8d82a))
+
 ## [0.8.0](https://github.com/theopoc/runny/compare/v0.7.0...v0.8.0) (2026-09-10)
 
 
