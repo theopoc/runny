@@ -140,6 +140,12 @@ type Model struct {
 	clipboardCopy          clipboardCopyFunc
 	historyLogViewport     viewport.Model
 	historyLogLayout       *logLayoutCache
+	panelSplitWidth        int
+	panelSplitBasis        int
+	paneResizeActive       bool
+	paneResizeGrabOffset   int
+	paneResizeStartX       int
+	paneResizeMoved        bool
 	now                    func() time.Time
 }
 
@@ -311,6 +317,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.Width = size.Width
 		m.Height = size.Height
+		if !m.canResizePanes() {
+			m.paneResizeActive = false
+			m.paneResizeMoved = false
+		}
 		m.syncOutputViewport()
 		m.refreshOutputSelection()
 		if m.ShowHistory && m.HistoryDepth == historyDepthLogs {
@@ -326,6 +336,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
 		if click.Button == tea.MouseLeft && click.Mod == 0 {
+			m.paneResizeActive = false
+			m.paneResizeMoved = false
+			if m.startPaneResize(click.X, click.Y) {
+				return m, nil
+			}
 			targetIndex, targetHit := m.directoryTargetAt(click.X, click.Y)
 			if focus, hit := m.paneFocusAt(click.X, click.Y); hit {
 				if focus == FocusLogs {
@@ -345,12 +360,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if motion, ok := msg.(tea.MouseMotionMsg); ok {
+		if m.paneResizeActive {
+			if motion.Button == tea.MouseLeft {
+				m.resizePanesAt(motion.X)
+			}
+			return m, nil
+		}
 		if motion.Button == tea.MouseLeft && motion.Mod == 0 {
 			m.extendOutputSelection(motion.X, motion.Y)
 		}
 		return m, nil
 	}
 	if release, ok := msg.(tea.MouseReleaseMsg); ok {
+		if m.paneResizeActive {
+			if release.Button == tea.MouseLeft {
+				m.resizePanesAt(release.X)
+				m.paneResizeActive = false
+				m.paneResizeMoved = false
+			}
+			return m, nil
+		}
 		if release.Button == tea.MouseLeft && release.Mod == 0 {
 			m.extendOutputSelection(release.X, release.Y)
 			m.finishOutputSelection()
@@ -1358,15 +1387,7 @@ func panelDimensions(width int, height int) (panelHeight int, leftWidth int, rig
 
 func panelDimensionsForInput(width int, height int, inputRows int) (panelHeight int, leftWidth int, rightWidth int) {
 	panelHeight = panelHeightForInput(height, inputRows)
-	leftWidth = width * 42 / 100
-	if leftWidth < 36 {
-		leftWidth = 36
-	}
-	rightWidth = width - leftWidth - 4
-	if rightWidth < 32 {
-		rightWidth = 32
-		leftWidth = width - rightWidth - 4
-	}
+	leftWidth, rightWidth = panelWidths(width, 0, 0)
 	return panelHeight, leftWidth, rightWidth
 }
 
@@ -1377,6 +1398,9 @@ func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidt
 	}
 	inputRows := 1
 	panelHeight, leftWidth, rightWidth = panelDimensionsForInput(width, height, inputRows)
+	if m.panelSplitBasis > 0 {
+		leftWidth, rightWidth = panelWidths(width, m.panelSplitWidth, m.panelSplitBasis)
+	}
 	panelHeight = max(10, panelHeight-contextRows)
 	if m.Focus != FocusFilter {
 		panelHeight = max(10, height-2-contextRows)
@@ -2718,6 +2742,7 @@ func (m Model) helpRows(width ...int) []string {
 				helpBindingFrom(defaultKeys.Follow),
 				helpBindingFrom(defaultKeys.Copy),
 				{"mouse drag", "select text"},
+				{"drag divider", "resize panes"},
 			},
 		},
 	}
