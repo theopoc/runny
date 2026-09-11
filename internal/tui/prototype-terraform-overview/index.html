@@ -1,0 +1,261 @@
+<meta charset="utf-8">
+<style>
+#runny-stack-prototype{color-scheme:inherit;--runny-bg:light-dark(#fcfbf8,#11151b);--runny-text:light-dark(#26323e,#d4dbe5);--runny-muted:light-dark(#596575,#95a0b2);--runny-border:light-dark(#74808e,#6b7a90);--runny-blue:light-dark(#155bb1,#7cb7ff);--runny-green:light-dark(#16734a,#76cba0);--runny-yellow:light-dark(#88620d,#e9c174);--runny-red:light-dark(#b42c3c,#f48997);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--runny-text);width:100%;box-sizing:border-box}
+#runny-stack-prototype *{box-sizing:border-box}
+#runny-stack-prototype .rp-caption{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between;align-items:center;margin:0 0 12px;font-size:12px;color:var(--runny-muted)}
+#runny-stack-prototype .rp-caption strong{color:var(--runny-text);font-weight:600}
+#runny-stack-prototype .rp-stage{width:100%;min-width:0;display:flex;justify-content:center}
+#runny-stack-prototype .rp-terminal{background:var(--runny-bg);color:var(--runny-text);font-size:13px;line-height:1.55;padding:14px;max-width:100%;border:1px solid var(--runny-border);border-radius:8px;box-shadow:0 10px 30px #00000012}
+#runny-stack-prototype .rp-screen{font:inherit;margin:0;padding:0;border:0;background:transparent;color:inherit;white-space:pre;font-variant-ligatures:none;font-variant-numeric:tabular-nums;letter-spacing:0;overflow:visible}
+#runny-stack-prototype .rp-line{display:block;height:1.55em;white-space:pre}
+#runny-stack-prototype .muted{color:var(--runny-muted)}
+#runny-stack-prototype .border{color:var(--runny-border)}
+#runny-stack-prototype .blue{color:var(--runny-blue)}
+#runny-stack-prototype .green{color:var(--runny-green)}
+#runny-stack-prototype .yellow{color:var(--runny-yellow)}
+#runny-stack-prototype .red{color:var(--runny-red)}
+#runny-stack-prototype .strong{font-weight:700}
+#runny-stack-prototype[data-mono=true] .green,#runny-stack-prototype[data-mono=true] .yellow,#runny-stack-prototype[data-mono=true] .red,#runny-stack-prototype[data-mono=true] .blue{color:var(--runny-text)}
+#runny-stack-prototype .rp-switcher{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;margin:14px auto 0;width:fit-content;max-width:100%;padding:8px;background:var(--runny-bg);border:1px solid var(--runny-border);border-radius:12px;font-size:12px}
+#runny-stack-prototype button,#runny-stack-prototype select{font:inherit;color:var(--runny-text);background:var(--runny-bg);border:1px solid var(--runny-border);border-radius:6px;min-height:32px;padding:5px 9px;cursor:pointer}
+#runny-stack-prototype button[aria-pressed=true]{color:var(--runny-blue);border-color:var(--runny-blue);font-weight:700}
+#runny-stack-prototype button:disabled{opacity:.4;cursor:default}
+#runny-stack-prototype .rp-separator{width:1px;align-self:stretch;background:var(--runny-border);margin:2px 4px}
+#runny-stack-prototype .rp-fallback{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;justify-content:center;font-size:12px;align-items:center}
+#runny-stack-prototype .rp-fallback label{display:flex;gap:6px;align-items:center}
+#runny-stack-prototype .rp-fallback[hidden]{display:none}
+#runny-stack-prototype .rp-measure{position:absolute;visibility:hidden;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}
+@media(pointer:coarse){#runny-stack-prototype button,#runny-stack-prototype select{min-height:44px}}
+</style>
+<div id="runny-stack-prototype" aria-label="Trois propositions de vue Terraform globale">
+  <div class="rp-caption"><strong id="rp-title">B · Tableau global</strong><span id="rp-readout">Maquette · données fictives</span></div>
+  <div class="rp-stage"><div class="rp-terminal"><pre class="rp-screen" role="img" aria-label="Vue globale des stacks Terraform"><span class="rp-line">Chargement de la maquette…</span></pre></div></div>
+  <div class="rp-switcher" aria-label="Choix de la maquette">
+    <button type="button" data-cycle="-1" aria-label="Proposition précédente">←</button>
+    <button type="button" data-variant="A" aria-pressed="false">A · Arbre</button>
+    <button type="button" data-variant="B" aria-pressed="true">B · Tableau</button>
+    <button type="button" data-variant="C" aria-pressed="false">C · Impact</button>
+    <button type="button" data-cycle="1" aria-label="Proposition suivante">→</button>
+    <span class="rp-separator" aria-hidden="true"></span>
+    <button type="button" id="rp-up" aria-label="Lignes précédentes">↑</button>
+    <button type="button" id="rp-down" aria-label="Lignes suivantes">↓</button>
+  </div>
+  <div class="rp-fallback" hidden>
+    <label>Terminal <select data-setting="size"><option value="120x30">120 × 30</option><option value="100x24">100 × 24</option><option value="80x24">80 × 24</option><option value="60x24">60 × 24</option></select></label>
+    <label>Stacks <select data-setting="sample"><option value="12">12</option><option value="48">48</option></select></label>
+    <label>Tasks <select data-setting="tasks"><option value="auto">42 %</option><option value="36">36 colonnes</option></select></label>
+    <label>Commande <select data-setting="phase"><option value="plan">plan</option><option value="apply">apply</option></select></label>
+    <label><input type="checkbox" data-setting="mono"> Monochrome</label>
+  </div>
+  <span class="rp-measure" aria-hidden="true">0000000000</span>
+</div>
+<script>
+(function(){
+  // PROTOTYPE ONLY. Three structural alternatives, no Runny execution or persistence.
+  // Same route, ?variant=A|B|C. Product background represents the terminal default.
+  const root=document.getElementById('runny-stack-prototype');
+  if(!root)return;
+  const state={variant:'B',size:'120x30',sample:'12',phase:'plan',tasks:'auto',mono:false,offset:0};
+  try{const v=new URLSearchParams(location.search).get('variant');if(['A','B','C'].includes(v))state.variant=v;}catch(e){}
+  const names={A:'A · Arbre annoté',B:'B · Tableau global',C:'C · Regroupement par impact'};
+  const base=[
+    {path:'prod/network',status:'done',counts:[2,1,1],time:'12s'},
+    {path:'prod/database',status:'done',counts:[0,1,0],time:'19s'},
+    {path:'prod/api',status:'done',counts:[4,2,0],time:'8s'},
+    {path:'prod/observability',status:'done',counts:[0,0,0],time:'6s'},
+    {path:'stage/network',status:'done',counts:[0,0,2],time:'11s'},
+    {path:'stage/database',status:'done',counts:[1,0,0],time:'9s'},
+    {path:'stage/api',status:'running',counts:null,time:'24s'},
+    {path:'stage/observability',status:'failed',counts:null,time:'3s'},
+    {path:'dev/network',status:'done',counts:[1,0,0],time:'7s'},
+    {path:'dev/database',status:'cancelled',counts:null,time:'2s'},
+    {path:'dev/api',status:'queued',counts:null,time:'—'},
+    {path:'dev/observability',status:'done',counts:null,time:'5s'}
+  ];
+  const classes=['green','yellow','red'];
+  let viewport={lines:0,visible:0},lastWidth=0;
+  function data(){
+    if(state.sample==='12')return base;
+    const result=[];
+    for(let n=0;n<4;n++)for(const item of base){
+      const copy={...item,path:'region-'+(n+1)+'/'+item.path,counts:item.counts?item.counts.slice():null};
+      if(n===3&&item.path==='prod/api')copy.counts=[1234,87,56];
+      result.push(copy);
+    }
+    return result;
+  }
+  function seg(text,kind){return {text:String(text),kind:kind||''};}
+  function chars(text){return Array.from(String(text));}
+  function length(text){return chars(text).length;}
+  function crop(text,width){const c=chars(text);return c.length<=width?text:(width<2?'…':c.slice(0,width-1).join('')+'…');}
+  function cell(text,width,kind,right){
+    text=crop(String(text),Math.max(1,width));
+    const pad=' '.repeat(Math.max(0,width-length(text)));
+    return seg(right?pad+text:text+pad,kind);
+  }
+  function spanWidth(line){return line.reduce((sum,s)=>sum+length(s.text),0);}
+  function padded(line,width){return line.concat(seg(' '.repeat(Math.max(0,width-spanWidth(line)))));}
+  function joined(cells){const r=[];cells.forEach((c,i)=>{if(i)r.push(seg(' '));r.push(c);});return r;}
+  function countText(item){return item.counts?'+'+item.counts[0]+' ~'+item.counts[1]+' -'+item.counts[2]:'';}
+  function countWidth(items){return Math.max(9,...items.map(x=>length(countText(x))));}
+  function counters(item,width){
+    if(!item.counts)return [cell(item.status==='done'?'—':'',width,'muted',true)];
+    const r=[seg(' '.repeat(Math.max(0,width-length(countText(item)))))];
+    item.counts.forEach((n,i)=>{if(i)r.push(seg(' '));r.push(seg(['+','~','-'][i]+n,n===0?'muted':classes[i]));});
+    return r;
+  }
+  function status(item,small){
+    const label={done:'success',running:'running',failed:'failed',cancelled:'cancelled',queued:'queued'};
+    const symbol={done:'✓',running:'↻',failed:'×',cancelled:'·',queued:'○'};
+    const color={done:'muted',running:'blue',failed:'red',cancelled:'muted',queued:'muted'};
+    return seg(small?symbol[item.status]:label[item.status],color[item.status]);
+  }
+  function frame(title,rows,width,height,active){
+    const c=active?'blue':'border';
+    const t=' '+crop(title,width-6)+' ';
+    const result=[[seg('╭─'+t+'─'.repeat(Math.max(0,width-3-length(t)))+'╮',c)]];
+    for(let i=0;i<height-2;i++)result.push([seg('│',c),...padded(rows[i]||[],width-2),seg('│',c)]);
+    result.push([seg('╰'+'─'.repeat(width-2)+'╯',c)]);
+    return result;
+  }
+  function cutRows(rows,capacity){
+    const max=Math.max(0,rows.length-capacity);
+    state.offset=Math.min(state.offset,max);
+    viewport={lines:rows.length,visible:capacity};
+    return rows.slice(state.offset,state.offset+capacity);
+  }
+  function treeBody(items,width,capacity){
+    const content=width-4,cw=countWidth(items),short=content<50,sw=short?1:9,tw=short?0:5;
+    const nw=content-cw-sw-tw-(tw?3:2), rows=[];
+    let group='';
+    const header=[seg(' '),cell('DIRECTORY',nw,'muted'),seg(' '),cell(short?'S':'STATUS',sw,'muted')];
+    if(tw)header.push(seg(' '),cell('TIME',tw,'muted',true));
+    header.push(seg(' '),cell('CHANGES',cw,'muted',true));
+    for(const item of items){
+      const parent=item.path.slice(0,item.path.lastIndexOf('/'));
+      const name=item.path.slice(item.path.lastIndexOf('/')+1);
+      if(parent!==group){rows.push([seg(' '),cell('▾ '+parent+'/',content,'blue')]);group=parent;}
+      const st=status(item,short);
+      const row=[seg(' '),cell('  '+name,nw),seg(' '),cell(st.text,sw,st.kind)];
+      if(tw)row.push(seg(' '),cell(item.time,tw,'muted',true));
+      row.push(seg(' '),...counters(item,cw));rows.push(row);
+    }
+    return [header,[],...cutRows(rows,capacity-2)];
+  }
+  function outputBody(width,height){
+    const lines=[['prod/network','blue'],['',''],['Terraform will perform','muted'],['the following actions:','muted'],['',''],['+ aws_route.private','green'],['~ aws_vpc.main','yellow'],['-/+ aws_subnet.app','red'],['',''],['Plan: 2 to add,','green'],['      1 to change,','yellow'],['      1 to destroy.','red']];
+    if(state.phase==='apply')lines.splice(2,lines.length-2,['Apply complete!','green'],['Resources: 2 added,','green'],['1 changed, 1 destroyed.','muted']);
+    return lines.slice(0,height).map(x=>[seg(' '),cell(x[0],width-4,x[1])]);
+  }
+  function renderA(items,cols,height){
+    if(cols>=100){
+      const left=state.tasks==='36'?36:Math.max(36,Math.floor((cols-2)*.42)),right=cols-left-2;
+      const a=frame('Tasks · '+items.length+' stacks',treeBody(items,left,height-2),left,height,true);
+      const b=frame('Output',outputBody(right,height-2),right,height,false);
+      return a.map((line,i)=>line.concat(seg('  '),b[i]));
+    }
+    return frame('Tasks · '+items.length+' stacks',treeBody(items,cols,height-2),cols,height,true);
+  }
+  function tableRows(items,width,capacity){
+    const digits=[0,1,2].map(i=>Math.max(2,...items.map(t=>t.counts?String(t.counts[i]).length:1)));
+    const content=width-4,sw=9,tw=width>=72?6:0;
+    const nw=content-sw-tw-digits.reduce((a,b)=>a+b,0)-(tw?5:4);
+    const columns=[cell('STACK',nw,'muted'),cell('STATUS',sw,'muted')];
+    digits.forEach((w,i)=>columns.push(cell(['+','~','-'][i],w,classes[i],true)));
+    if(tw)columns.push(cell('TIME',tw,'muted',true));
+    const rows=items.map(item=>{
+      const st=status(item,false), cells=[cell(item.path,nw),cell(st.text,sw,st.kind)];
+      digits.forEach((w,i)=>cells.push(cell(item.counts?item.counts[i]:(item.status==='done'?'—':''),w,item.counts&&item.counts[i]?classes[i]:'muted',true)));
+      if(tw)cells.push(cell(item.time,tw,'muted',true));
+      return [seg(' '),...joined(cells)];
+    });
+    return [[seg(' '),...joined(columns)],[],...cutRows(rows,capacity-2)];
+  }
+  function renderB(items,cols,height){return frame('Stacks · '+items.length+' · '+(state.phase==='plan'?'PLAN / prévu':'APPLY / appliqué'),tableRows(items,cols,height-2),cols,height,true);}
+  function category(item){
+    if(['failed','cancelled'].includes(item.status))return 0;
+    if(['running','queued'].includes(item.status))return 4;
+    if(!item.counts)return 5;
+    if(item.counts[2]>0)return 1;
+    if(item.counts[0]>0||item.counts[1]>0)return 2;
+    return 3;
+  }
+  function renderC(items,cols,height){
+    const groups=[['Erreur / annulation','red'],['Avec suppressions','red'],['Autres changements','yellow'],['Sans changement de ressources','muted'],['En cours / en attente','blue'],['Résumé indisponible','muted']];
+    const content=cols-4,cw=countWidth(items),sw=9,nw=content-cw-sw-2;
+    const rows=[];
+    groups.forEach((group,index)=>{
+      const subset=items.filter(item=>category(item)===index);
+      if(!subset.length)return;
+      rows.push([seg(' '),cell('─ '+group[0]+' · '+subset.length+' stack'+(subset.length>1?'s':''),content,group[1])]);
+      subset.forEach(item=>{const st=status(item,false);rows.push([seg(' '),cell('  '+item.path,nw),seg(' '),cell(st.text,sw,st.kind),seg(' '),...counters(item,cw)]);});
+    });
+    return frame('Stacks · lecture par impact',cutRows(rows,height-2),cols,height,true);
+  }
+  function mount(lines,cols){
+    const screen=root.querySelector('.rp-screen');screen.replaceChildren();
+    lines.forEach(line=>{
+      const element=document.createElement('span');element.className='rp-line';
+      line.forEach(s=>{const span=document.createElement('span');span.textContent=s.text;span.className=s.kind;element.append(span);});
+      screen.append(element);
+    });
+    screen.style.width=cols+'ch';
+    screen.setAttribute('aria-label',names[state.variant]+', '+state.sample+' stacks, '+state.phase+'. Compteurs après fin réussie uniquement. Données fictives.');
+  }
+  function render(){
+    const size=state.size.split('x').map(Number),cw=root.querySelector('.rp-measure').getBoundingClientRect().width/10||7.8;
+    const available=root.querySelector('.rp-stage').clientWidth;
+    const cols=Math.min(size[0],Math.floor((available-30)/cw)),rows=size[1];
+    root.dataset.mono=String(state.mono);
+    root.querySelector('#rp-title').textContent=names[state.variant];
+    root.querySelector('#rp-readout').textContent=cols+' × '+rows+' · '+state.sample+' stacks fictives';
+    root.querySelectorAll('[data-variant]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.variant===state.variant)));
+    if(cols<60){
+      const w=Math.max(20,cols);
+      mount([[cell('Terminal trop étroit',w,'yellow')],[],[cell('Minimum : 60 colonnes',w,'muted')]],w);
+      root.querySelector('#rp-up').disabled=true;root.querySelector('#rp-down').disabled=true;return;
+    }
+    const items=data(),header=[
+      [seg('runny','blue strong'),seg('   /infra', 'muted')],
+      [cell('cmd: terraform '+state.phase+'   ·   '+items.length+' selected   ·   parallel / 4 workers',cols)],
+      []
+    ];
+    const body=({A:renderA,B:renderB,C:renderC})[state.variant](items,cols,rows-6);
+    const finished=items.filter(t=>['done','failed','cancelled'].includes(t.status)).length;
+    const footer=[
+      [cell(finished+'/'+items.length+' finished  ·  '+(state.phase==='plan'?'PLAN : changements prévus':'APPLY : changements appliqués'),cols,'muted')],
+      [cell('✓ success  ↻ running  × failed  ○ queued  · cancelled',cols,'muted')],
+      [cell('Lignes '+(state.offset+1)+'–'+Math.min(viewport.lines,state.offset+viewport.visible)+'/'+viewport.lines+'   ·   — résumé indisponible',cols,'muted')]
+    ];
+    mount(header.concat(body,footer),cols);
+    root.querySelector('#rp-up').disabled=state.offset===0;
+    root.querySelector('#rp-down').disabled=state.offset+viewport.visible>=viewport.lines;
+    try{const url=new URL(location.href);url.searchParams.set('variant',state.variant);history.replaceState(null,'',url);}catch(e){}
+  }
+  function choose(variant){state.variant=variant;state.offset=0;render();}
+  root.querySelectorAll('[data-variant]').forEach(b=>b.addEventListener('click',()=>choose(b.dataset.variant)));
+  function cycle(by){const keys=['A','B','C'];choose(keys[(keys.indexOf(state.variant)+by+3)%3]);}
+  root.querySelectorAll('[data-cycle]').forEach(b=>b.addEventListener('click',()=>cycle(Number(b.dataset.cycle))));
+  root.querySelector('#rp-up').addEventListener('click',()=>{state.offset=Math.max(0,state.offset-Math.max(1,viewport.visible-1));render();});
+  root.querySelector('#rp-down').addEventListener('click',()=>{state.offset+=Math.max(1,viewport.visible-1);render();});
+  root.addEventListener('keydown',event=>{
+    if(event.target.matches('input,textarea,select,[contenteditable]'))return;
+    if(event.key==='ArrowLeft'){event.preventDefault();cycle(-1);}
+    if(event.key==='ArrowRight'){event.preventDefault();cycle(1);}
+  });
+  const observer=new ResizeObserver(entries=>{const width=Math.floor(entries[0].contentRect.width);if(width!==lastWidth){lastWidth=width;render();}});
+  observer.observe(root.querySelector('.rp-stage'));
+  render();
+  if(globalThis.Tweak){
+    const tweak=new Tweak({container:root,onChange:()=>{state.offset=0;render();}});
+    tweak.addSelect(state,'size',{label:'Terminal',options:['120x30','100x24','80x24','60x24']});
+    tweak.addSelect(state,'sample',{label:'Nombre de stacks',options:['12','48']});
+    tweak.addSelect(state,'tasks',{label:'Largeur Tasks (vue A)',options:[{label:'42 %',value:'auto'},{label:'36 colonnes',value:'36'}]});
+    tweak.addSelect(state,'phase',{label:'Commande terminée',options:['plan','apply']});
+    tweak.addToggle(state,'mono',{label:'Monochrome'});
+  }else{
+    root.querySelector('.rp-fallback').hidden=false;
+    root.querySelectorAll('[data-setting]').forEach(input=>input.addEventListener('change',()=>{state[input.dataset.setting]=input.type==='checkbox'?input.checked:input.value;state.offset=0;render();}));
+  }
+})();
+</script>
