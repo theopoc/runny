@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/theopoc/runny/compare/v0.7.0...v0.8.0) (2026-09-10)
+
+
+### Features
+
+* **tui:** copy current output ([#87](https://github.com/theopoc/runny/issues/87)) ([93ad57b](https://github.com/theopoc/runny/commit/93ad57b6e53634eeb1d1f58fa66f56820a9516cf))
+
+
+### Performance Improvements
+
+* **tui:** cache wrapped output for fast scrolling ([#91](https://github.com/theopoc/runny/issues/91)) ([ec7449f](https://github.com/theopoc/runny/commit/ec7449fc82ddc56999a60b014d59bab7d5d63a25))
+
 ## [0.7.0](https://github.com/theopoc/runny/compare/v0.6.0...v0.7.0) (2026-09-09)
 
 

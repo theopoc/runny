@@ -16,16 +16,11 @@ func newLogViewport() viewport.Model {
 }
 
 func (m Model) configuredOutputViewport(targetID string, width, height int) viewport.Model {
-	model := m.outputViewport
-	model.SetWidth(max(1, width))
-	model.SetHeight(max(1, height))
-
-	lines := outputLines(m.Logs[targetID])
-	styled := make([]string, 0, len(lines))
-	for _, line := range lines {
-		styled = append(styled, m.styleLogLine(line))
+	cache := m.outputLayout
+	if cache == nil {
+		cache = &logLayoutCache{}
 	}
-	model.SetContentLines(styled)
+	model := cache.configured(m.Logs[targetID], width, height, m.outputViewport.YOffset(), true)
 	if m.LogFollow {
 		model.GotoBottom()
 	}
@@ -40,9 +35,10 @@ func (m *Model) syncOutputViewport() {
 	}
 
 	width, height := m.outputViewportDimensions()
-	m.outputViewport.SetWidth(width)
-	m.outputViewport.SetHeight(height)
-	m.outputViewport.SetContentLines(outputLines(m.Logs[m.Targets[m.Cursor].ID]))
+	if m.outputLayout == nil {
+		m.outputLayout = &logLayoutCache{}
+	}
+	m.outputViewport = m.outputLayout.configured(m.Logs[m.Targets[m.Cursor].ID], width, height, m.outputViewport.YOffset(), false)
 }
 
 func (m Model) outputViewportDimensions() (width, height int) {
@@ -63,19 +59,19 @@ func (m Model) outputViewportDimensions() (width, height int) {
 }
 
 func (m Model) configuredHistoryLogViewport(width, height int) viewport.Model {
-	model := m.historyLogViewport
-	model.SetWidth(max(1, width))
-	model.SetHeight(max(1, height))
-
-	model.SetContentLines(outputLines(m.HistoryLog))
-	return model
+	cache := m.historyLogLayout
+	if cache == nil {
+		cache = &logLayoutCache{}
+	}
+	return cache.configured(m.HistoryLog, width, height, m.historyLogViewport.YOffset(), false)
 }
 
 func (m *Model) syncHistoryLogViewport() {
 	width, height := m.historyLogViewportDimensions()
-	m.historyLogViewport.SetWidth(width)
-	m.historyLogViewport.SetHeight(height)
-	m.historyLogViewport.SetContentLines(outputLines(m.HistoryLog))
+	if m.historyLogLayout == nil {
+		m.historyLogLayout = &logLayoutCache{}
+	}
+	m.historyLogViewport = m.historyLogLayout.configured(m.HistoryLog, width, height, m.historyLogViewport.YOffset(), false)
 }
 
 func (m Model) historyLogViewportDimensions() (width, height int) {

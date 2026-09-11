@@ -9,6 +9,9 @@ import (
 	runpkg "github.com/theopoc/runny/internal/run"
 )
 
+// Match Lip Gloss's default tab expansion in both output and selection layout.
+const outputTabWidth = 4
+
 func normalizeOutputText(output string, truncated bool) string {
 	output = strings.ToValidUTF8(output, "�")
 	output = ansi.Strip(output)
@@ -79,7 +82,7 @@ func appendOutputLineRows(rows []outputVisualRow, text string, start, end, width
 	cells := 0
 	for graphemes.Next() {
 		from, to := graphemes.Positions()
-		graphemeWidth := max(1, graphemes.Width())
+		graphemeWidth := outputGraphemeWidth(graphemes)
 		if cells > 0 && cells+graphemeWidth > width {
 			rows = append(rows, outputVisualRow{start: rowStart, end: start + from})
 			rowStart = start + from
@@ -101,11 +104,18 @@ func outputPointAt(text string, row outputVisualRow, cell int) (outputPoint, boo
 	column := 0
 	for graphemes.Next() {
 		from, to := graphemes.Positions()
-		width := max(1, graphemes.Width())
+		width := outputGraphemeWidth(graphemes)
 		if cell >= column && cell < column+width {
 			return outputPoint{start: row.start + from, end: row.start + to}, true
 		}
 		column += width
 	}
 	return outputPoint{}, false
+}
+
+func outputGraphemeWidth(graphemes *uniseg.Graphemes) int {
+	if graphemes.Str() == "\t" {
+		return outputTabWidth
+	}
+	return max(1, graphemes.Width())
 }
