@@ -227,32 +227,22 @@ func TestPaneResizePreservesOutputSelectionAcrossReflow(t *testing.T) {
 	}
 }
 
-func TestPaneDividerRendersHandleAndHelp(t *testing.T) {
+func TestPaneResizeHasNoIndicatorAndDocumentsHelp(t *testing.T) {
 	model := NewModel(Options{})
 	model.Width = 120
 	model.Height = 26
 	panelHeight, leftWidth, rightWidth := model.panelDimensions(model.Width, model.Height)
 	inactive := model.renderPanelArea(model.Width, panelHeight, leftWidth, rightWidth)
-	if !strings.Contains(stripANSI(inactive), "↔") {
-		t.Fatalf("split should render divider handle:\n%s", stripANSI(inactive))
+	if strings.Contains(stripANSI(inactive), "↔") {
+		t.Fatalf("split should not render a divider indicator:\n%s", stripANSI(inactive))
 	}
 
 	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
 	updated, _ := model.Update(tea.MouseClickMsg{X: leftWidth, Y: panelTop + 2, Button: tea.MouseLeft})
 	model = updated.(Model)
 	active := model.renderPanelArea(model.Width, panelHeight, leftWidth, rightWidth)
-	inactiveDivider := renderPanelSeparator(panelHeight/2, panelHeight, true, false)
-	activeDivider := renderPanelSeparator(panelHeight/2, panelHeight, true, true)
-	if activeDivider == inactiveDivider || !strings.Contains(active, activeDivider) {
-		t.Fatalf("active divider should use distinct styling: inactive=%q active=%q", inactiveDivider, activeDivider)
-	}
-	if strings.Contains(activeDivider, "\x1b[48;") || strings.Contains(activeDivider, "\x1b[48:") {
-		t.Fatalf("divider should not set a background color: %q", activeDivider)
-	}
-	model.ShowHelp = true
-	hidden := model.renderPanelArea(model.Width, panelHeight, leftWidth, rightWidth)
-	if strings.Contains(stripANSI(hidden), "↔") {
-		t.Fatalf("overlay should hide unavailable divider:\n%s", stripANSI(hidden))
+	if strings.Contains(stripANSI(active), "↔") {
+		t.Fatalf("active resize should not render a divider indicator:\n%s", stripANSI(active))
 	}
 
 	help := stripANSI(strings.Join(model.helpRows(), "\n"))

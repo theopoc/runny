@@ -1517,7 +1517,7 @@ func (m Model) renderPanelArea(width int, panelHeight int, leftWidth int, rightW
 	}
 	left := m.renderDirectoryPanel(leftWidth, panelHeight)
 	right := m.renderLogPanel(rightWidth, panelHeight)
-	return joinPanels(left, right, m.canResizePanes(), m.paneResizeActive)
+	return joinPanels(left, right)
 }
 
 func (m Model) renderTooSmall(width int, height int) string {

@@ -69,14 +69,3 @@ func (m *Model) resizePanesAt(x int) {
 	m.syncOutputViewport()
 	m.refreshOutputSelection()
 }
-
-func renderPanelSeparator(row, height int, visible, active bool) string {
-	if !visible || row != height/2 {
-		return panelSeparator
-	}
-	style := panelDividerStyle
-	if active {
-		style = panelDividerActiveStyle
-	}
-	return style.Render("↔") + " "
-}
