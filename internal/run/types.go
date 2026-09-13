@@ -55,6 +55,7 @@ type Snapshot struct {
 // TargetSnapshot is an immutable view of one Target execution.
 type TargetSnapshot struct {
 	Target          core.Target
+	Changes         core.ChangeSummary
 	Status          core.Status
 	ExitCode        int
 	OutputTail      string

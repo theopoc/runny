@@ -64,6 +64,7 @@ type Model struct {
 	filterSelecting        bool
 	Targets                []core.Target
 	Status                 map[string]core.Status
+	Changes                map[string]core.ChangeSummary
 	Logs                   map[string]string
 	liveLogTruncated       map[string]bool
 	TargetStarted          map[string]time.Time
@@ -184,6 +185,7 @@ func NewModel(opts Options) Model {
 		Command:            opts.Command,
 		Targets:            opts.Targets,
 		Status:             status,
+		Changes:            map[string]core.ChangeSummary{},
 		Logs:               logs,
 		liveLogTruncated:   map[string]bool{},
 		TargetStarted:      started,
@@ -321,6 +323,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paneResizeActive = false
 			m.paneResizeMoved = false
 		}
+		m.ensureDirectoryOffset()
 		m.syncOutputViewport()
 		m.refreshOutputSelection()
 		if m.ShowHistory && m.HistoryDepth == historyDepthLogs {
@@ -1162,11 +1165,13 @@ func (m Model) beginRun(command string, targets []core.Target) (tea.Model, tea.C
 	m.resetCommandHistoryNavigation()
 	for _, target := range targets {
 		m.Status[target.ID] = core.StatusQueued
+		delete(m.Changes, target.ID)
 		m.Logs[target.ID] = ""
 		m.liveLogTruncated[target.ID] = false
 		delete(m.TargetStarted, target.ID)
 		delete(m.TargetEnded, target.ID)
 	}
+	m.ensureDirectoryOffset()
 	return m, tea.Batch(spinnerTick(), waitForRunEvent(m.lifecycleCtx, run))
 }
 
@@ -1232,7 +1237,15 @@ func (m Model) applyRunEvent(next runEventMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
 	id := target.Target.ID
 	previousOutput := m.Logs[id]
+	previousChanges, previousStatus := m.Changes[id], m.Status[id]
 	m.Status[id] = target.Status
+	if m.Changes == nil {
+		m.Changes = make(map[string]core.ChangeSummary)
+	}
+	m.Changes[id] = target.Changes
+	if previousChanges != target.Changes || previousStatus != target.Status {
+		m.ensureDirectoryOffset()
+	}
 	if !target.Started.IsZero() {
 		m.TargetStarted[id] = target.Started
 	}
@@ -1288,6 +1301,7 @@ func runHistoryEntry(snapshot runpkg.Snapshot) history.RunEntry {
 	}
 	for _, target := range snapshot.Targets {
 		entry.Targets = append(entry.Targets, history.TargetEntry{
+			Changes:  target.Changes,
 			ID:       target.Target.ID,
 			RelPath:  target.Target.RelPath,
 			Status:   target.Status,
@@ -1454,6 +1468,9 @@ func (m Model) directoryTargetAt(x int, y int) (int, bool) {
 	const firstTargetRow = 3
 	panelTop := strings.Count(m.renderPanelPrefix(m.Width), "\n")
 	row := y - panelTop - firstTargetRow
+	if row >= 0 {
+		row /= m.changeRowHeight(panelWidth - 4)
+	}
 	visibleIndexes, offset, limit := m.visibleDirectoryRange(panelHeight)
 	if row < 0 || row >= limit || offset+row >= len(visibleIndexes) {
 		return 0, false
@@ -1765,7 +1782,7 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 			break
 		}
 		target := m.Targets[targetIndex]
-		rows = append(rows, m.renderTargetRow(targetIndex, target, width-4))
+		rows = append(rows, strings.Split(m.renderTargetRow(targetIndex, target, width-4), "\n")...)
 		count++
 	}
 	if count == 0 {
@@ -1793,6 +1810,7 @@ func (m Model) visibleDirectoryRange(height int) ([]int, int, int) {
 	if len(visibleIndexes) > 0 {
 		limit = max(1, height-5)
 	}
+	limit = max(1, limit/m.changeRowHeight(m.directoryContentWidth()))
 	offset := m.DirectoryOffset
 	if offset < 0 {
 		offset = 0
@@ -1808,6 +1826,9 @@ func (m Model) filterModeLabel() string {
 }
 
 func (m Model) taskHeader(width int) string {
+	if m.hasChanges() {
+		return m.changeTaskHeader(width)
+	}
 	left := "DIRECTORY"
 	status := statusHeaderStyle.Render(padRightVisible("STATUS", targetStatusWidth))
 	duration := statusHeaderStyle.Render(padLeftVisible("TIME", targetTimeWidth))
@@ -1826,7 +1847,11 @@ func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
 	if markers == "" {
 		markers = "•"
 	}
-	return fmt.Sprintf("showing %d-%d of %d %s", offset+1, end, total, markers)
+	label := fmt.Sprintf("showing %d-%d of %d %s", offset+1, end, total, markers)
+	if m.hasChanges() {
+		label += " · P plan / A apply"
+	}
+	return label
 }
 
 func (m Model) renderTargetRow(index int, target core.Target, width int) string {
@@ -1852,6 +1877,9 @@ func (m Model) renderTargetRow(index int, target core.Target, width int) string 
 		name = m.renderTargetNamePlain(target)
 	}
 	left := cursor + " " + selection + " " + fold + " " + name
+	if m.hasChanges() {
+		return m.renderChangeTargetRow(left, target, status, active, partial, width)
+	}
 	if active {
 		return m.renderActiveTargetRow(left, target.ID, status, width)
 	}
@@ -3474,7 +3502,12 @@ func (m *Model) ensureDirectoryOffset() {
 
 func (m Model) directoryViewportRows() int {
 	panelHeight, _, _ := m.panelDimensions(max(60, m.Width), m.Height)
-	return max(1, panelHeight-5)
+	// Reserve the run-context row that returns when an overlay closes.
+	// Offset updates under overlays must keep the cursor visible afterward.
+	if m.hasOverlay() {
+		panelHeight = max(10, panelHeight-1)
+	}
+	return max(1, (panelHeight-5)/m.changeRowHeight(m.directoryContentWidth()))
 }
 
 func (m Model) visibleTargetIndexes() []int {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/theopoc/runny/internal/changes"
 	"github.com/theopoc/runny/internal/core"
 )
 
@@ -39,6 +40,7 @@ type dependencies struct {
 }
 
 type targetState struct {
+	changes        *changes.Parser
 	snapshot       TargetSnapshot
 	output         tailBuffer
 	done           bool
@@ -107,7 +109,7 @@ func start(ctx context.Context, spec Spec, deps dependencies, onDone func()) (*R
 	}
 	for _, target := range spec.Targets {
 		r.order = append(r.order, target.ID)
-		r.targets[target.ID] = &targetState{snapshot: TargetSnapshot{
+		r.targets[target.ID] = &targetState{changes: changes.New(spec.Command), snapshot: TargetSnapshot{
 			Target: target,
 			Status: core.StatusQueued,
 		}}
@@ -228,7 +230,7 @@ func (r *Run) executeTarget(id string) {
 }
 
 func (r *Run) appendOutput(id string, chunk []byte) {
-	if r.spec.DisableLogging || len(chunk) == 0 {
+	if len(chunk) == 0 {
 		return
 	}
 	r.mu.Lock()
@@ -237,9 +239,13 @@ func (r *Run) appendOutput(id string, chunk []byte) {
 		r.mu.Unlock()
 		return
 	}
-	state.output.Append(chunk)
-	state.snapshot.OutputTail = state.output.String()
-	state.snapshot.OutputTruncated = state.output.truncated
+	state.changes.Write(chunk)
+	state.snapshot.Changes.Detected = state.changes.Detected()
+	if !r.spec.DisableLogging {
+		state.output.Append(chunk)
+		state.snapshot.OutputTail = state.output.String()
+		state.snapshot.OutputTruncated = state.output.truncated
+	}
 	if state.cancelAccepted {
 		r.mu.Unlock()
 		return
@@ -264,6 +270,13 @@ func (r *Run) finishTarget(id string, outcome executionOutcome) {
 	}
 	state.done = true
 	state.cancel = nil
+	summary := state.changes.Finish()
+	if !state.cancelAccepted && outcome.Status == core.StatusFailed && outcome.ExitCode == 2 &&
+		state.changes.DetailedPlanSucceeded(summary) {
+		outcome.Status = core.StatusSucceeded
+		outcome.Error = ""
+	}
+	state.snapshot.Changes = core.ChangeSummary{Detected: summary.Detected}
 	if !outcome.Started.IsZero() {
 		state.snapshot.Started = outcome.Started
 	}
@@ -290,6 +303,10 @@ func (r *Run) finishTarget(id string, outcome executionOutcome) {
 		state.snapshot.Error = outcome.Error
 	}
 	state.snapshot.ExitCode = outcome.ExitCode
+	if state.snapshot.Status == core.StatusSucceeded {
+		state.snapshot.Changes = summary
+	}
+	state.changes = nil
 	target := r.targetSnapshotLocked(id)
 	finished := r.eventLocked(EventTargetFinished, &target, nil, false)
 	failFast = r.spec.FailFast && target.Status == core.StatusFailed

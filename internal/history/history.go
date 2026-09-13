@@ -29,13 +29,14 @@ type RunEntry struct {
 }
 
 type TargetEntry struct {
-	ID       string      `json:"id"`
-	RelPath  string      `json:"rel_path"`
-	Status   core.Status `json:"status"`
-	ExitCode int         `json:"exit_code"`
-	Error    string      `json:"error,omitempty"`
-	Started  time.Time   `json:"started,omitempty"`
-	Ended    time.Time   `json:"ended,omitempty"`
+	Changes  core.ChangeSummary `json:"changes,omitzero"`
+	ID       string             `json:"id"`
+	RelPath  string             `json:"rel_path"`
+	Status   core.Status        `json:"status"`
+	ExitCode int                `json:"exit_code"`
+	Error    string             `json:"error,omitempty"`
+	Started  time.Time          `json:"started,omitempty"`
+	Ended    time.Time          `json:"ended,omitempty"`
 }
 
 func AppendCommand(path string, entry CommandEntry) error {
@@ -97,6 +98,8 @@ func readJSONL[T any](path string) ([]T, error) {
 	defer f.Close()
 	var entries []T
 	scanner := bufio.NewScanner(f)
+	// A single Run can contain hundreds of Target results, including summaries.
+	scanner.Buffer(make([]byte, 4096), 16<<20)
 	for scanner.Scan() {
 		var entry T
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {

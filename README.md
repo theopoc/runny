@@ -71,6 +71,53 @@ Each task runs through the interactive shell named by `$SHELL`. When that variab
 
 Arguments after `--` keep their original boundaries. Shell metacharacters inside an argument are treated as data. Use `sh -c` explicitly when the command needs shell composition such as `&&`, pipes, or redirections.
 
+## Resource change summaries
+
+Tasks shows a **CHANGES** column when Runny recognizes Terraform, OpenTofu or
+Terragrunt output. Each Target keeps its existing row:
+
+```text
+production   ✓ ok   P +3 ~2 -1
+staging      ✓ ok   A +0 ~1 -0
+```
+
+`P` means plan, `A` means apply; `+` counts additions, `~` updates, and `-`
+destructions. A replacement contributes to both additions and destructions.
+Imports and resources forgotten from state are not added to these counters.
+`+0 ~0 -0` means an explicit zero-resource result; `—` means no reliable summary.
+Output-only changes may have no recognizable resource summary.
+
+Counts appear after the entire Target command succeeds. Failed, cancelled,
+queued and running Targets show no counts. Rerunning a Target clears its old
+counts immediately. History retains the displayed summary with that execution,
+even without saved logs or with `--disable-logging`. Runs with summaries open
+their History target list showing all Targets; `a` still toggles the filter.
+
+For `terragrunt run --all` (or legacy `run-all`), Runny totals the final results
+of the participating units **inside each Target**. Unit names and counts are not
+added to Tasks or History. Recognized unit identities prevent duplicate summaries
+from being counted twice; plan and apply counts are never added together.
+Unidentifiable units, missing summaries, mixed phases, oversized records or
+reported errors make the result unavailable rather than presenting a partial total.
+
+Recognition is passive: commands, flags and original Output are unchanged.
+Supported inputs include engine text, version-1 JSON UI `change_summary` events,
+and standard Terragrunt pretty/JSON log envelopes. Custom log formats, stripped
+unit prefixes in concurrent output and arbitrary wrappers cannot guarantee a total.
+Native regression captures cover Terraform 1.14.3, OpenTofu 1.12.6 and Terragrunt
+1.1.4; older Terragrunt envelopes are covered separately by synthetic fixtures.
+
+A literal `terraform plan -detailed-exitcode` or `tofu plan -detailed-exitcode`
+can finish successfully with exit code `2` when recognizable engine output is
+present. The raw code remains in History and does not trigger fail-fast.
+Terragrunt additionally requires a complete framed plan result with no reported
+error, including hook errors. Shell compositions and ambiguous results keep the
+normal nonzero-exit handling; Runny cannot recover exit statuses hidden by scripts.
+
+At narrow widths CHANGES takes priority over TIME, then STATUS becomes a symbol.
+Large counts wrap between counters instead of truncating digits. This does not
+add selectable rows or change Target actions.
+
 ## Docker
 
 Run the published image:

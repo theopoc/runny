@@ -1,0 +1,18 @@
+22:00:06.045 INFO   Downloading Terraform configurations from /private/work/terragrunt-native/east/db into ./.terragrunt-cache/teIMKEuztBir9KyT8mNKjobMhh4/LBZPAMkBBYm9gbVZsclagtQIVso
+22:00:06.065 INFO   tofu: Initializing the backend...
+22:00:06.065 INFO   tofu: Initializing provider plugins...
+22:00:06.065 INFO   tofu: - terraform.io/builtin/terraform is built in to OpenTofu
+22:00:06.065 INFO   tofu: OpenTofu has been successfully initialized!
+22:00:06.088 STDOUT tofu: terraform_data.sample[0]: Refreshing state... [id=cebf08df-ea98-a4f5-9abd-ffb627f41e7d]
+22:00:06.088 STDOUT tofu: No changes. Your infrastructure matches the configuration.
+22:00:06.088 STDOUT tofu: OpenTofu has compared your real infrastructure against your configuration and
+22:00:06.088 STDOUT tofu: found no differences, so no changes are needed.
+22:00:06.089 INFO   Executing hook: failure
+22:00:06.093 ERROR  Hook "failure" (command: sh -c exit 2) exited with non-zero exit code 2
+22:00:06.093 INFO   TIP (debugging-docs): For help troubleshooting errors, visit https://docs.terragrunt.com/troubleshooting/debugging
+22:00:06.093 ERROR  error occurred:
+
+* Failed to execute "sh -c exit 2" in ./.terragrunt-cache/teIMKEuztBir9KyT8mNKjobMhh4/LBZPAMkBBYm9gbVZsclagtQIVso
+  
+  exit status 2
+

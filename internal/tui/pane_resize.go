@@ -66,6 +66,7 @@ func (m *Model) resizePanesAt(x int) {
 	leftWidth, _ := panelWidths(m.Width, desiredLeft, m.Width)
 	m.panelSplitWidth = leftWidth
 	m.panelSplitBasis = m.Width
+	m.ensureDirectoryOffset()
 	m.syncOutputViewport()
 	m.refreshOutputSelection()
 }

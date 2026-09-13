@@ -1,0 +1,15 @@
+
+OpenTofu used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+OpenTofu will perform the following actions:
+
+  # terraform_data.sample will be created
+  + resource "terraform_data" "sample" {
+      + id     = (known after apply)
+      + input  = "local fixture"
+      + output = (known after apply)
+    }
+
+Plan: 1 to add, 0 to change, 0 to destroy.

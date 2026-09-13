@@ -1,0 +1,112 @@
+[
+  {
+    "name": "terraform-plan",
+    "command": "terraform plan -input=false -no-color -detailed-exitcode",
+    "phase": "plan",
+    "counts": [
+      1,
+      0,
+      0
+    ],
+    "exit": 2
+  },
+  {
+    "name": "terraform-apply",
+    "command": "terraform apply -auto-approve -input=false -no-color",
+    "phase": "apply",
+    "counts": [
+      1,
+      0,
+      0
+    ],
+    "exit": 0
+  },
+  {
+    "name": "terraform-unchanged",
+    "command": "terraform plan -input=false -no-color",
+    "phase": "plan",
+    "counts": [
+      0,
+      0,
+      0
+    ],
+    "exit": 0
+  },
+  {
+    "name": "tofu-plan",
+    "command": "tofu plan -input=false -no-color -detailed-exitcode",
+    "phase": "plan",
+    "counts": [
+      1,
+      0,
+      0
+    ],
+    "exit": 2
+  },
+  {
+    "name": "tofu-apply",
+    "command": "tofu apply -auto-approve -input=false -no-color",
+    "phase": "apply",
+    "counts": [
+      1,
+      0,
+      0
+    ],
+    "exit": 0
+  },
+  {
+    "name": "tofu-unchanged",
+    "command": "tofu plan -input=false -no-color",
+    "phase": "plan",
+    "counts": [
+      0,
+      0,
+      0
+    ],
+    "exit": 0
+  },
+  {
+    "name": "terragrunt-multi-plan",
+    "command": "terragrunt --non-interactive --no-color run --all -- plan -no-color -detailed-exitcode",
+    "phase": "plan",
+    "counts": [
+      3,
+      0,
+      0
+    ],
+    "exit": 2
+  },
+  {
+    "name": "terragrunt-json-plan",
+    "command": "terragrunt --non-interactive --no-color --log-format json run --all -- plan -no-color -detailed-exitcode",
+    "phase": "plan",
+    "counts": [
+      3,
+      0,
+      0
+    ],
+    "exit": 2
+  },
+  {
+    "name": "terragrunt-multi-apply",
+    "command": "terragrunt --non-interactive --no-color run --all -- apply -auto-approve -no-color",
+    "phase": "apply",
+    "counts": [
+      3,
+      0,
+      0
+    ],
+    "exit": 0
+  },
+  {
+    "name": "terragrunt-hook-error",
+    "command": "terragrunt --non-interactive --no-color plan -no-color -detailed-exitcode",
+    "phase": "",
+    "counts": [
+      0,
+      0,
+      0
+    ],
+    "exit": 2
+  }
+]
