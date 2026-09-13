@@ -210,3 +210,30 @@ func TestChangesKeepCursorVisibleAfterOverlayResize(t *testing.T) {
 		t.Fatalf("overlay closure hides cursor: cursor=%d offset=%d rows=%d", m.Cursor, m.DirectoryOffset, m.directoryViewportRows())
 	}
 }
+
+func TestChangesKeepCursorVisibleAfterPaneDrag(t *testing.T) {
+	targets := make([]core.Target, 14)
+	for i := range targets {
+		targets[i] = core.Target{ID: fmt.Sprint(i), RelPath: fmt.Sprintf("stack-%02d", i)}
+	}
+	m := NewModel(Options{Targets: targets})
+	m.Width, m.Height, m.Cursor = 400, 22, 13
+	m.Changes["0"] = core.ChangeSummary{Detected: true, Known: true, Phase: "plan", Add: math.MaxInt64, Change: math.MaxInt64, Destroy: math.MaxInt64}
+	m.Status["0"] = core.StatusSucceeded
+	m.ensureDirectoryOffset()
+	_, divider, _ := m.panelDimensions(m.Width, m.Height)
+	if !m.startPaneResize(divider, 3) {
+		t.Fatal("divider not draggable")
+	}
+	m.resizePanesAt(minimumTasksPanelWidth)
+	if m.changeRowHeight(m.directoryContentWidth()) <= 1 {
+		t.Fatal("fixture must wrap counters after drag")
+	}
+	if m.Cursor < m.DirectoryOffset || m.Cursor >= m.DirectoryOffset+m.directoryViewportRows() {
+		t.Fatalf("pane drag hides cursor: cursor=%d offset=%d rows=%d", m.Cursor, m.DirectoryOffset, m.directoryViewportRows())
+	}
+	m.resizePanesAt(divider)
+	if m.DirectoryOffset != 0 {
+		t.Fatalf("widening did not restore full list: offset=%d", m.DirectoryOffset)
+	}
+}
