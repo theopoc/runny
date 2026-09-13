@@ -96,6 +96,8 @@ func (m Model) activateHistorySelection() (tea.Model, tea.Cmd) {
 	switch m.HistoryDepth {
 	case historyDepthRuns:
 		m.HistoryDepth = historyDepthTargets
+		run, _ := m.selectedHistoryRun()
+		m.HistoryShowAll = historyHasChanges(run.Targets)
 		m.HistoryTargetPos = 0
 		m.HistoryDetailOffset = 0
 	case historyDepthTargets:
@@ -472,6 +474,9 @@ func (m Model) historyDiagnosticAllRows(width, height int) []string {
 	if len(visibleTargets) == 0 {
 		rows = append(rows, "No failed or cancelled targets. Press a to show all.")
 		return rows
+	}
+	if historyHasChanges(run.Targets) {
+		return m.appendHistoryChanges(rows, visibleTargets, width, height)
 	}
 	rows = append(rows, subtleStyle.Render(truncateVisible("  STATUS      EXIT  DURATION  TARGET", width)))
 	return m.appendHistoryTargetTableRows(rows, visibleTargets, width, height)

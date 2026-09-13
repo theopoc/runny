@@ -1,0 +1,6 @@
+terraform_data.sample: Refreshing state... [id=c802e5ef-1bc7-d9ca-7953-c1972cb6a57d]
+
+No changes. Your infrastructure matches the configuration.
+
+OpenTofu has compared your real infrastructure against your configuration and
+found no differences, so no changes are needed.

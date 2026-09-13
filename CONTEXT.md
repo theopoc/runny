@@ -24,6 +24,14 @@ _Avoid_: Task, worker, process
 The terminal status and diagnostics of a Target execution, determined by command execution or accepted cancellation rather than archival success.
 _Avoid_: Archive status, log status
 
+**Resource change summary**:
+The counts of resource additions, changes, and removals reported by Terraform or OpenTofu, directly or through Terragrunt, for one configuration within a Target execution.
+_Avoid_: Terraform status, Terraform outcome
+
+**Terragrunt unit**:
+A Terraform or OpenTofu configuration invoked by Terragrunt within a Target execution. One Target execution may include multiple units, each with its own Resource change summary.
+_Avoid_: Target, task
+
 **Run lifecycle**:
 The progression of a Run and its Target executions from acceptance through terminal completion, including output and cancellation.
 _Avoid_: Scheduler, session lifecycle

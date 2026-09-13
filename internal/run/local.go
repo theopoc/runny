@@ -163,6 +163,7 @@ func historyEntry(snapshot Snapshot, logID string) history.RunEntry {
 	}
 	for _, target := range snapshot.Targets {
 		entry.Targets = append(entry.Targets, history.TargetEntry{
+			Changes:  target.Changes,
 			ID:       target.Target.ID,
 			RelPath:  target.Target.RelPath,
 			Status:   target.Status,

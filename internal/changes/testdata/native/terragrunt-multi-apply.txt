@@ -1,0 +1,53 @@
+22:00:05.939 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── east/db
+╰── west/db
+22:00:05.961 INFO   [east/db] tofu: Initializing the backend...
+22:00:05.961 INFO   [east/db] tofu: Initializing provider plugins...
+22:00:05.961 INFO   [east/db] tofu: - terraform.io/builtin/terraform is built in to OpenTofu
+22:00:05.961 INFO   [east/db] tofu: OpenTofu has been successfully initialized!
+22:00:05.961 INFO   [west/db] tofu: Initializing the backend...
+22:00:05.961 INFO   [west/db] tofu: Initializing provider plugins...
+22:00:05.961 INFO   [west/db] tofu: - terraform.io/builtin/terraform is built in to OpenTofu
+22:00:05.962 INFO   [west/db] tofu: OpenTofu has been successfully initialized!
+22:00:05.985 STDOUT [east/db] tofu: OpenTofu used the selected providers to generate the following execution
+22:00:05.986 STDOUT [east/db] tofu: plan. Resource actions are indicated with the following symbols:
+22:00:05.986 STDOUT [east/db] tofu:   + create
+22:00:05.986 STDOUT [east/db] tofu: OpenTofu will perform the following actions:
+22:00:05.986 STDOUT [east/db] tofu:   # terraform_data.sample[0] will be created
+22:00:05.986 STDOUT [east/db] tofu:   + resource "terraform_data" "sample" {
+22:00:05.986 STDOUT [east/db] tofu:       + id     = (known after apply)
+22:00:05.986 STDOUT [east/db] tofu:       + input  = "local fixture"
+22:00:05.986 STDOUT [east/db] tofu:       + output = (known after apply)
+22:00:05.986 STDOUT [east/db] tofu:     }
+22:00:05.986 STDOUT [east/db] tofu: Plan: 1 to add, 0 to change, 0 to destroy.
+22:00:05.986 STDOUT [west/db] tofu: OpenTofu used the selected providers to generate the following execution
+22:00:05.986 STDOUT [west/db] tofu: plan. Resource actions are indicated with the following symbols:
+22:00:05.986 STDOUT [west/db] tofu:   + create
+22:00:05.986 STDOUT [west/db] tofu: OpenTofu will perform the following actions:
+22:00:05.986 STDOUT [west/db] tofu:   # terraform_data.sample[0] will be created
+22:00:05.986 STDOUT [west/db] tofu:   + resource "terraform_data" "sample" {
+22:00:05.986 STDOUT [west/db] tofu:       + id     = (known after apply)
+22:00:05.986 STDOUT [west/db] tofu:       + input  = "local fixture"
+22:00:05.986 STDOUT [west/db] tofu:       + output = (known after apply)
+22:00:05.986 STDOUT [west/db] tofu:     }
+22:00:05.986 STDOUT [west/db] tofu:   # terraform_data.sample[1] will be created
+22:00:05.986 STDOUT [west/db] tofu:   + resource "terraform_data" "sample" {
+22:00:05.986 STDOUT [west/db] tofu:       + id     = (known after apply)
+22:00:05.986 STDOUT [west/db] tofu:       + input  = "local fixture"
+22:00:05.986 STDOUT [west/db] tofu:       + output = (known after apply)
+22:00:05.986 STDOUT [west/db] tofu:     }
+22:00:05.986 STDOUT [west/db] tofu: Plan: 2 to add, 0 to change, 0 to destroy.
+22:00:05.987 STDOUT [west/db] tofu: terraform_data.sample[1]: Creating...
+22:00:05.987 STDOUT [east/db] tofu: terraform_data.sample[0]: Creating...
+22:00:05.987 STDOUT [west/db] tofu: terraform_data.sample[0]: Creating...
+22:00:05.988 STDOUT [east/db] tofu: terraform_data.sample[0]: Creation complete after 0s [id=cebf08df-ea98-a4f5-9abd-ffb627f41e7d]
+22:00:05.988 STDOUT [west/db] tofu: terraform_data.sample[0]: Creation complete after 0s [id=8a97d8f2-690f-19ed-cf53-25ab0d28826e]
+22:00:05.988 STDOUT [west/db] tofu: terraform_data.sample[1]: Creation complete after 0s [id=f12dc5d5-03ca-1e18-c9b5-c9927d80678c]
+22:00:05.992 STDOUT [east/db] tofu: Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
+22:00:05.995 STDOUT [west/db] tofu: Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+❯❯ Run Summary  2 units  56ms
+   ────────────────────────────
+   Succeeded    2
+
