@@ -16,10 +16,12 @@ func TestChangeSummaryLifecycleAndArchive(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "runs.jsonl")
 			deps := testDependencies(func(_ context.Context, req executionRequest) executionOutcome {
 				req.OnOutput([]byte("Plan: 3 to add, 2 to change, 1 to destroy.\n"))
-				chunk := []byte(strings.Repeat("ordinary output\n", 1000))
-				for i := 0; i < 300; i++ {
-					req.OnOutput(chunk)
-				}
+				// Retention is byte-based. Newline padding crosses the real limit
+				// without making this lifecycle check a parser throughput benchmark.
+				filler := []byte(strings.Repeat("\n", MaxOutputBytes))
+				copy(filler, "ordinary output\n")
+				req.OnOutput(filler[:len(filler)/2])
+				req.OnOutput(filler[len(filler)/2:])
 				return executionOutcome{Status: core.StatusSucceeded}
 			})
 			deps.archive = localArchive(LocalOptions{RunHistoryPath: path})
@@ -34,6 +36,9 @@ func TestChangeSummaryLifecycleAndArchive(t *testing.T) {
 			want := core.ChangeSummary{Detected: true, Known: true, Phase: "plan", Add: 3, Change: 2, Destroy: 1}
 			if s.Changes != want {
 				t.Fatalf("summary %+v", s.Changes)
+			}
+			if !disable && !s.OutputTruncated {
+				t.Fatal("fixture did not cross the retention limit")
 			}
 			if strings.Contains(s.OutputTail, "Plan:") {
 				t.Fatal("fixture did not evict the plan")
