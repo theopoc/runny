@@ -1414,6 +1414,9 @@ func panelDimensionsForInput(width int, height int, inputRows int) (panelHeight 
 
 func (m Model) panelDimensions(width int, height int) (panelHeight int, leftWidth int, rightWidth int) {
 	contextRows := 1
+	if m.Focus != FocusFilter && m.StatusFilter != "" {
+		contextRows++
+	}
 	if m.hasOverlay() {
 		contextRows = 0
 	}

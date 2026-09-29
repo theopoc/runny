@@ -86,3 +86,35 @@ func TestStatusFilterTracksLiveStatusChanges(t *testing.T) {
 		t.Fatalf("live running targets = %#v cursor=%d, want web", indexes, model.Cursor)
 	}
 }
+
+func TestStatusFiltersFitWithinTerminalHeight(t *testing.T) {
+	for _, size := range []struct {
+		name          string
+		width, height int
+	}{
+		{name: "standard", width: 120, height: 30},
+		{name: "narrow minimum", width: 60, height: 20},
+	} {
+		for _, filter := range []struct {
+			key    string
+			status core.Status
+		}{
+			{key: "F", status: core.StatusFailed},
+			{key: "r", status: core.StatusRunning},
+			{key: "O", status: core.StatusSucceeded},
+		} {
+			t.Run(size.name+"/"+filter.key, func(t *testing.T) {
+				model := NewModel(Options{Targets: []core.Target{{ID: "job", RelPath: "job"}}})
+				model.Width = size.width
+				model.Height = size.height
+				model.Status["job"] = filter.status
+				model, _ = updateKey(model, filter.key)
+
+				renderedLines := strings.Count(model.View().Content, "\n") + 1
+				if renderedLines > size.height {
+					t.Fatalf("rendered height = %d, want at most %d", renderedLines, size.height)
+				}
+			})
+		}
+	}
+}
