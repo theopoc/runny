@@ -3,6 +3,7 @@ package history
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 func TestCommandHistoryRetention(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.jsonl")
 	for i := 0; i < 55; i++ {
-		if err := AppendCommand(path, CommandEntry{Command: "cmd"}); err != nil {
+		if err := AppendCommand(path, CommandEntry{Command: "cmd-" + strconv.Itoa(i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -22,6 +23,53 @@ func TestCommandHistoryRetention(t *testing.T) {
 	}
 	if len(entries) != 50 {
 		t.Fatalf("entries = %d, want 50", len(entries))
+	}
+	if entries[0].Command != "cmd-5" || entries[len(entries)-1].Command != "cmd-54" {
+		t.Fatalf("retained commands = %q ... %q, want cmd-5 ... cmd-54", entries[0].Command, entries[len(entries)-1].Command)
+	}
+}
+
+func TestCommandHistoryKeepsOnlyMostRecentIdenticalCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	first := time.Date(2026, time.September, 1, 8, 0, 0, 0, time.UTC)
+	latest := first.Add(time.Minute)
+	for _, entry := range []CommandEntry{
+		{Command: "go test ./...", Time: first},
+		{Command: "pnpm test", Time: first.Add(30 * time.Second)},
+		{Command: "go test ./...", Time: latest},
+	} {
+		if err := AppendCommand(path, entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := ReadCommands(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %#v, want two unique commands", entries)
+	}
+	if entries[0].Command != "pnpm test" || entries[1].Command != "go test ./..." || !entries[1].Time.Equal(latest) {
+		t.Fatalf("entries = %#v, want latest duplicate moved to the end", entries)
+	}
+}
+
+func TestReadCommandsDeduplicatesLegacyHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	legacy := []byte("{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:00:00Z\"}\n" +
+		"{\"command\":\"pnpm test\",\"time\":\"2026-09-01T08:00:30Z\"}\n" +
+		"{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:01:00Z\"}\n")
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := ReadCommands(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].Command != "pnpm test" || entries[1].Command != "go test ./..." {
+		t.Fatalf("legacy entries = %#v, want unique commands ordered by their latest occurrence", entries)
 	}
 }
 

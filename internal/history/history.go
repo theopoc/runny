@@ -43,11 +43,41 @@ func AppendCommand(path string, entry CommandEntry) error {
 	if entry.Time.IsZero() {
 		entry.Time = time.Now()
 	}
-	return appendRetained(path, entry, 50)
+	entries, err := ReadCommands(path)
+	if err != nil {
+		return err
+	}
+	unique := entries[:0]
+	for _, existing := range entries {
+		if existing.Command != entry.Command {
+			unique = append(unique, existing)
+		}
+	}
+	entries = append(unique, entry)
+	if len(entries) > 50 {
+		entries = entries[len(entries)-50:]
+	}
+	return writeJSONL(path, entries)
 }
 
 func ReadCommands(path string) ([]CommandEntry, error) {
-	return readJSONL[CommandEntry](path)
+	entries, err := readJSONL[CommandEntry](path)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(entries))
+	unique := make([]CommandEntry, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		if _, exists := seen[entries[i].Command]; exists {
+			continue
+		}
+		seen[entries[i].Command] = struct{}{}
+		unique = append(unique, entries[i])
+	}
+	for left, right := 0, len(unique)-1; left < right; left, right = left+1, right-1 {
+		unique[left], unique[right] = unique[right], unique[left]
+	}
+	return unique, nil
 }
 
 func AppendRun(path string, entry RunEntry) error {
@@ -70,6 +100,10 @@ func appendRetained[T any](path string, entry T, limit int) error {
 	if len(entries) > limit {
 		entries = entries[len(entries)-limit:]
 	}
+	return writeJSONL(path, entries)
+}
+
+func writeJSONL[T any](path string, entries []T) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

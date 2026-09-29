@@ -1329,12 +1329,13 @@ func (m *Model) addHistory(command string) {
 	if command == "" {
 		return
 	}
+	unique := m.History[:0]
 	for _, item := range m.History {
-		if item == command {
-			return
+		if item != command {
+			unique = append(unique, item)
 		}
 	}
-	m.History = append([]string{command}, m.History...)
+	m.History = append([]string{command}, unique...)
 	if len(m.History) > 50 {
 		m.History = m.History[:50]
 	}

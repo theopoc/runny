@@ -1889,6 +1889,42 @@ func TestCommandFocusNavigatesHistory(t *testing.T) {
 	}
 }
 
+func TestCommandFocusSkipsDuplicateCommandsFromLegacyHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "commands.jsonl")
+	legacy := []byte("{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:00:00Z\"}\n" +
+		"{\"command\":\"pnpm test\",\"time\":\"2026-09-01T08:00:30Z\"}\n" +
+		"{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:01:00Z\"}\n")
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model := NewModel(Options{CommandHistoryPath: path})
+	model.openCommandOverlay()
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Command != "go test ./..." {
+		t.Fatalf("newest command = %q, want go test ./...", model.Command)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Command != "pnpm test" {
+		t.Fatalf("older command = %q, want pnpm test", model.Command)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Command != "pnpm test" || model.CommandHistoryPos != 1 {
+		t.Fatalf("history should stop after two unique commands, pos/command = %d/%q", model.CommandHistoryPos, model.Command)
+	}
+}
+
+func TestCommandHistoryMovesRepeatedCommandToNewestPosition(t *testing.T) {
+	model := NewModel(Options{})
+	model.History = []string{"go test ./...", "pnpm test"}
+
+	model.addHistory("pnpm test")
+
+	if len(model.History) != 2 || model.History[0] != "pnpm test" || model.History[1] != "go test ./..." {
+		t.Fatalf("history = %#v, want repeated command once in newest position", model.History)
+	}
+}
+
 func TestCommandHistoryNavigationResetsOnRunStart(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	model.openCommandOverlay()

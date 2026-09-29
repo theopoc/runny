@@ -125,8 +125,8 @@ func TestLocalRuntimeSerializesConcurrentHistoryWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 2 || len(entries) != 2 {
-		t.Fatalf("history sizes = commands:%d runs:%d", len(commands), len(entries))
+	if len(commands) != 1 || commands[0].Command != "printf ok" || len(entries) != 2 {
+		t.Fatalf("history = commands:%#v runs:%d", commands, len(entries))
 	}
 }
 
