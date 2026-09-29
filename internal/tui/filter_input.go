@@ -58,6 +58,7 @@ func (m *Model) deleteFilterSelection() bool {
 
 func (m *Model) clearFilterInput() {
 	m.filterLineEditor().clear()
+	m.StatusFilter = ""
 	m.resetFilterHistoryNavigation()
 	m.ensureCursorVisible()
 	m.Notice = "filter cleared"

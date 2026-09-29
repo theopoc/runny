@@ -91,6 +91,7 @@ type Model struct {
 	CommandHistoryPos      int
 	CommandDraft           string
 	Filter                 string
+	StatusFilter           core.Status
 	filterHistory          []string
 	filterHistoryPos       int
 	filterDraft            string
@@ -444,7 +445,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearOutputSelection()
 			return m, nil
 		}
-		if m.Filter != "" {
+		if m.hasActiveTargetFilter() {
 			m.clearFilterInput()
 		}
 		return m, nil
@@ -467,6 +468,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cycleFocus(-1)
 	case matchesKey(keyName, defaultKeys.Filter):
 		m.openFilterEditor()
+	case matchesKey(keyName, defaultKeys.FilterFailed):
+		m.toggleStatusFilter(core.StatusFailed)
+	case matchesKey(keyName, defaultKeys.FilterRunning):
+		m.toggleStatusFilter(core.StatusRunning)
+	case matchesKey(keyName, defaultKeys.FilterOK):
+		m.toggleStatusFilter(core.StatusSucceeded)
 	case matchesKey(keyName, defaultKeys.History):
 		if m.ShowHistory {
 			m.ShowHistory = false
@@ -688,7 +695,7 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	switch keyName {
 	case "esc":
 		m.Focus = FocusTargets
-		if m.Filter != "" {
+		if m.hasActiveTargetFilter() {
 			m.clearFilterInput()
 		} else {
 			m.resetFilterHistoryNavigation()
@@ -1244,7 +1251,7 @@ func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
 	}
 	m.Changes[id] = target.Changes
 	if previousChanges != target.Changes || previousStatus != target.Status {
-		m.ensureDirectoryOffset()
+		m.ensureCursorVisible()
 	}
 	if !target.Started.IsZero() {
 		m.TargetStarted[id] = target.Started
@@ -1718,10 +1725,14 @@ func (m Model) renderDashboard(width int) string {
 }
 
 func (m Model) renderSubHeader(width int) string {
-	if m.Focus != FocusFilter {
+	if m.Focus == FocusFilter {
+		return strings.Join(m.commandInputBoxLines(width), "\n")
+	}
+	if m.StatusFilter == "" {
 		return ""
 	}
-	return strings.Join(m.commandInputBoxLines(width), "\n")
+	label := " status filter: " + m.statusFilterLabel() + " · press again to clear · esc clears all filters"
+	return subtleStyle.Render(padRightVisible(truncateVisible(label, width), width))
 }
 
 func (m Model) commandInputBoxLines(width int) []string {
@@ -1787,7 +1798,7 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 	}
 	if count == 0 {
 		filter := parseTargetFilter(m.Filter)
-		if !filter.active() && filter.err == nil {
+		if !m.hasActiveTargetFilter() && filter.err == nil {
 			rows = append(rows, sectionStyle.Render("No target directories found"))
 			rows = append(rows, "  runny executes inside child directories of current cwd")
 			rows = append(rows, "  create directories or run from a project root")
@@ -1795,9 +1806,17 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 			rows = append(rows, sectionStyle.Render("Invalid regex for /"+m.Filter))
 			rows = append(rows, "  "+targetFilterErrorText(filter.err))
 			rows = append(rows, "  edit query, ctrl+u clears filter, esc returns to tasks")
+		} else if m.StatusFilter != "" && !filter.active() {
+			rows = append(rows, sectionStyle.Render("No "+m.statusFilterLabel()+" targets"))
+			rows = append(rows, "  status filter has no visible target")
+			rows = append(rows, "  press the shortcut again or esc to clear the filter")
 		} else {
 			rows = append(rows, sectionStyle.Render("No matches for /"+m.Filter))
-			rows = append(rows, "  "+m.filterModeLabel()+" filter has no visible target")
+			message := m.filterModeLabel() + " filter has no visible target"
+			if m.StatusFilter != "" {
+				message += " with status " + m.statusFilterLabel()
+			}
+			rows = append(rows, "  "+message)
 			rows = append(rows, "  edit query, ctrl+u clears filter, esc returns to tasks")
 		}
 	}
@@ -2731,7 +2750,7 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "runs",
 			title: "Runs and status",
 			bindings: []helpBinding{
-				{"R", "rerun failed"}, {"spinner", "running"}, {"◌", "queued"}, {"✓", "ok"},
+				{"R", "rerun failed"}, {"spinner", "running; F/r/O filter"}, {"◌", "queued"}, {"✓", "ok"},
 				{"✕", "failed"}, {"–", "cancelled"},
 			},
 		},
@@ -3319,7 +3338,7 @@ func (m Model) visible(target core.Target) bool {
 }
 
 func (m Model) visibleWithFilter(target core.Target, filter targetFilter) bool {
-	if !filter.active() || filter.matches(target.RelPath) {
+	if m.targetMatchesFilters(target, filter) {
 		return true
 	}
 	for _, candidate := range m.Targets {
@@ -3445,7 +3464,7 @@ func (m *Model) ensureCursorVisible() {
 		return
 	}
 	filter := parseTargetFilter(m.Filter)
-	if filter.active() && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !filter.matches(m.Targets[m.Cursor].RelPath) || m.hiddenByFold(m.Targets[m.Cursor])) {
+	if m.hasActiveTargetFilter() && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.targetMatchesFilters(m.Targets[m.Cursor], filter) || m.hiddenByFold(m.Targets[m.Cursor])) {
 		if indexes := m.matchingTargetIndexes(); len(indexes) > 0 {
 			m.setCursor(indexes[0])
 			m.ensureDirectoryOffset()
@@ -3523,12 +3542,12 @@ func (m Model) visibleTargetIndexes() []int {
 
 func (m Model) matchingTargetIndexes() []int {
 	filter := parseTargetFilter(m.Filter)
-	if !filter.active() || filter.err != nil {
+	if !m.hasActiveTargetFilter() || filter.err != nil {
 		return nil
 	}
 	indexes := make([]int, 0, len(m.Targets))
 	for i, target := range m.Targets {
-		if filter.matches(target.RelPath) {
+		if m.targetMatchesFilters(target, filter) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -3556,17 +3575,46 @@ func (m Model) isVisibleTarget(target core.Target) bool {
 }
 
 func (m Model) isVisibleTargetWithFilter(target core.Target, filter targetFilter) bool {
-	if filter.active() {
+	if m.hasActiveTargetFilter() {
 		return m.visibleWithFilter(target, filter)
 	}
 	return m.visibleWithFilter(target, filter) && !m.hiddenByFold(target)
 }
 
 func (m Model) hasActiveTargetFilter() bool {
+	if m.StatusFilter != "" {
+		return true
+	}
 	if strings.HasPrefix(m.Filter, targetRegexFilterPrefix) {
 		return strings.TrimPrefix(m.Filter, targetRegexFilterPrefix) != ""
 	}
 	return m.Filter != ""
+}
+
+func (m Model) targetMatchesFilters(target core.Target, filter targetFilter) bool {
+	if filter.active() && !filter.matches(target.RelPath) {
+		return false
+	}
+	return m.StatusFilter == "" || m.Status[target.ID] == m.StatusFilter
+}
+
+func (m *Model) toggleStatusFilter(status core.Status) {
+	if m.StatusFilter == status {
+		m.StatusFilter = ""
+		m.Notice = "status filter cleared"
+	} else {
+		m.StatusFilter = status
+		m.Notice = "showing " + m.statusFilterLabel() + " targets"
+	}
+	m.RunError = ""
+	m.ensureCursorVisible()
+}
+
+func (m Model) statusFilterLabel() string {
+	if m.StatusFilter == core.StatusSucceeded {
+		return "ok"
+	}
+	return string(m.StatusFilter)
 }
 
 func (m *Model) syncTargetFilterError() {

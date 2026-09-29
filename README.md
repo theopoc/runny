@@ -208,6 +208,7 @@ exclude:
 | `space` | Select/deselect focused directory |
 | `a` | Select/unselect all directories; with an active filter, exclusively select matching directories or deselect all |
 | `/` | Focus Target filter (`fuzzy` by default, `'` exact, `re:` regex) |
+| `F`, `r`, `O` | Toggle failed, running, or successful (`ok`) Target filtering |
 | `:` | Open command overlay |
 | `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
 | `ctrl+p` | Open command palette |
@@ -233,7 +234,9 @@ exclude:
 | Left-button drag in Output | Select text to copy; a simple click or `esc` clears the selection |
 | `ctrl+c` | Confirm quit with Yes/No; `tab` switches choice, Yes cancels active runs cleanly |
 
-Target filters match discovered relative paths. Prefix a query with `re:` to use
+Status shortcuts can be combined with a path filter. Press the active status
+shortcut again, or press `esc`, to clear it. Target filters match discovered
+relative paths. Prefix a query with `re:` to use
 Go regular-expression syntax, for example `re:^services/(api|web)$`. Regex
 matching is case-sensitive by default; use an inline flag such as
 `re:(?i)^api` for case-insensitive matching. Invalid expressions match no

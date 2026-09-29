@@ -26,6 +26,9 @@ type keyMap struct {
 	NextPane      key.Binding
 	PreviousPane  key.Binding
 	Filter        key.Binding
+	FilterFailed  key.Binding
+	FilterRunning key.Binding
+	FilterOK      key.Binding
 	History       key.Binding
 	Zoom          key.Binding
 	ToggleTarget  key.Binding
@@ -63,6 +66,9 @@ func newKeyMap() keyMap {
 		NextPane:      newBinding([]string{"tab"}, "tab", "tasks/output"),
 		PreviousPane:  newBinding([]string{"shift+tab"}, "shift+tab", "previous pane"),
 		Filter:        newBinding([]string{"/"}, "/", "filter"),
+		FilterFailed:  newBinding([]string{"F"}, "F", "show failed"),
+		FilterRunning: newBinding([]string{"r"}, "r", "show running"),
+		FilterOK:      newBinding([]string{"O"}, "O", "show ok"),
 		History:       newBinding([]string{"H"}, "H", "history"),
 		Zoom:          newBinding([]string{"z"}, "z", "maximize panel / split"),
 		ToggleTarget:  newBinding([]string{" ", "space"}, "space", "toggle select tree"),
