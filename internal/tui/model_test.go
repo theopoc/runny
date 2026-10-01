@@ -968,12 +968,12 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(tasksFooter, "\n")); got != 1 {
 		t.Fatalf("tasks footer lines = %d, want 1:\n%s", got, tasksFooter)
 	}
-	wantTasksFooter := "[:] Command  [space] Select  [/] Filter  [o] Options  [x] Cancel  [tab] Output  [?] Help  [q] Quit"
+	wantTasksFooter := "[:] Command  [space] Select  [f/r/o] Status  [O] Options  [x] Cancel  [tab] Output  [?] Help  [q] Quit"
 	if got := strings.TrimSpace(tasksFooter); got != wantTasksFooter {
 		t.Fatalf("tasks footer = %q, want %q", got, wantTasksFooter)
 	}
 	normalizedTasksFooter := strings.Join(strings.Fields(tasksFooter), " ")
-	for _, want := range []string{"[:] Command", "[space] Select", "[/] Filter", "[o] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[:] Command", "[space] Select", "[f/r/o] Status", "[O] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizedTasksFooter, want) {
 			t.Fatalf("tasks footer should contain %q:\n%s", want, tasksFooter)
 		}
@@ -987,7 +987,7 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(compactTasksFooter, "\n")); got != 1 {
 		t.Fatalf("compact tasks footer lines = %d, want 1:\n%s", got, compactTasksFooter)
 	}
-	wantCompactTasksFooter := "[:] Cmd  [space] Sel  [o] Opts  [x] Stop  [tab] Pane  [?] Help  [q] Quit"
+	wantCompactTasksFooter := "[:] Cmd  [space] Sel  [f/r/o] Stat  [O] Opts  [tab] Pane  [?] Help  [q] Quit"
 	if got := strings.TrimSpace(compactTasksFooter); got != wantCompactTasksFooter {
 		t.Fatalf("80-column tasks footer = %q, want %q", got, wantCompactTasksFooter)
 	}
@@ -996,11 +996,11 @@ func TestFooterIsContextual(t *testing.T) {
 	}
 	narrowTasksFooter := stripANSI(model.renderFooter(60))
 	normalizedNarrowFooter := strings.Join(strings.Fields(narrowTasksFooter), " ")
-	wantNarrowFooter := "[:] Cmd  [space] Sel  [o] Op  [tab] Out  [?] Help  [q] Quit"
+	wantNarrowFooter := "[space] Sel  [f/r/o]  [O] Op  [tab] Out  [?] Help  [q] Quit"
 	if got := strings.TrimSpace(narrowTasksFooter); got != wantNarrowFooter {
 		t.Fatalf("60-column tasks footer = %q, want %q", got, wantNarrowFooter)
 	}
-	for _, want := range []string{"[:] Cmd", "[space] Sel", "[o] Op", "[tab] Out", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[space] Sel", "[f/r/o]", "[O] Op", "[tab] Out", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizedNarrowFooter, want) {
 			t.Fatalf("narrow tasks footer should contain %q:\n%s", want, narrowTasksFooter)
 		}
@@ -1266,7 +1266,7 @@ func TestFooterBracketsRemainVisibleWithoutColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	footer := strings.TrimSpace(model.renderFooter(80))
-	want := "[:] Cmd  [space] Sel  [o] Opts  [x] Stop  [tab] Pane  [?] Help  [q] Quit"
+	want := "[:] Cmd  [space] Sel  [f/r/o] Stat  [O] Opts  [tab] Pane  [?] Help  [q] Quit"
 	if footer != want {
 		t.Fatalf("plain footer = %q, want %q", footer, want)
 	}
@@ -1651,7 +1651,7 @@ func TestTargetFooterShortcutLabels(t *testing.T) {
 	}})
 	footer := stripANSI(model.renderFooter(140))
 
-	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[space] Select", "[f/r/o] Status", "[O] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizeFooterText(footer), want) {
 			t.Fatalf("footer should contain %q:\n%s", want, footer)
 		}
@@ -1776,7 +1776,7 @@ func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
 	if strings.Count(stripANSI(model.renderFooter(120)), "\n") != 0 {
 		t.Fatalf("footer should use one row:\n%s", footer)
 	}
-	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[space] Select", "[f/r/o] Status", "[O] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("compact footer should contain %q:\n%s", want, footer)
 		}

@@ -44,7 +44,7 @@ func (m Model) handleOptionsKey(keyName string) (tea.Model, tea.Cmd) {
 	m.normalizeOptionsSelection()
 	selected := m.selectedSessionOption()
 	switch keyName {
-	case "esc", "q", "o":
+	case "esc", "q", "O":
 		m.ShowOptions = false
 	case "up", "k":
 		m.moveOptionsSelection(-1)

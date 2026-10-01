@@ -91,6 +91,7 @@ type Model struct {
 	CommandHistoryPos      int
 	CommandDraft           string
 	Filter                 string
+	statusFilter           core.Status
 	filterHistory          []string
 	filterHistoryPos       int
 	filterDraft            string
@@ -442,10 +443,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case matchesKey(keyName, defaultKeys.Escape):
 		if m.outputSelection.active() {
 			m.clearOutputSelection()
-			return m, nil
+			if m.Focus != FocusTargets {
+				return m, nil
+			}
 		}
-		if m.Filter != "" {
-			m.clearFilterInput()
+		if m.Filter != "" || m.statusFilter != "" {
+			m.clearTargetFilters()
 		}
 		return m, nil
 	case matchesKey(keyName, defaultKeys.Quit):
@@ -529,6 +532,12 @@ func (m Model) handleTargetKey(keyName string) (tea.Model, tea.Cmd, bool) {
 		m.setFolded(true)
 	case matchesKey(keyName, defaultKeys.Cancel):
 		m.cancelSelectedOrFocused()
+	case matchesKey(keyName, defaultKeys.FilterFailed):
+		m.toggleStatusFilter(core.StatusFailed)
+	case matchesKey(keyName, defaultKeys.FilterRunning):
+		m.toggleStatusFilter(core.StatusRunning)
+	case matchesKey(keyName, defaultKeys.FilterOK):
+		m.toggleStatusFilter(core.StatusSucceeded)
 	case matchesKey(keyName, defaultKeys.RerunFailed):
 		if !m.hasActiveRuns() && m.failedCount() > 0 {
 			m.ConfirmRun = true
@@ -688,8 +697,8 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 	switch keyName {
 	case "esc":
 		m.Focus = FocusTargets
-		if m.Filter != "" {
-			m.clearFilterInput()
+		if m.Filter != "" || m.statusFilter != "" {
+			m.clearTargetFilters()
 		} else {
 			m.resetFilterHistoryNavigation()
 			m.RunError = ""
@@ -911,7 +920,7 @@ func (m Model) executePaletteCommand(command string) (tea.Model, tea.Cmd) {
 		m.openHistory()
 		m.Notice = "opened history"
 	case "clear-filter":
-		m.clearFilterInput()
+		m.clearTargetFilters()
 	default:
 		m.RunError = "unknown command: " + fields[0]
 	}
@@ -1244,7 +1253,11 @@ func (m *Model) applyTargetSnapshot(target runpkg.TargetSnapshot) {
 	}
 	m.Changes[id] = target.Changes
 	if previousChanges != target.Changes || previousStatus != target.Status {
-		m.ensureDirectoryOffset()
+		if m.hasActiveTargetFilter() {
+			m.ensureCursorVisible()
+		} else {
+			m.ensureDirectoryOffset()
+		}
 	}
 	if !target.Started.IsZero() {
 		m.TargetStarted[id] = target.Started
@@ -1788,7 +1801,7 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 	}
 	if count == 0 {
 		filter := parseTargetFilter(m.Filter)
-		if !filter.active() && filter.err == nil {
+		if !filter.active() && filter.err == nil && m.statusFilter == "" {
 			rows = append(rows, sectionStyle.Render("No target directories found"))
 			rows = append(rows, "  runny executes inside child directories of current cwd")
 			rows = append(rows, "  create directories or run from a project root")
@@ -1796,6 +1809,14 @@ func (m Model) renderDirectoryPanel(width int, height int) []string {
 			rows = append(rows, sectionStyle.Render("Invalid regex for /"+m.Filter))
 			rows = append(rows, "  "+targetFilterErrorText(filter.err))
 			rows = append(rows, "  edit query, ctrl+u clears filter, esc returns to tasks")
+		} else if m.statusFilter != "" && !filter.active() {
+			label := statusFilterLabel(m.statusFilter)
+			rows = append(rows, sectionStyle.Render("No "+label+" targets"))
+			rows = append(rows, "  press "+statusFilterKey(m.statusFilter)+" again or esc to clear the status filter")
+		} else if m.statusFilter != "" {
+			label := statusFilterLabel(m.statusFilter)
+			rows = append(rows, sectionStyle.Render("No "+label+" targets matching /"+m.Filter))
+			rows = append(rows, "  edit the path query or press esc to clear all filters")
 		} else {
 			rows = append(rows, sectionStyle.Render("No matches for /"+m.Filter))
 			rows = append(rows, "  "+m.filterModeLabel()+" filter has no visible target")
@@ -1851,6 +1872,9 @@ func (m Model) directoryScrollLabel(offset int, limit int, total int) string {
 	label := fmt.Sprintf("showing %d-%d of %d %s", offset+1, end, total, markers)
 	if m.hasChanges() {
 		label += " · P plan / A apply"
+	}
+	if m.statusFilter != "" {
+		label += " · filter: " + statusFilterLabel(m.statusFilter)
 	}
 	return label
 }
@@ -2313,12 +2337,12 @@ func (m Model) renderFooter(width int) string {
 		hints = []string{"enter choose", "up/down choose", "ctrl+u clear", "esc close", "? help"}
 	} else if m.ShowOptions {
 		if m.selectedSessionOption() == optionWorkers {
-			hints = []string{"+/- adjust", "a auto", "up/down choose", "left/right category", "esc/o close"}
+			hints = []string{"+/- adjust", "a auto", "up/down choose", "left/right category", "esc/O close"}
 			if width < 70 {
 				hints = []string{"+/- adjust", "a auto", "up/down choose", "esc close"}
 			}
 		} else {
-			hints = []string{"space/enter toggle", "left/right category", "up/down choose", "esc/o close", "? help"}
+			hints = []string{"space/enter toggle", "left/right category", "up/down choose", "esc/O close", "? help"}
 			if width < 70 {
 				hints = []string{"space toggle", "right next", "esc close", "? help"}
 			}
@@ -2356,21 +2380,21 @@ func (m Model) renderFooter(width int) string {
 				hints = []string{"y copy all", "pgup/pgdn scroll", "f follow", "tab tasks", "? help", "q quit"}
 			}
 		default:
-			fullHints := []string{": command", "space select", "/ filter", "o options", "x cancel", "tab output", "? help", "q quit"}
+			fullHints := []string{": command", "space select", "f/r/o status", "O options", "x cancel", "tab output", "? help", "q quit"}
 			if m.hasActiveTargetFilter() {
 				fullHints[2] = "esc clear filter"
 			}
 			hints = fullHints
 			if footerHintContentWidth(fullHints) > width {
-				hints = []string{": cmd", "space sel", "o opts", "x stop", "tab pane", "? help", "q quit"}
+				hints = []string{": cmd", "space sel", "f/r/o stat", "O opts", "tab pane", "? help", "q quit"}
 				if m.hasActiveTargetFilter() {
 					hints[2] = "esc clear"
 				}
 			}
 			if width < 70 {
-				hints = []string{": cmd", "space sel", "o op", "tab out", "? help", "q quit"}
+				hints = []string{"space sel", "f/r/o", "O op", "tab out", "? help", "q quit"}
 				if m.hasActiveTargetFilter() {
-					hints[2] = "esc clear"
+					hints[1] = "esc clear"
 				}
 			}
 			if !m.hasActiveRuns() && m.failedCount() > 0 {
@@ -2704,7 +2728,7 @@ func (m Model) helpRows(width ...int) []string {
 			id:    "options",
 			title: "Options",
 			bindings: []helpBinding{
-				{"o", "open/close"}, {"left/right", "category"}, {"h/l", "category"},
+				{"O", "open/close"}, {"left/right", "category"}, {"h/l", "category"},
 				{"1/2/3", "category"}, {"up/down", "choose"}, {"j/k", "choose"},
 				{"space/enter", "toggle"}, {"+/-", "adjust workers"}, {"a", "workers auto"}, {"esc", "close"},
 			},
@@ -2723,9 +2747,8 @@ func (m Model) helpRows(width ...int) []string {
 			title: "Tasks",
 			bindings: []helpBinding{
 				{"up/down · j/k", "move"}, {"n/N", "next/prev match"}, {"g/G", "first/last"},
-				{"space", "toggle select tree"}, {"a", m.bulkSelectionLabel()},
-				{"left/h", "fold"}, {"right/l", "unfold"}, {"enter", "run selected"},
-				{"del/x", "cancel selected"},
+				{"space", "toggle select tree"}, {"a", m.bulkSelectionLabel()}, {"f/r/o", "failed/running/ok"},
+				{"left/right · h/l", "fold/unfold"}, {"enter", "run selected"}, {"del/x", "cancel selected"},
 			},
 		},
 		{
@@ -3320,7 +3343,7 @@ func (m Model) visible(target core.Target) bool {
 }
 
 func (m Model) visibleWithFilter(target core.Target, filter targetFilter) bool {
-	if !filter.active() || filter.matches(target.RelPath) {
+	if m.targetMatchesFilters(target, filter) {
 		return true
 	}
 	for _, candidate := range m.Targets {
@@ -3329,6 +3352,12 @@ func (m Model) visibleWithFilter(target core.Target, filter targetFilter) bool {
 		}
 	}
 	return false
+}
+
+func (m Model) targetMatchesFilters(target core.Target, filter targetFilter) bool {
+	pathMatches := !filter.active() || filter.matches(target.RelPath)
+	statusMatches := m.statusFilter == "" || m.Status[target.ID] == m.statusFilter
+	return pathMatches && statusMatches
 }
 
 func (m *Model) moveCursor(delta int) {
@@ -3446,7 +3475,7 @@ func (m *Model) ensureCursorVisible() {
 		return
 	}
 	filter := parseTargetFilter(m.Filter)
-	if filter.active() && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !filter.matches(m.Targets[m.Cursor].RelPath) || m.hiddenByFold(m.Targets[m.Cursor])) {
+	if m.hasActiveTargetFilter() && (m.Cursor < 0 || m.Cursor >= len(m.Targets) || !m.targetMatchesFilters(m.Targets[m.Cursor], filter)) {
 		if indexes := m.matchingTargetIndexes(); len(indexes) > 0 {
 			m.setCursor(indexes[0])
 			m.ensureDirectoryOffset()
@@ -3524,12 +3553,12 @@ func (m Model) visibleTargetIndexes() []int {
 
 func (m Model) matchingTargetIndexes() []int {
 	filter := parseTargetFilter(m.Filter)
-	if !filter.active() || filter.err != nil {
+	if !m.hasActiveTargetFilter() || filter.err != nil {
 		return nil
 	}
 	indexes := make([]int, 0, len(m.Targets))
 	for i, target := range m.Targets {
-		if filter.matches(target.RelPath) {
+		if m.targetMatchesFilters(target, filter) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -3557,13 +3586,16 @@ func (m Model) isVisibleTarget(target core.Target) bool {
 }
 
 func (m Model) isVisibleTargetWithFilter(target core.Target, filter targetFilter) bool {
-	if filter.active() {
+	if filter.active() || m.statusFilter != "" {
 		return m.visibleWithFilter(target, filter)
 	}
 	return m.visibleWithFilter(target, filter) && !m.hiddenByFold(target)
 }
 
 func (m Model) hasActiveTargetFilter() bool {
+	if m.statusFilter != "" {
+		return true
+	}
 	if strings.HasPrefix(m.Filter, targetRegexFilterPrefix) {
 		return strings.TrimPrefix(m.Filter, targetRegexFilterPrefix) != ""
 	}
