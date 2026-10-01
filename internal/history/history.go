@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/theopoc/runny/internal/core"
@@ -47,13 +48,7 @@ func AppendCommand(path string, entry CommandEntry) error {
 	if err != nil {
 		return err
 	}
-	unique := entries[:0]
-	for _, existing := range entries {
-		if existing.Command != entry.Command {
-			unique = append(unique, existing)
-		}
-	}
-	entries = append(unique, entry)
+	entries = deduplicateCommands(append(entries, entry))
 	if len(entries) > 50 {
 		entries = entries[len(entries)-50:]
 	}
@@ -65,19 +60,39 @@ func ReadCommands(path string) ([]CommandEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[string]struct{}, len(entries))
-	unique := make([]CommandEntry, 0, len(entries))
-	for i := len(entries) - 1; i >= 0; i-- {
-		if _, exists := seen[entries[i].Command]; exists {
+	return deduplicateCommands(entries), nil
+}
+
+func deduplicateCommands(entries []CommandEntry) []CommandEntry {
+	type retainedCommand struct {
+		entry CommandEntry
+		index int
+	}
+	retained := make([]retainedCommand, 0, len(entries))
+	positions := make(map[string]int, len(entries))
+	for index, entry := range entries {
+		position, exists := positions[entry.Command]
+		if !exists {
+			positions[entry.Command] = len(retained)
+			retained = append(retained, retainedCommand{entry: entry, index: index})
 			continue
 		}
-		seen[entries[i].Command] = struct{}{}
-		unique = append(unique, entries[i])
+		current := retained[position]
+		if entry.Time.After(current.entry.Time) || entry.Time.Equal(current.entry.Time) {
+			retained[position] = retainedCommand{entry: entry, index: index}
+		}
 	}
-	for left, right := 0, len(unique)-1; left < right; left, right = left+1, right-1 {
-		unique[left], unique[right] = unique[right], unique[left]
+	sort.SliceStable(retained, func(i, j int) bool {
+		if retained[i].entry.Time.Equal(retained[j].entry.Time) {
+			return retained[i].index < retained[j].index
+		}
+		return retained[i].entry.Time.Before(retained[j].entry.Time)
+	})
+	unique := make([]CommandEntry, len(retained))
+	for index, command := range retained {
+		unique[index] = command.entry
 	}
-	return unique, nil
+	return unique
 }
 
 func AppendRun(path string, entry RunEntry) error {

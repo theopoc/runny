@@ -55,6 +55,28 @@ func TestCommandHistoryKeepsOnlyMostRecentIdenticalCommand(t *testing.T) {
 	}
 }
 
+func TestCommandHistoryKeepsNewestAcceptedDuplicateWhenWritesArriveOutOfOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	older := time.Date(2026, time.September, 1, 8, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Minute)
+	for _, entry := range []CommandEntry{
+		{Command: "go test ./...", Time: newer},
+		{Command: "go test ./...", Time: older},
+	} {
+		if err := AppendCommand(path, entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := ReadCommands(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !entries[0].Time.Equal(newer) {
+		t.Fatalf("entries = %#v, want newest accepted duplicate", entries)
+	}
+}
+
 func TestReadCommandsDeduplicatesLegacyHistory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.jsonl")
 	legacy := []byte("{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:00:00Z\"}\n" +
