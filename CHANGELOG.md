@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/theopoc/runny/compare/v0.9.0...v0.10.0) (2026-10-01)
+
+
+### Features
+
+* **tui:** add status filter shortcuts ([#110](https://github.com/theopoc/runny/issues/110)) ([8861421](https://github.com/theopoc/runny/commit/886142129c72508a823d9a4d1b629742c143995a))
+
+
+### Bug Fixes
+
+* **tui:** deduplicate command history ([#109](https://github.com/theopoc/runny/issues/109)) ([c32a09d](https://github.com/theopoc/runny/commit/c32a09dfe276c7bcaf873b7acb5f3b3f52db2501))
+
 ## [0.9.0](https://github.com/theopoc/runny/compare/v0.8.0...v0.9.0) (2026-09-13)
 
 
