@@ -1,5 +1,7 @@
 package tui
 
+import "github.com/theopoc/runny/internal/core"
+
 const filterHistoryLimit = 50
 
 func (m *Model) openFilterEditor() {
@@ -62,6 +64,47 @@ func (m *Model) clearFilterInput() {
 	m.ensureCursorVisible()
 	m.Notice = "filter cleared"
 	m.RunError = ""
+}
+
+func (m *Model) clearTargetFilters() {
+	m.filterLineEditor().clear()
+	m.statusFilter = ""
+	m.resetFilterHistoryNavigation()
+	m.ensureCursorVisible()
+	m.Notice = "filter cleared"
+	m.RunError = ""
+}
+
+func (m *Model) toggleStatusFilter(status core.Status) {
+	if m.statusFilter == status {
+		m.statusFilter = ""
+		m.Notice = "status filter cleared"
+	} else {
+		m.statusFilter = status
+		m.Notice = "filtering " + statusFilterLabel(status) + " targets"
+	}
+	m.RunError = ""
+	m.ensureCursorVisible()
+}
+
+func statusFilterLabel(status core.Status) string {
+	if status == core.StatusSucceeded {
+		return "ok"
+	}
+	return string(status)
+}
+
+func statusFilterKey(status core.Status) string {
+	switch status {
+	case core.StatusFailed:
+		return "f"
+	case core.StatusRunning:
+		return "r"
+	case core.StatusSucceeded:
+		return "o"
+	default:
+		return "the shortcut"
+	}
 }
 
 func (m *Model) afterFilterEdit() {

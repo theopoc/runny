@@ -10,7 +10,7 @@ import (
 
 func TestOptionsScreenOpensNavigatesTogglesAndCloses(t *testing.T) {
 	model := NewModel(Options{})
-	model, _ = updateKey(model, "o")
+	model, _ = updateKey(model, "O")
 	if !model.ShowOptions || model.OptionsPos != 0 {
 		t.Fatalf("options state = open %t pos %d", model.ShowOptions, model.OptionsPos)
 	}
@@ -25,9 +25,9 @@ func TestOptionsScreenOpensNavigatesTogglesAndCloses(t *testing.T) {
 	if !model.FailFast {
 		t.Fatal("enter should toggle fail fast")
 	}
-	model, _ = updateKey(model, "o")
+	model, _ = updateKey(model, "O")
 	if model.ShowOptions {
-		t.Fatal("o should close options overlay")
+		t.Fatal("O should close options overlay")
 	}
 }
 

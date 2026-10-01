@@ -208,8 +208,11 @@ exclude:
 | `space` | Select/deselect focused directory |
 | `a` | Select/unselect all directories; with an active filter, exclusively select matching directories or deselect all |
 | `/` | Focus Target filter (`fuzzy` by default, `'` exact, `re:` regex) |
+| `f` | Filter Targets with failed status; press again to clear the status filter |
+| `r` | Filter Targets with running status; press again to clear the status filter |
+| `o` | Filter Targets with successful (`ok`) status; press again to clear the status filter |
 | `:` | Open command overlay |
-| `o` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
+| `O` | Open session options; `left`/`right` changes category, `up`/`down` selects, `space`/`enter` toggles, `+`/`-` adjusts workers, `a` resets workers to auto, `esc` closes |
 | `ctrl+p` | Open command palette |
 | `enter` | Run or confirm |
 | `tab` | Change focus |
@@ -238,6 +241,10 @@ Go regular-expression syntax, for example `re:^services/(api|web)$`. Regex
 matching is case-sensitive by default; use an inline flag such as
 `re:(?i)^api` for case-insensitive matching. Invalid expressions match no
 Targets, remain in the filter editor after `enter`, and show the parse error.
+The `f`, `r`, and `o` status filters combine with the active path filter and
+keep matching Targets' ancestors visible for tree context. Press the active
+status shortcut again to remove only that status filter, or `esc` from Tasks
+to clear both path and status filters.
 Regex mode applies only to the Target filter; command palette and history
 search keep their existing fuzzy and exact modes.
 
