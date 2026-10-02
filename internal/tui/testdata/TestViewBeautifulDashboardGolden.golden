@@ -23,4 +23,4 @@
 ║                                        ║  │                                                    │
 ╚════════════════════════════════════════╝  ╰────────────────────────────────────────────────────╯
  ● 1 running · ◌ 1 queued · ✓ 0 ok · × 1 failed                                            follow:on
- [:] Command  [space] Select  [/] Filter  [o] Options  [x] Cancel  [tab] Output  [?] Help  [q] Quit
+ [:] Cmd  [space] Sel  [f/r/o] Stat  [O] Opts  [tab] Pane  [?] Help  [q] Quit

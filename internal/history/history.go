@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/theopoc/runny/internal/core"
@@ -43,11 +44,55 @@ func AppendCommand(path string, entry CommandEntry) error {
 	if entry.Time.IsZero() {
 		entry.Time = time.Now()
 	}
-	return appendRetained(path, entry, 50)
+	entries, err := ReadCommands(path)
+	if err != nil {
+		return err
+	}
+	entries = deduplicateCommands(append(entries, entry))
+	if len(entries) > 50 {
+		entries = entries[len(entries)-50:]
+	}
+	return writeJSONL(path, entries)
 }
 
 func ReadCommands(path string) ([]CommandEntry, error) {
-	return readJSONL[CommandEntry](path)
+	entries, err := readJSONL[CommandEntry](path)
+	if err != nil {
+		return nil, err
+	}
+	return deduplicateCommands(entries), nil
+}
+
+func deduplicateCommands(entries []CommandEntry) []CommandEntry {
+	type retainedCommand struct {
+		entry CommandEntry
+		index int
+	}
+	retained := make([]retainedCommand, 0, len(entries))
+	positions := make(map[string]int, len(entries))
+	for index, entry := range entries {
+		position, exists := positions[entry.Command]
+		if !exists {
+			positions[entry.Command] = len(retained)
+			retained = append(retained, retainedCommand{entry: entry, index: index})
+			continue
+		}
+		current := retained[position]
+		if entry.Time.After(current.entry.Time) || entry.Time.Equal(current.entry.Time) {
+			retained[position] = retainedCommand{entry: entry, index: index}
+		}
+	}
+	sort.SliceStable(retained, func(i, j int) bool {
+		if retained[i].entry.Time.Equal(retained[j].entry.Time) {
+			return retained[i].index < retained[j].index
+		}
+		return retained[i].entry.Time.Before(retained[j].entry.Time)
+	})
+	unique := make([]CommandEntry, len(retained))
+	for index, command := range retained {
+		unique[index] = command.entry
+	}
+	return unique
 }
 
 func AppendRun(path string, entry RunEntry) error {
@@ -70,6 +115,10 @@ func appendRetained[T any](path string, entry T, limit int) error {
 	if len(entries) > limit {
 		entries = entries[len(entries)-limit:]
 	}
+	return writeJSONL(path, entries)
+}
+
+func writeJSONL[T any](path string, entries []T) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

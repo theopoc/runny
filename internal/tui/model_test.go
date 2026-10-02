@@ -1119,12 +1119,12 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(tasksFooter, "\n")); got != 1 {
 		t.Fatalf("tasks footer lines = %d, want 1:\n%s", got, tasksFooter)
 	}
-	wantTasksFooter := "[:] Command  [space] Select  [/] Filter  [o] Options  [x] Cancel  [tab] Output  [?] Help  [q] Quit"
+	wantTasksFooter := "[:] Command  [space] Select  [f/r/o] Status  [O] Options  [x] Cancel  [tab] Output  [?] Help  [q] Quit"
 	if got := strings.TrimSpace(tasksFooter); got != wantTasksFooter {
 		t.Fatalf("tasks footer = %q, want %q", got, wantTasksFooter)
 	}
 	normalizedTasksFooter := strings.Join(strings.Fields(tasksFooter), " ")
-	for _, want := range []string{"[:] Command", "[space] Select", "[/] Filter", "[o] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[:] Command", "[space] Select", "[f/r/o] Status", "[O] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizedTasksFooter, want) {
 			t.Fatalf("tasks footer should contain %q:\n%s", want, tasksFooter)
 		}
@@ -1138,7 +1138,7 @@ func TestFooterIsContextual(t *testing.T) {
 	if got := len(strings.Split(compactTasksFooter, "\n")); got != 1 {
 		t.Fatalf("compact tasks footer lines = %d, want 1:\n%s", got, compactTasksFooter)
 	}
-	wantCompactTasksFooter := "[:] Cmd  [space] Sel  [o] Opts  [x] Stop  [tab] Pane  [?] Help  [q] Quit"
+	wantCompactTasksFooter := "[:] Cmd  [space] Sel  [f/r/o] Stat  [O] Opts  [tab] Pane  [?] Help  [q] Quit"
 	if got := strings.TrimSpace(compactTasksFooter); got != wantCompactTasksFooter {
 		t.Fatalf("80-column tasks footer = %q, want %q", got, wantCompactTasksFooter)
 	}
@@ -1147,11 +1147,11 @@ func TestFooterIsContextual(t *testing.T) {
 	}
 	narrowTasksFooter := stripANSI(model.renderFooter(60))
 	normalizedNarrowFooter := strings.Join(strings.Fields(narrowTasksFooter), " ")
-	wantNarrowFooter := "[:] Cmd  [space] Sel  [o] Op  [tab] Out  [?] Help  [q] Quit"
+	wantNarrowFooter := "[space] Sel  [f/r/o]  [O] Op  [tab] Out  [?] Help  [q] Quit"
 	if got := strings.TrimSpace(narrowTasksFooter); got != wantNarrowFooter {
 		t.Fatalf("60-column tasks footer = %q, want %q", got, wantNarrowFooter)
 	}
-	for _, want := range []string{"[:] Cmd", "[space] Sel", "[o] Op", "[tab] Out", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[space] Sel", "[f/r/o]", "[O] Op", "[tab] Out", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizedNarrowFooter, want) {
 			t.Fatalf("narrow tasks footer should contain %q:\n%s", want, narrowTasksFooter)
 		}
@@ -1417,7 +1417,7 @@ func TestFooterBracketsRemainVisibleWithoutColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	model := NewModel(Options{Command: "test", Targets: []core.Target{{ID: "api", RelPath: "api", Selected: true}}})
 	footer := strings.TrimSpace(model.renderFooter(80))
-	want := "[:] Cmd  [space] Sel  [o] Opts  [x] Stop  [tab] Pane  [?] Help  [q] Quit"
+	want := "[:] Cmd  [space] Sel  [f/r/o] Stat  [O] Opts  [tab] Pane  [?] Help  [q] Quit"
 	if footer != want {
 		t.Fatalf("plain footer = %q, want %q", footer, want)
 	}
@@ -1802,7 +1802,7 @@ func TestTargetFooterShortcutLabels(t *testing.T) {
 	}})
 	footer := stripANSI(model.renderFooter(140))
 
-	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[space] Select", "[f/r/o] Status", "[O] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(normalizeFooterText(footer), want) {
 			t.Fatalf("footer should contain %q:\n%s", want, footer)
 		}
@@ -1927,7 +1927,7 @@ func TestOperatorLayoutUsesCompactPersistentChrome(t *testing.T) {
 	if strings.Count(stripANSI(model.renderFooter(120)), "\n") != 0 {
 		t.Fatalf("footer should use one row:\n%s", footer)
 	}
-	for _, want := range []string{"[space] Select", "[/] Filter", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
+	for _, want := range []string{"[space] Select", "[f/r/o] Status", "[O] Options", "[x] Cancel", "[tab] Output", "[?] Help", "[q] Quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("compact footer should contain %q:\n%s", want, footer)
 		}
@@ -2037,6 +2037,42 @@ func TestCommandFocusNavigatesHistory(t *testing.T) {
 	model, _ = updateKey(model, "x")
 	if model.CommandHistoryPos != -1 || model.Command != "go test ./...x" {
 		t.Fatalf("history navigation should reset after edit, pos/command = %d/%q", model.CommandHistoryPos, model.Command)
+	}
+}
+
+func TestCommandFocusSkipsDuplicateCommandsFromLegacyHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "commands.jsonl")
+	legacy := []byte("{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:00:00Z\"}\n" +
+		"{\"command\":\"pnpm test\",\"time\":\"2026-09-01T08:00:30Z\"}\n" +
+		"{\"command\":\"go test ./...\",\"time\":\"2026-09-01T08:01:00Z\"}\n")
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model := NewModel(Options{CommandHistoryPath: path})
+	model.openCommandOverlay()
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Command != "go test ./..." {
+		t.Fatalf("newest command = %q, want go test ./...", model.Command)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Command != "pnpm test" {
+		t.Fatalf("older command = %q, want pnpm test", model.Command)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Command != "pnpm test" || model.CommandHistoryPos != 1 {
+		t.Fatalf("history should stop after two unique commands, pos/command = %d/%q", model.CommandHistoryPos, model.Command)
+	}
+}
+
+func TestCommandHistoryMovesRepeatedCommandToNewestPosition(t *testing.T) {
+	model := NewModel(Options{})
+	model.History = []string{"go test ./...", "pnpm test"}
+
+	model.addHistory("pnpm test")
+
+	if len(model.History) != 2 || model.History[0] != "pnpm test" || model.History[1] != "go test ./..." {
+		t.Fatalf("history = %#v, want repeated command once in newest position", model.History)
 	}
 }
 
