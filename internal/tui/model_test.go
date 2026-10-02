@@ -333,6 +333,157 @@ func TestModelMovesCursorWithArrowKeys(t *testing.T) {
 	}
 }
 
+func TestTargetNavigationStopsAtVisibleListEdges(t *testing.T) {
+	targets := []core.Target{
+		{ID: "apps", RelPath: "apps", Children: []string{"api"}, Folded: true},
+		{ID: "api", RelPath: "apps/api", ParentID: "apps"},
+		{ID: "web", RelPath: "web"},
+	}
+
+	tests := []struct {
+		name       string
+		cursor     int
+		update     func(Model) Model
+		wantCursor int
+	}{
+		{
+			name:   "arrow up at first",
+			cursor: 0,
+			update: func(model Model) Model {
+				model, _ = updateSpecialKey(model, tea.KeyUp)
+				return model
+			},
+			wantCursor: 0,
+		},
+		{
+			name:   "vim up at first",
+			cursor: 0,
+			update: func(model Model) Model {
+				model, _ = updateKey(model, "k")
+				return model
+			},
+			wantCursor: 0,
+		},
+		{
+			name:   "wheel up at first",
+			cursor: 0,
+			update: func(model Model) Model {
+				updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+				return updated.(Model)
+			},
+			wantCursor: 0,
+		},
+		{
+			name:   "arrow down at last",
+			cursor: 2,
+			update: func(model Model) Model {
+				model, _ = updateSpecialKey(model, tea.KeyDown)
+				return model
+			},
+			wantCursor: 2,
+		},
+		{
+			name:   "vim down at last",
+			cursor: 2,
+			update: func(model Model) Model {
+				model, _ = updateKey(model, "j")
+				return model
+			},
+			wantCursor: 2,
+		},
+		{
+			name:   "wheel down at last",
+			cursor: 2,
+			update: func(model Model) Model {
+				updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+				return updated.(Model)
+			},
+			wantCursor: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(Options{Targets: targets})
+			model.Height = 20
+			model.Cursor = tt.cursor
+			model.ensureDirectoryOffset()
+			wantOffset := model.DirectoryOffset
+
+			model = tt.update(model)
+
+			if model.Cursor != tt.wantCursor || model.DirectoryOffset != wantOffset {
+				t.Fatalf("edge navigation = cursor %d, offset %d; want cursor %d, offset %d", model.Cursor, model.DirectoryOffset, tt.wantCursor, wantOffset)
+			}
+		})
+	}
+}
+
+func TestFilteredMatchNavigationStopsAtFirstAndLastMatch(t *testing.T) {
+	model := NewModel(Options{Targets: []core.Target{
+		{ID: "api", RelPath: "api"},
+		{ID: "web", RelPath: "web"},
+		{ID: "worker", RelPath: "worker"},
+	}})
+	model.Filter = "w"
+	model.ensureCursorVisible()
+
+	model, _ = updateKey(model, "N")
+	if model.Cursor != 1 {
+		t.Fatalf("previous match at first = cursor %d, want 1", model.Cursor)
+	}
+
+	model, _ = updateKey(model, "n")
+	model, _ = updateKey(model, "n")
+	if model.Cursor != 2 {
+		t.Fatalf("next match past last = cursor %d, want 2", model.Cursor)
+	}
+}
+
+func TestTargetNavigationKeepsViewportAtListEdges(t *testing.T) {
+	targets := make([]core.Target, 20)
+	for i := range targets {
+		targets[i] = core.Target{ID: fmt.Sprintf("target-%d", i), RelPath: fmt.Sprintf("target-%d", i)}
+	}
+
+	for _, tt := range []struct {
+		name   string
+		update func(Model) Model
+	}{
+		{
+			name: "keyboard",
+			update: func(model Model) Model {
+				model, _ = updateSpecialKey(model, tea.KeyDown)
+				return model
+			},
+		},
+		{
+			name: "mouse wheel",
+			update: func(model Model) Model {
+				updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+				return updated.(Model)
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(Options{Targets: targets})
+			model.Height = 20
+			model.Cursor = len(targets) - 1
+			model.ensureDirectoryOffset()
+			wantOffset := model.DirectoryOffset
+			if wantOffset == 0 {
+				t.Fatal("test setup should place the viewport below its initial offset")
+			}
+
+			model = tt.update(model)
+
+			if model.Cursor != len(targets)-1 || model.DirectoryOffset != wantOffset {
+				t.Fatalf("navigation past last = cursor %d, offset %d; want cursor %d, offset %d", model.Cursor, model.DirectoryOffset, len(targets)-1, wantOffset)
+			}
+		})
+	}
+}
+
 func TestOutputFocusIgnoresTaskArrowNavigation(t *testing.T) {
 	for _, key := range []rune{tea.KeyUp, tea.KeyDown} {
 		t.Run(tea.KeyPressMsg(tea.Key{Code: key}).String(), func(t *testing.T) {
