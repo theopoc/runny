@@ -3364,15 +3364,7 @@ func (m *Model) moveCursor(delta int) {
 	if len(m.Targets) == 0 {
 		return
 	}
-	next := m.Cursor
-	for range m.Targets {
-		next += delta
-		if next < 0 {
-			next = len(m.Targets) - 1
-		}
-		if next >= len(m.Targets) {
-			next = 0
-		}
+	for next := m.Cursor + delta; next >= 0 && next < len(m.Targets); next += delta {
 		if m.isVisibleTarget(m.Targets[next]) {
 			m.setCursor(next)
 			m.ensureDirectoryOffset()
@@ -3394,10 +3386,7 @@ func (m *Model) moveFilterMatch(delta int) {
 		}
 	}
 	position += delta
-	for position < 0 {
-		position += len(indexes)
-	}
-	position %= len(indexes)
+	position = min(max(0, position), len(indexes)-1)
 	m.setCursor(indexes[position])
 	m.ensureDirectoryOffset()
 }
