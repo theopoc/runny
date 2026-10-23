@@ -3,6 +3,8 @@ package tui
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/history"
 )
 
 func TestFilterInputSelectsCopiesCutsAndPastes(t *testing.T) {
@@ -142,7 +145,7 @@ func TestFilterInputMovesByWord(t *testing.T) {
 	}
 }
 
-func TestFilterHistoryIsSessionScopedUniqueMRUAndRestoresDraft(t *testing.T) {
+func TestFilterHistoryWithoutStorageIsUniqueMRUAndRestoresDraft(t *testing.T) {
 	model := NewModel(Options{Targets: []core.Target{{ID: "api", RelPath: "api"}}})
 	model = enterAndCommitFilter(t, model, "api")
 	model = tabAndCommitFilter(t, model, "web")
@@ -169,6 +172,134 @@ func TestFilterHistoryIsSessionScopedUniqueMRUAndRestoresDraft(t *testing.T) {
 	model, _ = updateSpecialKey(model, tea.KeyDown)
 	if model.Filter != "draft" {
 		t.Fatalf("restored filter draft = %q, want draft", model.Filter)
+	}
+}
+
+func TestFilterHistoryPersistsAcceptedFiltersAndRestoresDraft(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.jsonl")
+	opts := Options{FilterHistoryPath: path}
+	model := NewModel(opts)
+	for _, value := range []string{"api", "API", " api ", "re:^web$", "api"} {
+		model.openFilterEditor()
+		model, _ = updateModifiedKey(model, 'u', tea.ModCtrl)
+		model = typeText(model, value)
+		var save tea.Cmd
+		model, save = updateSpecialKey(model, tea.KeyEnter)
+		if save == nil {
+			t.Fatal("accepting filter should schedule persistence")
+		}
+		updated, _ := model.Update(save())
+		model = updated.(Model)
+	}
+	want := []string{"api", "re:^web$", " api ", "API"}
+	model = NewModel(opts)
+	if !reflect.DeepEqual(model.filterHistory, want) || model.Filter != "" {
+		t.Fatalf("reloaded history/filter = %q/%q, want %q/empty", model.filterHistory, model.Filter, want)
+	}
+	model.openFilterEditor()
+	model = typeText(model, "draft")
+	for _, value := range want {
+		model, _ = updateSpecialKey(model, tea.KeyUp)
+		if model.Filter != value {
+			t.Fatalf("recalled filter = %q, want %q", model.Filter, value)
+		}
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	if model.Filter != want[len(want)-1] {
+		t.Fatal("up past oldest should stop at oldest")
+	}
+	for range len(want) + 1 {
+		model, _ = updateSpecialKey(model, tea.KeyDown)
+	}
+	if model.Filter != "draft" {
+		t.Fatalf("restored draft = %q", model.Filter)
+	}
+	model, _ = updateSpecialKey(model, tea.KeyUp)
+	model = typeText(model, "x")
+	model, _ = updateSpecialKey(model, tea.KeyDown)
+	if model.Filter != "apix" {
+		t.Fatalf("editing recalled filter should reset navigation, got %q", model.Filter)
+	}
+}
+
+func TestFilterHistoryDoesNotPersistCancelledOrInvalidFilters(t *testing.T) {
+	for _, value := range []string{"", "re:[", "re:", "cancelled"} {
+		t.Run(value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "filters.jsonl")
+			model := NewModel(Options{FilterHistoryPath: path})
+			model.openFilterEditor()
+			model = typeText(model, value)
+			key := tea.KeyEnter
+			if value == "cancelled" {
+				key = tea.KeyEsc
+			}
+			_, save := updateSpecialKey(model, key)
+			if save != nil {
+				t.Fatal("empty, invalid or cancelled filter scheduled persistence")
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("unaccepted filter created history: %v", err)
+			}
+		})
+	}
+}
+
+func TestFilterHistoryPersistsOnEditorAcceptance(t *testing.T) {
+	for _, name := range []string{"enter", "tab", "shift+tab", "click"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "filters.jsonl")
+			model := NewModel(Options{FilterHistoryPath: path, Targets: []core.Target{{ID: "api", RelPath: "api"}}})
+			model.Width, model.Height = 120, 26
+			model.openFilterEditor()
+			model = typeText(model, "api")
+			var save tea.Cmd
+			switch name {
+			case "enter":
+				model, save = updateSpecialKey(model, tea.KeyEnter)
+			case "tab":
+				model, save = updateSpecialKey(model, tea.KeyTab)
+			case "shift+tab":
+				model, save = updateModifiedKey(model, tea.KeyTab, tea.ModShift)
+			case "click":
+				panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
+				updated, cmd := model.Update(tea.MouseClickMsg{X: 2, Y: panelTop + 3, Button: tea.MouseLeft})
+				model, save = updated.(Model), cmd
+			}
+			if save == nil || model.Focus != FocusTargets {
+				t.Fatalf("acceptance did not schedule save and return to tasks: %v", model.Focus)
+			}
+			save()
+			if reloaded := NewModel(Options{FilterHistoryPath: path}); !reflect.DeepEqual(reloaded.filterHistory, []string{"api"}) {
+				t.Fatalf("reloaded history = %q", reloaded.filterHistory)
+			}
+		})
+	}
+}
+
+func TestFilterHistoryPersistenceOrdersSnapshotsAndReportsFailures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.jsonl")
+	model := NewModel(Options{FilterHistoryPath: path})
+	model.Filter = "old"
+	olderSave := model.commitFilterHistory()
+	model.Filter = "new"
+	newerSave := model.commitFilterHistory()
+	newerSave()
+	olderSave()
+	got, err := history.ReadFilters(path)
+	if err != nil || !reflect.DeepEqual(got, []string{"new", "old"}) {
+		t.Fatalf("out of order saves = %q, %v", got, err)
+	}
+
+	model = NewModel(Options{FilterHistoryPath: t.TempDir()})
+	if !strings.Contains(model.Notice, "read filter history:") {
+		t.Fatalf("missing load failure notice: %q", model.Notice)
+	}
+	model.Filter = "api"
+	save := model.commitFilterHistory()
+	updated, _ := model.Update(save())
+	model = updated.(Model)
+	if !strings.Contains(model.Notice, "save filter history:") || model.filterHistory[0] != "api" {
+		t.Fatalf("failed save should report error and keep session history: %q/%q", model.Notice, model.filterHistory)
 	}
 }
 

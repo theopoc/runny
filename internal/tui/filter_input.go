@@ -1,8 +1,12 @@
 package tui
 
-import "github.com/theopoc/runny/internal/core"
+import (
+	tea "charm.land/bubbletea/v2"
+	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/history"
+)
 
-const filterHistoryLimit = 50
+const filterHistoryLimit = history.FilterLimit
 
 func (m *Model) openFilterEditor() {
 	m.Focus = FocusFilter
@@ -113,11 +117,11 @@ func (m *Model) afterFilterEdit() {
 	m.ensureCursorVisible()
 }
 
-func (m *Model) commitFilterHistory() {
+func (m *Model) commitFilterHistory() tea.Cmd {
 	filter := parseTargetFilter(m.Filter)
 	if filter.err != nil || !filter.active() {
 		m.resetFilterHistoryNavigation()
-		return
+		return nil
 	}
 
 	updated := make([]string, 0, min(filterHistoryLimit, len(m.filterHistory)+1))
@@ -131,7 +135,9 @@ func (m *Model) commitFilterHistory() {
 		}
 	}
 	m.filterHistory = updated
+	m.filterHistoryRevision++
 	m.resetFilterHistoryNavigation()
+	return m.saveFilterHistory()
 }
 
 func (m *Model) previousFilterHistory() {
