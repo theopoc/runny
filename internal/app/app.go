@@ -91,6 +91,7 @@ func Run(opts Options) int {
 		DisableLogging:     cfg.DisableLogging,
 		LogRoot:            filepath.Join(opts.WorkDir, ".runny", "runs"),
 		CommandHistoryPath: filepath.Join(opts.HomeDir, ".runny", "history.jsonl"),
+		FilterHistoryPath:  filepath.Join(opts.HomeDir, ".runny", "filters.jsonl"),
 		RunHistoryPath:     filepath.Join(opts.WorkDir, ".runny", "history.jsonl"),
 	}); err != nil {
 		fmt.Fprintln(opts.Stderr, err)

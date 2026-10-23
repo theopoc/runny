@@ -38,6 +38,7 @@ type Options struct {
 	DisableLogging     bool
 	LogRoot            string
 	CommandHistoryPath string
+	FilterHistoryPath  string
 	RunHistoryPath     string
 	startRun           startRunFunc
 	lifecycleCtx       context.Context
@@ -95,6 +96,8 @@ type Model struct {
 	filterHistory          []string
 	filterHistoryPos       int
 	filterDraft            string
+	filterHistoryWriter    *filterHistoryWriter
+	filterHistoryRevision  uint64
 	ShowHelp               bool
 	ShowHistory            bool
 	ShowCommand            bool
@@ -226,6 +229,26 @@ func NewModel(opts Options) Model {
 			}
 		}
 	}
+	if opts.FilterHistoryPath != "" {
+		model.filterHistoryWriter = &filterHistoryWriter{path: opts.FilterHistoryPath}
+		entries, err := history.ReadFilters(opts.FilterHistoryPath)
+		if err != nil {
+			model.Notice = fmt.Sprintf("read filter history: %v", err)
+		} else {
+			seen := make(map[string]bool)
+			for _, value := range entries {
+				filter := parseTargetFilter(value)
+				if seen[value] || filter.err != nil || !filter.active() {
+					continue
+				}
+				model.filterHistory = append(model.filterHistory, value)
+				seen[value] = true
+				if len(model.filterHistory) == filterHistoryLimit {
+					break
+				}
+			}
+		}
+	}
 	return model
 }
 
@@ -267,6 +290,12 @@ var paletteCommands = []paletteCommand{
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if saved, ok := msg.(filterHistorySavedMsg); ok {
+		if saved.err != nil {
+			m.Notice = saved.err.Error()
+		}
+		return m, nil
+	}
 	if result, ok := msg.(clipboardResultMsg); ok {
 		return m, m.showCopyToast(result.status)
 	}
@@ -339,6 +368,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyRunEvent(next)
 	}
 	if click, ok := msg.(tea.MouseClickMsg); ok {
+		var saveFilter tea.Cmd
 		if click.Button == tea.MouseLeft && click.Mod == 0 {
 			m.paneResizeActive = false
 			m.paneResizeMoved = false
@@ -353,7 +383,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.Focus == FocusFilter && focus == FocusTargets {
-					m.commitFilterHistory()
+					saveFilter = m.commitFilterHistory()
 				}
 				m.Focus = focus
 				if targetHit {
@@ -361,7 +391,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		return m, nil
+		return m, saveFilter
 	}
 	if motion, ok := msg.(tea.MouseMotionMsg); ok {
 		if m.paneResizeActive {
@@ -694,6 +724,7 @@ func (m *Model) cancelCommandOverlay() {
 }
 
 func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	var saveFilter tea.Cmd
 	switch keyName {
 	case "esc":
 		m.Focus = FocusTargets
@@ -712,17 +743,17 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 		if !filter.active() {
 			m.filterLineEditor().clear()
 		} else {
-			m.commitFilterHistory()
+			saveFilter = m.commitFilterHistory()
 		}
 		m.clearTargetFilterError()
 		m.Focus = FocusTargets
 	case "ctrl+u":
 		m.clearFilterInput()
 	case "tab":
-		m.commitFilterHistory()
+		saveFilter = m.commitFilterHistory()
 		m.cycleFocus(1)
 	case "shift+tab":
-		m.commitFilterHistory()
+		saveFilter = m.commitFilterHistory()
 		m.cycleFocus(-1)
 	case "up":
 		m.previousFilterHistory()
@@ -775,7 +806,7 @@ func (m Model) handleFilterKey(keyName string, key tea.KeyPressMsg) (tea.Model, 
 			m.insertFilterText(key.Key().Text)
 		}
 	}
-	return m, nil
+	return m, saveFilter
 }
 
 func (m Model) handlePaletteKey(keyName string, key tea.KeyPressMsg) (tea.Model, tea.Cmd) {

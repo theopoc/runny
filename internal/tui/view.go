@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -49,12 +50,17 @@ func runProgram(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	_, err := program.Run()
+	finalModel, err := program.Run()
 	cancelLifecycle()
 	close(programDone)
 	<-shutdownDone
 	if runtime != nil {
 		runtime.CloseAndWait()
+	}
+	if final, ok := finalModel.(Model); ok {
+		if save := final.saveFilterHistory(); save != nil {
+			err = errors.Join(err, save().(filterHistorySavedMsg).err)
+		}
 	}
 	return err
 }

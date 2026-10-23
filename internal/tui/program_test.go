@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/theopoc/runny/internal/core"
+	"github.com/theopoc/runny/internal/history"
 	runpkg "github.com/theopoc/runny/internal/run"
 )
 
@@ -128,6 +129,38 @@ func TestRunnyTUIProgramEndToEnd(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("program did not quit")
+	}
+}
+
+func TestRunProgramFlushesFilterHistoryOnQuit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.jsonl")
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- runProgram(context.Background(), Options{
+			FilterHistoryPath: path,
+			programOptions: []tea.ProgramOption{
+				tea.WithInput(reader),
+				tea.WithOutput(io.Discard),
+				tea.WithWindowSize(80, 24),
+			},
+		})
+	}()
+	if _, err := writer.Write([]byte("/api\r\x03y")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("program did not quit after accepting filter")
+	}
+	filters, err := history.ReadFilters(path)
+	if err != nil || len(filters) != 1 || filters[0] != "api" {
+		t.Fatalf("history after program shutdown = %q, %v", filters, err)
 	}
 }
 
