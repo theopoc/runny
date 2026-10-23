@@ -37,7 +37,7 @@ jobs:
 
   notify:
     needs: test
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.test.result == 'failure' }}
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
@@ -56,7 +56,7 @@ jobs:
           format: html
           disable_web_page_preview: true
           message: |
-            ${{ needs.test.result == 'success' && '✅' || '❌' }} <b>CI ${{ needs.test.result }}</b>
+            ❌ <b>CI failure</b>
 
             <b>Repository:</b> <code>${{ github.repository }}</code>
             <b>Branch:</b> <code>${{ github.head_ref || github.ref_name }}</code>

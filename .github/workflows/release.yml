@@ -120,3 +120,33 @@ jobs:
 
           git -C homebrew-tap commit -m "runny ${RELEASE_TAG}"
           git -C homebrew-tap push origin HEAD:main
+
+  notify:
+    needs: release
+    if: ${{ !cancelled() && needs.release.result == 'failure' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Report missing Telegram secrets
+        if: ${{ env.TELEGRAM_BOT_TOKEN == '' || env.TELEGRAM_CHAT_ID == '' }}
+        run: echo "::warning::Telegram secrets unavailable; notification skipped"
+      - name: Send Telegram notification
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        uses: appleboy/telegram-action@390cf7345777cd821dba28c72f436a78bce19cc5 # master
+        with:
+          to: ${{ env.TELEGRAM_CHAT_ID }}
+          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          disable_web_page_preview: true
+          message: |
+            ❌ Release failure
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Event: ${{ github.event_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
