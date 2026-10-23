@@ -1,0 +1,44 @@
+name: renovate-notify
+
+on:
+  pull_request:
+    # Initial labels emit labeled events too; omit opened to avoid duplicates.
+    types: [labeled, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: >-
+      ${{ github.event.pull_request.user.login == 'renovate[bot]' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.state == 'open' &&
+          !github.event.pull_request.draft &&
+          contains(github.event.pull_request.labels.*.name, 'major-update') &&
+          (github.event.action != 'labeled' || github.event.label.name == 'major-update') }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Report missing Telegram secrets
+        if: ${{ env.TELEGRAM_BOT_TOKEN == '' || env.TELEGRAM_CHAT_ID == '' }}
+        run: echo "::warning::Telegram secrets unavailable; notification skipped"
+      - name: Send Telegram notification
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        uses: appleboy/telegram-action@390cf7345777cd821dba28c72f436a78bce19cc5 # master
+        with:
+          to: ${{ env.TELEGRAM_CHAT_ID }}
+          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          disable_web_page_preview: true
+          message: |
+            🤖 Renovate: manual approval required
+
+            Repository: ${{ github.repository }}
+            PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}
+
+            Major dependency update: review and merge this PR manually after CI passes.
+
+            ${{ github.event.pull_request.html_url }}
