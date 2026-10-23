@@ -826,14 +826,13 @@ func TestMouseClickMovesCursorToVisibleDirectoryRow(t *testing.T) {
 	model.Focus = FocusLogs
 	model.Notice = "keep me"
 	model.LogFollow = false
-	model.outputViewport.SetWidth(80)
-	model.outputViewport.SetContentLines(strings.Split(strings.Repeat("line\n", 20), "\n"))
-	model.outputViewport.SetHeight(5)
+	model.Logs["apps"] = strings.Repeat("apps output\n", 40)
+	model.Logs["web"] = strings.Repeat("web output\n", 40)
+	model.syncOutputViewport()
 	model.outputViewport.SetYOffset(4)
 	if got := model.outputViewport.YOffset(); got != 4 {
-		t.Fatalf("initial output offset = %d, want 4 before clicking", got)
+		t.Fatalf("test setup output offset = %d, want 4", got)
 	}
-	model.Logs["web"] = "web output"
 
 	panelTop := strings.Count(model.renderPanelPrefix(model.Width), "\n")
 	_, leftWidth, _ := model.panelDimensions(model.Width, model.Height)
