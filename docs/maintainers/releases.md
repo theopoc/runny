@@ -19,18 +19,13 @@ gh api repos/OWNER/runny/actions/permissions/workflow
 ```
 
 The release workflow requests its narrower runtime permissions explicitly:
-`contents: write`, `packages: write`, and `pull-requests: write`.
+`contents: write` and `pull-requests: write`.
 
 Create the `TAP_GITHUB_TOKEN` Actions secret. It must be able to update the
 Homebrew tap repository configured in `.github/workflows/release.yml`. Use a
 fine-grained token scoped to that repository with **Contents: Read and write**.
 Repository or organization policy may also require SSO authorization or
 approval. Never put this token in repository files or logs.
-
-GHCR publication uses the repository `GITHUB_TOKEN`; no registry secret is
-required. After the first publication, open the `runny` package settings and
-confirm its visibility is **Public** so users can pull it anonymously. If GitHub
-created it as private, changing it to public is irreversible.
 
 ## Normal release
 
@@ -40,13 +35,13 @@ created it as private, changing it to public is irreversible.
 4. Merge Release Please PR. Do not create tag manually.
 5. Confirm same `release` run creates `vX.Y.Z`, publishes GitHub assets,
    replaces `Formula/runny.rb` in Homebrew tap, removes legacy
-   `Casks/runny.rb`, and publishes `ghcr.io/OWNER/runny:vX.Y.Z` plus
-   `ghcr.io/OWNER/runny:latest` for Linux amd64 and arm64.
+   `Casks/runny.rb`. GitHub assets include native Linux and macOS archives for
+   amd64 and arm64, plus `checksums.txt`.
 6. Install `theopoc/tap/runny` in a clean Homebrew environment and confirm
    `runny --version` reports `X.Y.Z`.
-7. Run `docker run --rm ghcr.io/OWNER/runny:vX.Y.Z --version` and confirm the
-   binary reports `X.Y.Z`. Inspect the image version and revision annotations,
-   then confirm an anonymous pull succeeds.
+7. Download the archive for your platform and `checksums.txt`, verify the
+   archive checksum, then extract it and confirm `./runny --version` reports
+   `X.Y.Z`.
 
 Release Please creates initial `v0.1.0`. Documentation, maintenance, tests, or
 CI-only commits do not start a release by themselves.
@@ -57,9 +52,9 @@ Use recovery only when Release Please already created tag and GitHub Release,
 but GoReleaser failed before uploading any GitHub assets.
 
 1. Open failed workflow run and identify exact `vX.Y.Z` tag.
-2. Inspect release assets, Homebrew Formula, and GHCR tags. If any asset,
-   Formula update, or image tag exists, stop and reconcile partial publication
-   manually. Do not replace artifacts or published images.
+2. Inspect release assets and Homebrew Formula. If any asset or Formula update
+   exists, stop and reconcile partial publication manually. Do not replace
+   published artifacts.
 3. Run **Actions > release > Run workflow**, enter exact existing tag, and run.
 4. Verify uploaded archives/checksum and Homebrew Formula before closing incident.
 

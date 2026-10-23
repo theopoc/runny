@@ -2,17 +2,21 @@
 
 ## Project Structure & Module Organization
 
-`runny` is a Go CLI/TUI for running one shell command across selected child directories. Entry point lives in `cmd/runny/main.go`. Core behavior is split under `internal/`: `cli`, `config`, `discovery`, `runner`, `logs`, `history`, and `tui`. Shared domain types live in `internal/core`. Tests sit beside code as `*_test.go`; TUI golden fixtures live in `internal/tui/testdata/`.
+`runny` is a Go CLI/TUI for running one shell command across selected child directories. Entry point lives in `cmd/runny/main.go`. Core behavior is split under `internal/`: `app`, `cli`, `config`, `discovery`, `run`, `runner`, `logs`, `history`, and `tui`. Shared domain types live in `internal/core`. Tests sit beside code as `*_test.go`; TUI golden fixtures live in `internal/tui/testdata/`.
 
 ## Build, Test, and Development Commands
 
 - `rtk go test ./...`: run full test suite.
 - `rtk go test ./internal/tui`: run TUI-focused tests.
+- `rtk go test -race ./...`: check for data races.
+- `rtk go vet ./...`: run static analysis.
 - `rtk go build ./cmd/runny`: build binary.
+- `rtk goreleaser check`: validate release configuration.
 - `go run ./cmd/runny -- pnpm test`: launch TUI with an initial command.
-- `rtk docker build -t runny .`: build container image for terminal runs.
 
 Prefix commands with `rtk`, except `go run` during testing.
+
+Distribute `runny` through native Go binaries, GitHub release archives, and Homebrew. Keep development, CI, and releases independent of container tooling. See `docs/maintainers/releases.md` for publication and recovery.
 
 ## Coding Style & Naming Conventions
 
