@@ -5,8 +5,7 @@
   ],
   "enabledManagers": [
     "gomod",
-    "github-actions",
-    "dockerfile"
+    "github-actions"
   ],
   "timezone": "Europe/Paris",
   "labels": [
@@ -108,42 +107,6 @@
       "description": "Require manual review for major GitHub Actions",
       "matchManagers": [
         "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "pinDigests": true,
-      "automerge": false,
-      "addLabels": [
-        "major-update"
-      ]
-    },
-    {
-      "description": "Group and pin Dockerfile images",
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "groupName": "Docker images",
-      "pinDigests": true
-    },
-    {
-      "description": "Automerge non-major Dockerfile and digest updates",
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "matchUpdateTypes": [
-        "pin",
-        "pinDigest",
-        "digest",
-        "patch",
-        "minor"
-      ],
-      "automerge": true
-    },
-    {
-      "description": "Require manual review for major Dockerfile images",
-      "matchManagers": [
-        "dockerfile"
       ],
       "matchUpdateTypes": [
         "major"
