@@ -38,7 +38,7 @@ Renovate App / OSV
   -> runny CI gate
   -> Renovate squash merge or manual major review
   -> main CI
-  -> Telegram notification
+  -> Telegram notification only on CI/release failure or manual major review
 ```
 
 Components:
@@ -160,13 +160,13 @@ new CI run, but automation must never force-merge a failing or pending change.
 
 ## Telegram Notifications
 
-Add a separate notification job after the CI gate with `if: always()`.
-Notifications cover every pull-request and `main` push CI run, matching the
-operating model used by `laptop_setup`.
+Separate notification jobs follow the CI gate and release job. They run only
+when the corresponding job fails and the workflow was not cancelled. Successful,
+skipped, and cancelled runs are silent.
 
 The message contains:
 
-- success or failure indicator;
+- failure indicator;
 - repository;
 - branch;
 - event;
@@ -174,6 +174,17 @@ The message contains:
 - actor;
 - CI gate result;
 - workflow-run link.
+
+The `renovate-notify` workflow also notifies when a same-repository PR authored
+by `renovate[bot]` receives `major-update`, becomes ready for review, or is
+reopened with that label. Draft and closed PRs are silent. Initial labeling
+triggers the notification without also subscribing to PR creation, avoiding a
+duplicate message. Other labels, commits, rebases, and non-major updates are
+silent. The message includes the PR title and link for manual review and merge.
+Messages use plain text so dependency titles cannot be interpreted as HTML.
+
+Major approval continues to happen through manual PR review and merge; the
+Dependency Dashboard has no pre-creation approval gate.
 
 Use `appleboy/telegram-action` pinned to an immutable commit SHA, never
 `@master`. Renovate subsequently maintains that digest under the GitHub Actions
@@ -324,7 +335,10 @@ Before publishing implementation changes:
 After GitHub activation:
 
 - confirm the pull-request CI gate passes;
-- confirm Telegram success and failure messages;
+- confirm failed CI and release runs send Telegram messages;
+- confirm successful and cancelled runs send no Telegram message;
+- confirm ready major Renovate PRs send a manual-review notification, while
+  non-major PRs and rebases remain silent;
 - confirm Renovate creates its Dependency Dashboard;
 - inspect Renovate extraction for Go modules, GitHub Actions, and Dockerfile;
 - confirm no ordinary Go update PR is proposed;

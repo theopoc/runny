@@ -13,4 +13,4 @@ Describe change and user-visible behavior.
 ## Security
 
 - [ ] No secrets, credentials, private paths, or `.runny/runs/` artifacts included.
-- [ ] GitHub Actions, Docker images, and dependencies remain pinned when changed.
+- [ ] GitHub Actions and dependencies remain pinned when changed.

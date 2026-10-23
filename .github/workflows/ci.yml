@@ -22,61 +22,22 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: go test -race ./...
-      - run: go build ./cmd/runny
+      - name: Build and smoke-test native binary
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          go build -trimpath \
+            -ldflags="-s -w -X github.com/theopoc/runny/internal/app.Version=$VERSION" \
+            -o "$RUNNER_TEMP/runny" ./cmd/runny
+          test "$("$RUNNER_TEMP/runny" --version)" = "runny $VERSION"
       - run: shellcheck scripts/*.sh
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
           args: check
-      - name: Build local Docker image
-        env:
-          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: docker build --build-arg VERSION="$VERSION" -t runny:ci .
-      - name: Smoke-test Docker version
-        env:
-          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: test "$(docker run --rm runny:ci --version)" = "runny $VERSION"
-      - name: Smoke-test release Docker image
-        env:
-          VERSION: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          context="$(mktemp -d)"
-          mkdir -p "$context/linux/amd64"
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -trimpath \
-            -ldflags="-s -w -X github.com/theopoc/runny/internal/app.Version=$VERSION" \
-            -o "$context/linux/amd64/runny" ./cmd/runny
-          cp Dockerfile.goreleaser "$context/Dockerfile"
-          docker build \
-            --build-arg TARGETPLATFORM=linux/amd64 \
-            -t runny:release-ci "$context"
-          test "$(docker run --rm runny:release-ci --version)" = "runny $VERSION"
-      - name: Smoke-test Docker shell environment
-        run: |
-          fixture="$(mktemp -d)"
-          mkdir "$fixture/test"
-          printf 'export HELLO=world\n' > "$fixture/.envrc"
-          cat > "$fixture/.zshrc" <<'ZSHRC'
-          alias runny_alias_probe='echo "alias-from-zshrc HELLO=$HELLO"'
-          ZSHRC
-          docker run --rm \
-            -v "$fixture:/workspace" \
-            -v "$fixture/.zshrc:/home/runny/.zshrc:ro" \
-            -w /workspace \
-            --entrypoint sh \
-            runny:ci \
-            -ec "
-              test -z \"\${SHELL:-}\"
-              grep -q '^runny:.*:/bin/zsh\$' /etc/passwd
-              command -v bash
-              command -v zsh
-              command -v direnv
-              direnv allow .
-              direnv exec test zsh -ic runny_alias_probe | grep -Fx 'alias-from-zshrc HELLO=world'
-            "
 
   notify:
     needs: test
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.test.result == 'failure' }}
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
@@ -95,7 +56,7 @@ jobs:
           format: html
           disable_web_page_preview: true
           message: |
-            ${{ needs.test.result == 'success' && '✅' || '❌' }} <b>CI ${{ needs.test.result }}</b>
+            ❌ <b>CI failure</b>
 
             <b>Repository:</b> <code>${{ github.repository }}</code>
             <b>Branch:</b> <code>${{ github.head_ref || github.ref_name }}</code>

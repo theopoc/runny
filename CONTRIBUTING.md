@@ -8,7 +8,7 @@ Use an issue form. Redact tokens, credentials, private paths, and command output
 
 ## Development
 
-Requirements: Go version declared in `go.mod`, Docker for container checks, and a terminal supporting the TUI.
+Requirements: Go version declared in `go.mod` and a terminal supporting the TUI. Release configuration checks also require GoReleaser.
 
 Run local validation before a pull request:
 
@@ -26,7 +26,7 @@ For TUI changes, update focused tests and golden fixtures under `internal/tui/te
 - Keep each pull request focused.
 - Add tests for behavior changes.
 - Explain flag, config, history, logging, and shortcut changes.
-- Preserve SHA or digest pinning for GitHub Actions and Docker images.
+- Preserve SHA pinning for GitHub Actions.
 - Do not commit `.runny/runs/`, credentials, generated binaries, or local editor files.
 
 By contributing, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
