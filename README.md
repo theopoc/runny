@@ -118,47 +118,6 @@ At narrow widths CHANGES takes priority over TIME, then STATUS becomes a symbol.
 Large counts wrap between counters instead of truncating digits. This does not
 add selectable rows or change Target actions.
 
-## Docker
-
-Run the published image:
-
-```bash
-docker run --rm ghcr.io/theopoc/runny:latest --version
-docker run --rm -it -v "$PWD:/workspace" -w /workspace ghcr.io/theopoc/runny:latest
-```
-
-Use a versioned release tag instead of `latest` when reproducibility matters,
-for example `ghcr.io/theopoc/runny:v0.5.0`.
-
-Build an image from the current checkout:
-
-```bash
-docker build \
-  --build-arg VERSION="$(git describe --tags --always --dirty --match 'v[0-9]*' | sed 's/^v//')" \
-  -t runny .
-```
-
-Run the locally built image:
-
-```bash
-docker run --rm -it -v "$PWD:/workspace" -w /workspace runny
-docker run --rm -it -v "$PWD:/workspace" -w /workspace runny --depth 2 -- pnpm test
-```
-
-The image includes `sh`, `bash`, `zsh`, and `direnv`. Its non-root `runny` user has `/bin/zsh` as the login shell, so no shell environment variable is required.
-
-Docker remaps the workspace path, so a `.envrc` allowed on the host is not trusted at its container path. Runny automatically allows the file before executing a target command:
-
-```bash
-docker run --rm -it \
-  -v "$PWD:/workspace" \
-  -v "$HOME/.zshrc:/home/runny/.zshrc:ro" \
-  -w /workspace \
-  runny
-```
-
-Mounting `.zshrc` makes its aliases and functions available to commands launched by Runny. Shell startup files must only reference tools and paths available inside the container; use a container-specific `.zshrc` when the host file depends on host-only plugins. The TUI forces a truecolor render profile, so Docker runs do not need extra terminal color environment flags. Other tools installed only on the host, such as `pnpm` or project-specific CLIs, must also exist in the image or be provided by a custom image.
-
 ## Flags
 
 | Flag | Short | Description |
@@ -274,8 +233,8 @@ Session options include serial execution, worker count, fail-fast behavior, outp
 Run the checks used for local development:
 
 ```bash
-go test ./...
-go build ./cmd/runny
+rtk go test ./...
+rtk go build ./cmd/runny
 ```
 
 ## Contributing
@@ -285,8 +244,8 @@ Open an [issue](https://github.com/theopoc/runny/issues) for bugs or proposed ch
 Before submitting a pull request, run:
 
 ```bash
-go test ./...
-go build ./cmd/runny
+rtk go test ./...
+rtk go build ./cmd/runny
 ```
 
 ## License
