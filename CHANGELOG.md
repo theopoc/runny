@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/theopoc/runny/compare/v0.10.0...v0.11.0) (2026-10-23)
+
+
+### Features
+
+* **tui:** persist filter history and fix output scroll test ([#119](https://github.com/theopoc/runny/issues/119)) ([2cc312a](https://github.com/theopoc/runny/commit/2cc312acc5b440e442aa6460819e73c6e183077b))
+
+
+### Bug Fixes
+
+* **tui:** stop target navigation at list edges ([fd7a403](https://github.com/theopoc/runny/commit/fd7a403296ba16b9e8932b1809feeae439430b3f))
+
 ## [0.10.0](https://github.com/theopoc/runny/compare/v0.9.0...v0.10.0) (2026-10-01)
 
 
